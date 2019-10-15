@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.broker;
 
+import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
+
 public class Broker {
-    public static void main(String[] args) {
-        System.out.println("Hello World!");
+
+    public Broker(QueryEngine queryEngine) {
     }
 }
