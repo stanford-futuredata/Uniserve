@@ -4,24 +4,31 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class KVQueryPlan implements QueryPlan {
 
+    private final Integer key;
+
+    public KVQueryPlan(Integer key) {
+        this.key = key;
+    }
+
     @Override
     public List<Integer> keysForQuery() {
-        return Arrays.asList(0, 1);
+        return Collections.singletonList(this.key);
     }
 
     @Override
     public ByteString queryShard(Shard shard) {
-        String testString = "bob";
-        return ByteString.copyFrom(testString.getBytes());
+        Integer value = ((KVShard) shard).queryKey(this.key);
+        return ByteString.copyFrom(value.toString().getBytes());
     }
 
     @Override
     public String aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return "foo";
+        ByteString keyResult = shardQueryResults.get(0);
+        return new String(keyResult.toByteArray());
     }
 }

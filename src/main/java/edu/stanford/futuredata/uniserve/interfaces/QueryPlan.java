@@ -2,9 +2,10 @@ package edu.stanford.futuredata.uniserve.interfaces;
 
 import com.google.protobuf.ByteString;
 
+import java.io.Serializable;
 import java.util.List;
 
-public interface QueryPlan {
+public interface QueryPlan extends Serializable {
     /*
      Map a query on shards, then reduce into a result.
      */

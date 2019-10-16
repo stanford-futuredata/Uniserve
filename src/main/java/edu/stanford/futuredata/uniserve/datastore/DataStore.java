@@ -1,8 +1,10 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.AddRowAck;
 import edu.stanford.futuredata.uniserve.QueryDataGrpc;
 import edu.stanford.futuredata.uniserve.Row;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -17,11 +19,13 @@ public class DataStore {
     private final int port;
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
     private final Server server;
+    private final Shard shard;
 
     public DataStore(int port, ShardFactory shardFactory) {
         this.port = port;
+        this.shard = shardFactory.createShard();
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
-        this.server = serverBuilder.addService(new QueryDataService(shardFactory, logger))
+        this.server = serverBuilder.addService(new QueryDataService())
                 .build();
     }
 
@@ -48,15 +52,7 @@ public class DataStore {
     }
 
 
-    private static class QueryDataService extends QueryDataGrpc.QueryDataImplBase {
-
-        private final ShardFactory shardFactory;
-        private final Logger logger;
-
-        QueryDataService(ShardFactory shardFactory, Logger logger) {
-            this.shardFactory = shardFactory;
-            this.logger = logger;
-        }
+    private class QueryDataService extends QueryDataGrpc.QueryDataImplBase {
 
         @Override
         public void addRow(Row request, StreamObserver<AddRowAck> responseObserver) {
@@ -65,7 +61,8 @@ public class DataStore {
         }
 
         private AddRowAck addRowHandler(Row row) {
-            logger.info("Row {}", row.getShard());
+            ByteString rowData = row.getRowData();
+            shard.addRow(rowData);
             return AddRowAck.newBuilder().setReturnCode(0).build();
         }
 

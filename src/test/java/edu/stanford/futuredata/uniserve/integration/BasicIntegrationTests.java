@@ -23,7 +23,7 @@ public class BasicIntegrationTests {
         dataStore.startServing();
         Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine());
 
-        int response = broker.addRowQuery(0, ByteString.copyFrom("hello".getBytes()));
+        int response = broker.addRowQuery(0, ByteString.copyFrom("1 2".getBytes()));
 
         assertEquals(response, 0);
         dataStore.stopServing();
