@@ -14,7 +14,7 @@ service QueryData {
 
 message Row {
     int32 shard = 1;
-    bytes row = 2;
+    bytes rowData = 2;
 }
 
 message AddRowAck {

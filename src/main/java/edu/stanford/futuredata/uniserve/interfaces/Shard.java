@@ -1,6 +1,6 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
-import edu.stanford.futuredata.uniserve.interfaces.Row;
+import com.google.protobuf.ByteString;
 
 import java.util.List;
 
@@ -11,7 +11,7 @@ public interface Shard {
      */
 
     // Add a new row to the shard.
-    public int addRow(Row row);
+    public int addRow(ByteString row);
     // Create files from which shard can be reconstructed.
     public List<String> shardToData();
     // Reconstruct shard from files.
