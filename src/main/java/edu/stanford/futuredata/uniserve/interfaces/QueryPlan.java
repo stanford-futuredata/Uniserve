@@ -1,9 +1,7 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import com.google.protobuf.ByteString;
 
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.util.List;
 
 public interface QueryPlan {
@@ -14,7 +12,7 @@ public interface QueryPlan {
     // On which keys should the query execute?
     public List<Integer> keysForQuery();
     // Execute the query on an shard (Map).
-    public ObjectOutputStream queryShard(Shard shard);
+    public ByteString queryShard(Shard shard);
     // Aggregate the outputs of queries on shards (Reduce).
-    public String aggregateShardQueries(List<ObjectInputStream> shardQueryResults);
+    public String aggregateShardQueries(List<ByteString> shardQueryResults);
 }
