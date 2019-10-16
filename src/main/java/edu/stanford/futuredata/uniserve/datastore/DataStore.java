@@ -1,16 +1,19 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.AddRowAck;
-import edu.stanford.futuredata.uniserve.QueryDataGrpc;
-import edu.stanford.futuredata.uniserve.Row;
+import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +67,28 @@ public class DataStore {
             ByteString rowData = row.getRowData();
             shard.addRow(rowData);
             return AddRowAck.newBuilder().setReturnCode(0).build();
+        }
+
+        public void makeReadQuery(ReadQuery request,  StreamObserver<ReadQueryResponse> responseObserver) {
+            responseObserver.onNext(makeReadQueryHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private ReadQueryResponse makeReadQueryHandler(ReadQuery readQuery) {
+            ByteString serializedQuery = readQuery.getSerializedQuery();
+            ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
+            QueryPlan queryPlan;
+            try {
+                ObjectInput in = new ObjectInputStream(bis);
+                queryPlan = (QueryPlan) in.readObject();
+                in.close();
+            } catch (IOException | ClassNotFoundException e) {
+                logger.error("Query Deserialization Failed: {}", e.getMessage());
+                return ReadQueryResponse.newBuilder().setReturnCode(1).build();
+            }
+            ByteString queryResponse = queryPlan.queryShard(shard);
+            return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
+
         }
 
     }

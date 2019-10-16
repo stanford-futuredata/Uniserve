@@ -1,15 +1,21 @@
 package edu.stanford.futuredata.uniserve.broker;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.AddRowAck;
-import edu.stanford.futuredata.uniserve.QueryDataGrpc;
-import edu.stanford.futuredata.uniserve.Row;
+import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
+import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
+import java.util.Collections;
+import java.util.List;
 
 public class Broker {
 
@@ -25,7 +31,7 @@ public class Broker {
         blockingStub = QueryDataGrpc.newBlockingStub(channel);
     }
 
-    public int addRowQuery(int shard, ByteString rowData) {
+    public int makeAddRowQuery(int shard, ByteString rowData) {
         Row row = Row.newBuilder().setShard(shard).setRowData(rowData).build();
         AddRowAck addRowAck;
         try {
@@ -35,6 +41,32 @@ public class Broker {
             return 1;
         }
         return addRowAck.getReturnCode();
+    }
+
+    public String makeReadQuery(String query) {
+        QueryPlan queryPlan = queryEngine.planQuery(query);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutput out;
+        try {
+            out = new ObjectOutputStream(bos);
+            out.writeObject(queryPlan);
+            out.flush();
+        } catch (IOException e) {
+            logger.warn("Query Serialization Failed: {}", e.getMessage());
+            return "Query Serialization Failed";
+        }
+        ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
+        ReadQuery readQuery = ReadQuery.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
+        ReadQueryResponse readQueryResponse;
+        try {
+            readQueryResponse = blockingStub.makeReadQuery(readQuery);
+            assert readQueryResponse.getReturnCode() == 0;
+        } catch (StatusRuntimeException e) {
+            logger.warn("RPC failed: {}", e.getStatus());
+            return "Query Failed";
+        }
+        List<ByteString> intermediates = Collections.singletonList(readQueryResponse.getResponse());
+        return queryPlan.aggregateShardQueries(intermediates);
     }
 }
 
