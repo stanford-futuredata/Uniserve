@@ -92,6 +92,12 @@
             <artifactId>javatuples</artifactId>
             <version>1.2</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper</artifactId>
+            <version>3.5.6</version>
+        </dependency>
+
     </dependencies>
 
 

@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.integration;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVShardFactory;
@@ -21,8 +22,10 @@ public class BasicIntegrationTests {
     @Test
     public void testSimple() throws IOException {
         int numShards = 1;
+        Coordinator coordinator = new Coordinator(7777);
+        coordinator.startServing();
         DataStore dataStore = new DataStore(8888, new KVShardFactory());
-        dataStore.startServing();
+        dataStore.startServing("localhost", 7777);
         Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine(numShards));
 
         int addRowReturnCode = broker.insertRow(0, ByteString.copyFrom("1 2".getBytes()));
@@ -33,5 +36,6 @@ public class BasicIntegrationTests {
         assertEquals("2", queryResponse.getValue1());
 
         dataStore.stopServing();
+        coordinator.stopServing();
     }
 }

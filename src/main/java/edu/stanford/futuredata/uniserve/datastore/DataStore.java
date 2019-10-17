@@ -5,8 +5,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
-import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.*;
 import io.grpc.stub.StreamObserver;
 
 import java.io.ByteArrayInputStream;
@@ -14,6 +13,7 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectInputStream;
 
+import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +26,8 @@ public class DataStore {
 
     public DataStore(int port, ShardFactory shardFactory) {
         this.port = port;
+
+
         this.shard = shardFactory.createShard();
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
@@ -33,16 +35,25 @@ public class DataStore {
     }
 
     /** Start serving requests. */
-    public void startServing() throws IOException {
+    public void startServing(String masterHost, int masterPort) throws IOException {
         server.start();
-        logger.info("Server started, listening on " + port);
+        logger.info("DataStore server started, listening on " + port);
+        // TODO:  Pull new master address and retry.
+        ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
+        ManagedChannel channel = channelBuilder.build();
+        DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub blockingStub =
+                DataStoreCoordinatorGrpc.newBlockingStub(channel);
+        RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost("localhost").setPort(port).build();
+        try {
+            RegisterDataStoreResponse r = blockingStub.registerDataStore(m);
+            assert r.getReturnCode() == 0;
+        } catch (StatusRuntimeException e) {
+            logger.error("Coordinator Unreachable: {}", e.getStatus());
+        }
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {
-                // Use stderr here since the logger may have been reset by its JVM shutdown hook.
-                System.err.println("*** shutting down gRPC server since JVM is shutting down");
                 DataStore.this.stopServing();
-                System.err.println("*** server shut down");
             }
         });
     }

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "edu.stanford.futuredata.uniserve";
+option java_outer_classname = "DataStoreCoordinatorProto";
+
+package datastorecoordinator;
+
+// Communication from datastores to the coordinator.
+service DataStoreCoordinator {
+    rpc RegisterDataStore (RegisterDataStoreMessage) returns (RegisterDataStoreResponse) {}
+}
+
+message RegisterDataStoreMessage {
+    string host = 1;
+    int32 port = 2;
+}
+
+message RegisterDataStoreResponse {
+    int32 returnCode = 1;
+}
