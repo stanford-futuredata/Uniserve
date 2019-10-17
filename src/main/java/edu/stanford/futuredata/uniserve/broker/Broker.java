@@ -23,13 +23,13 @@ public class Broker {
     private final QueryEngine queryEngine;
 
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
-    private final QueryDataGrpc.QueryDataBlockingStub blockingStub;
+    private final BrokerDataStoreGrpc.BrokerDataStoreBlockingStub blockingStub;
 
     public Broker(String host, int port, QueryEngine queryEngine) {
         this.queryEngine = queryEngine;
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(host, port).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
-        blockingStub = QueryDataGrpc.newBlockingStub(channel);
+        blockingStub = BrokerDataStoreGrpc.newBlockingStub(channel);
     }
 
 

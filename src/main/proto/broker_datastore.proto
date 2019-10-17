@@ -1,15 +1,16 @@
-// 1. syntax, package, option
 syntax = "proto3";
 
 option java_multiple_files = true;
 option java_package = "edu.stanford.futuredata.uniserve";
-option java_outer_classname = "QueryDataProto";
+option java_outer_classname = "BrokerDataStoreProto";
 
-package querydata;
+package brokerdatastore;
 
-service QueryData {
+// Communication from brokers to datastores.
+service BrokerDataStore {
     // Add a row to a DataStore server.  Return an acknowledgement.
     rpc InsertRow (InsertRowMessage) returns (InsertRowResponse) {}
+    // Make a read query to a DataStore server.  Return a response.
     rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
 }
 

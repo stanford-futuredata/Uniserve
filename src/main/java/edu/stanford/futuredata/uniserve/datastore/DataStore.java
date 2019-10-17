@@ -28,7 +28,7 @@ public class DataStore {
         this.port = port;
         this.shard = shardFactory.createShard();
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
-        this.server = serverBuilder.addService(new QueryDataService())
+        this.server = serverBuilder.addService(new BrokerDataStoreService())
                 .build();
     }
 
@@ -55,7 +55,7 @@ public class DataStore {
     }
 
 
-    private class QueryDataService extends QueryDataGrpc.QueryDataImplBase {
+    private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
         @Override
         public void insertRow(InsertRowMessage request, StreamObserver<InsertRowResponse> responseObserver) {
