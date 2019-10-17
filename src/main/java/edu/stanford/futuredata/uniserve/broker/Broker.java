@@ -32,10 +32,10 @@ public class Broker {
     }
 
     public int makeAddRowQuery(int shard, ByteString rowData) {
-        Row row = Row.newBuilder().setShard(shard).setRowData(rowData).build();
-        AddRowAck addRowAck;
+        InsertRowMessage row = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
+        InsertRowResponse addRowAck;
         try {
-            addRowAck = blockingStub.addRow(row);
+            addRowAck = blockingStub.insertRow(row);
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());
             return 1;
@@ -56,10 +56,10 @@ public class Broker {
             return "Query Serialization Failed";
         }
         ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
-        ReadQuery readQuery = ReadQuery.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
+        ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
         ReadQueryResponse readQueryResponse;
         try {
-            readQueryResponse = blockingStub.makeReadQuery(readQuery);
+            readQueryResponse = blockingStub.readQuery(readQuery);
             assert readQueryResponse.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());

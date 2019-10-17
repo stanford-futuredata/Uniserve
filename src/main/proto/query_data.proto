@@ -9,20 +9,20 @@ package querydata;
 
 service QueryData {
     // Add a row to a DataStore server.  Return an acknowledgement.
-    rpc AddRow(Row) returns (AddRowAck) {}
-    rpc MakeReadQuery(ReadQuery) returns (ReadQueryResponse) {}
+    rpc InsertRow (InsertRowMessage) returns (InsertRowResponse) {}
+    rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
 }
 
-message Row {
+message InsertRowMessage {
     int32 shard = 1;
     bytes rowData = 2;
 }
 
-message AddRowAck {
+message InsertRowResponse {
     int32 returnCode = 1;
 }
 
-message ReadQuery {
+message ReadQueryMessage {
     int32 shard = 1;
     bytes serializedQuery = 2;
 }

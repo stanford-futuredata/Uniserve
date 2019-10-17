@@ -58,23 +58,24 @@ public class DataStore {
     private class QueryDataService extends QueryDataGrpc.QueryDataImplBase {
 
         @Override
-        public void addRow(Row request, StreamObserver<AddRowAck> responseObserver) {
+        public void insertRow(InsertRowMessage request, StreamObserver<InsertRowResponse> responseObserver) {
             responseObserver.onNext(addRowHandler(request));
             responseObserver.onCompleted();
         }
 
-        private AddRowAck addRowHandler(Row row) {
+        private InsertRowResponse addRowHandler(InsertRowMessage row) {
             ByteString rowData = row.getRowData();
             shard.addRow(rowData);
-            return AddRowAck.newBuilder().setReturnCode(0).build();
+            return InsertRowResponse.newBuilder().setReturnCode(0).build();
         }
 
-        public void makeReadQuery(ReadQuery request,  StreamObserver<ReadQueryResponse> responseObserver) {
+        @Override
+        public void readQuery(ReadQueryMessage request,  StreamObserver<ReadQueryResponse> responseObserver) {
             responseObserver.onNext(makeReadQueryHandler(request));
             responseObserver.onCompleted();
         }
 
-        private ReadQueryResponse makeReadQueryHandler(ReadQuery readQuery) {
+        private ReadQueryResponse makeReadQueryHandler(ReadQueryMessage readQuery) {
             ByteString serializedQuery = readQuery.getSerializedQuery();
             ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
             QueryPlan queryPlan;
