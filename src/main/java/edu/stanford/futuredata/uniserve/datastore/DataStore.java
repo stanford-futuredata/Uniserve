@@ -71,11 +71,11 @@ public class DataStore {
 
         @Override
         public void readQuery(ReadQueryMessage request,  StreamObserver<ReadQueryResponse> responseObserver) {
-            responseObserver.onNext(makeReadQueryHandler(request));
+            responseObserver.onNext(readQueryHandler(request));
             responseObserver.onCompleted();
         }
 
-        private ReadQueryResponse makeReadQueryHandler(ReadQueryMessage readQuery) {
+        private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
             ByteString serializedQuery = readQuery.getSerializedQuery();
             ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
             QueryPlan queryPlan;

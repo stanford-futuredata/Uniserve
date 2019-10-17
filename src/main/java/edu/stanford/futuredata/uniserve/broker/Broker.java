@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,8 @@ public class Broker {
         blockingStub = QueryDataGrpc.newBlockingStub(channel);
     }
 
-    public int makeAddRowQuery(int shard, ByteString rowData) {
+
+    public Integer insertRow(int shard, ByteString rowData) {
         InsertRowMessage row = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
         InsertRowResponse addRowAck;
         try {
@@ -43,7 +45,7 @@ public class Broker {
         return addRowAck.getReturnCode();
     }
 
-    public String makeReadQuery(String query) {
+    public Pair<Integer, String> readQuery(String query) {
         QueryPlan queryPlan = queryEngine.planQuery(query);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ObjectOutput out;
@@ -53,7 +55,7 @@ public class Broker {
             out.flush();
         } catch (IOException e) {
             logger.warn("Query Serialization Failed: {}", e.getMessage());
-            return "Query Serialization Failed";
+            return new Pair<>(1, "");
         }
         ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
         ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
@@ -63,10 +65,11 @@ public class Broker {
             assert readQueryResponse.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());
-            return "Query Failed";
+            return new Pair<>(1, "");
         }
         List<ByteString> intermediates = Collections.singletonList(readQueryResponse.getResponse());
-        return queryPlan.aggregateShardQueries(intermediates);
+        String responseString = queryPlan.aggregateShardQueries(intermediates);
+        return new Pair<>(0, responseString);
     }
 }
 
