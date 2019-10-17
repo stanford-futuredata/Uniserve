@@ -20,9 +20,10 @@ public class BasicIntegrationTests {
 
     @Test
     public void testSimple() throws IOException {
+        int numShards = 1;
         DataStore dataStore = new DataStore(8888, new KVShardFactory());
         dataStore.startServing();
-        Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine());
+        Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine(numShards));
 
         int addRowReturnCode = broker.insertRow(0, ByteString.copyFrom("1 2".getBytes()));
         assertEquals(0, addRowReturnCode);
