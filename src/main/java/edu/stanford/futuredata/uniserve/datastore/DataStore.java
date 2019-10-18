@@ -12,6 +12,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectInputStream;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.javatuples.Pair;
@@ -22,34 +24,46 @@ public class DataStore {
 
     private final int port;
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
+    private final Map<Integer, Shard> shardMap = new HashMap<>();
     private final Server server;
-    private final Shard shard;
     private final DataStoreCurator zkCurator;
+    private final ShardFactory shardFactory;
 
     private String coordinatorHost;
     private int coordinatorPort;
 
+
     public DataStore(int port, ShardFactory shardFactory) {
         this.port = port;
-        this.shard = shardFactory.createShard();
+        this.shardFactory = shardFactory;
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
+                .addService(new CoordinatorDataStoreService())
                 .build();
         this.zkCurator = new DataStoreCurator("localhost", 2181);
     }
 
     /** Start serving requests. */
     public int startServing() {
+        // Start serving.
+        try {
+            server.start();
+        } catch (IOException e) {
+            return 1;
+        }
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                DataStore.this.stopServing();
+            }
+        });
+        // Notify the coordinator of startup.
         Optional<Pair<String, Integer>> hostPort = zkCurator.getMasterLocation();
         if (hostPort.isPresent()) {
             this.coordinatorHost = hostPort.get().getValue0();
             this.coordinatorPort = hostPort.get().getValue1();
         } else {
-            return 1;
-        }
-        try {
-            server.start();
-        } catch (IOException e) {
+            stopServing();
             return 1;
         }
         logger.info("DataStore server started, listening on " + port);
@@ -67,12 +81,6 @@ public class DataStore {
             stopServing();
             return 1;
         }
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                DataStore.this.stopServing();
-            }
-        });
         return 0;
     }
 
@@ -83,7 +91,6 @@ public class DataStore {
         }
     }
 
-
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
         @Override
@@ -93,9 +100,15 @@ public class DataStore {
         }
 
         private InsertRowResponse addRowHandler(InsertRowMessage row) {
-            ByteString rowData = row.getRowData();
-            shard.addRow(rowData);
-            return InsertRowResponse.newBuilder().setReturnCode(0).build();
+            int shardNum = row.getShard();
+            if (shardMap.containsKey(shardNum)) {
+                ByteString rowData = row.getRowData();
+                shardMap.get(shardNum).addRow(rowData);
+                return InsertRowResponse.newBuilder().setReturnCode(0).build();
+            } else {
+                logger.warn("Got read request for absent shard {}", shardNum);
+                return InsertRowResponse.newBuilder().setReturnCode(1).build();
+            }
         }
 
         @Override
@@ -105,21 +118,42 @@ public class DataStore {
         }
 
         private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
-            ByteString serializedQuery = readQuery.getSerializedQuery();
-            ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
-            QueryPlan queryPlan;
-            try {
-                ObjectInput in = new ObjectInputStream(bis);
-                queryPlan = (QueryPlan) in.readObject();
-                in.close();
-            } catch (IOException | ClassNotFoundException e) {
-                logger.error("Query Deserialization Failed: {}", e.getMessage());
+            int shardNum = readQuery.getShard();
+            if (shardMap.containsKey(shardNum)) {
+                ByteString serializedQuery = readQuery.getSerializedQuery();
+                ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
+                QueryPlan queryPlan;
+                try {
+                    ObjectInput in = new ObjectInputStream(bis);
+                    queryPlan = (QueryPlan) in.readObject();
+                    in.close();
+                } catch (IOException | ClassNotFoundException e) {
+                    logger.error("Query Deserialization Failed: {}", e.getMessage());
+                    return ReadQueryResponse.newBuilder().setReturnCode(1).build();
+                }
+                ByteString queryResponse = queryPlan.queryShard(shardMap.get(shardNum));
+                return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
+            } else {
+                logger.warn("Got read request for absent shard {}", shardNum);
                 return ReadQueryResponse.newBuilder().setReturnCode(1).build();
             }
-            ByteString queryResponse = queryPlan.queryShard(shard);
-            return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
+        }
+    }
 
+    private class CoordinatorDataStoreService extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
+
+        @Override
+        public void createNewShard(CreateNewShardMessage request, StreamObserver<CreateNewShardResponse> responseObserver) {
+            responseObserver.onNext(createNewShardHandler(request));
+            responseObserver.onCompleted();
         }
 
+        private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
+            int shardNum = request.getShard();
+            Shard shard = shardFactory.createShard();
+            shardMap.put(shardNum, shard);
+            logger.info("Created new shard {}", shardNum);
+            return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
+        }
     }
 }

@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "edu.stanford.futuredata.uniserve";
+option java_outer_classname = "CoordinatorDataStoreProto";
+
+package coordinatordatastore;
+
+// Communication from coordinator to the datastores.
+service CoordinatorDataStore {
+    rpc createNewShard (CreateNewShardMessage) returns (CreateNewShardResponse) {}
+}
+
+message CreateNewShardMessage {
+    int32 shard = 1;
+}
+
+message CreateNewShardResponse {
+    int32 returnCode = 1;
+}
