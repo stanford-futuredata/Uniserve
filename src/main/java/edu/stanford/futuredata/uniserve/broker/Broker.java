@@ -16,9 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 public class Broker {
 
@@ -26,8 +24,13 @@ public class Broker {
     private final BrokerCurator zkCurator;
 
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
-    private final BrokerDataStoreGrpc.BrokerDataStoreBlockingStub dataStoreBlockingStub;
-    private final BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
+    // Map from host/port pairs (used to uniquely identify a DataStore) to stubs.
+    private final Map<Pair<String, Integer>, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> connStringToStubMap = new HashMap<>();
+    // Map from shards to DataStoreBlockingStubs.
+    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToStubMap = new HashMap<>();
+    // Stub for communication with the coordinator.
+    private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
+
 
     private String masterHost = null;
     private Integer masterPort = null;
@@ -45,27 +48,57 @@ public class Broker {
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
+    }
 
-        // TODO:  Replace
-        ShardLocationMessage m = ShardLocationMessage.newBuilder().setShard(0).build();
-        ShardLocationResponse r = null;
-        try {
-            r = coordinatorBlockingStub.shardLocation(m);
-        } catch (StatusRuntimeException e) {
-            logger.warn("RPC failed: {}", e.getStatus());
+    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {
+        // TODO:  Synchronization.
+        if (shardToStubMap.containsKey(shard)) {
+            // First, see if we have the mapping locally.
+            return Optional.of(shardToStubMap.get(shard));
+        } else {
+            Pair<String, Integer> hostPort;
+            // Then, try to pull it from ZooKeeper.
+            Optional<Pair<String, Integer>> hostPortOpt = zkCurator.getShardConnectString(shard);
+            if (hostPortOpt.isPresent()) {
+                hostPort = hostPortOpt.get();
+            } else {
+                // Otherwise, ask the coordinator.
+                ShardLocationMessage m = ShardLocationMessage.newBuilder().setShard(shard).build();
+                ShardLocationResponse r;
+                try {
+                    r = coordinatorBlockingStub.shardLocation(m);
+                } catch (StatusRuntimeException e) {
+                    logger.warn("RPC failed: {}", e.getStatus());
+                    return Optional.empty();
+                }
+                hostPort = Utilities.parseConnectString(r.getConnectString());
+            }
+            final BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub;
+            if (connStringToStubMap.containsKey(hostPort)) {
+                stub = connStringToStubMap.get(hostPort);
+            } else {
+                ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
+                ManagedChannel channel = channelBuilder.build();
+                stub = BrokerDataStoreGrpc.newBlockingStub(channel);
+                connStringToStubMap.put(hostPort, stub);
+            }
+            shardToStubMap.put(shard, stub);
+            return Optional.of(stub);
         }
-        Pair<String, Integer> hostPort = Utilities.parseConnectString(r.getConnectString());
-        ManagedChannelBuilder channelBuilder2 = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
-        ManagedChannel channel2 = channelBuilder2.build();
-        dataStoreBlockingStub = BrokerDataStoreGrpc.newBlockingStub(channel2);
     }
 
 
-    public Integer insertRow(int shard, ByteString rowData) {
+    public Integer insertRow(int shard, ByteString rowData) { // TODO:  Should not take in shard number.
+        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+        if (stubOpt.isEmpty()) {
+            logger.warn("Could not find DataStore for shard {}", shard);
+            return 1;
+        }
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
         InsertRowMessage row = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
         InsertRowResponse addRowAck;
         try {
-            addRowAck = dataStoreBlockingStub.insertRow(row);
+            addRowAck = stub.insertRow(row);
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());
             return 1;
@@ -74,6 +107,13 @@ public class Broker {
     }
 
     public Pair<Integer, String> readQuery(String query) {
+        int shard = 0; // TODO:  No hardcoding.
+        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+        if (stubOpt.isEmpty()) {
+            logger.warn("Could not find DataStore for shard {}", shard);
+            return new Pair<>(1, "");
+        }
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
         QueryPlan queryPlan = queryEngine.planQuery(query);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ObjectOutput out;
@@ -89,7 +129,7 @@ public class Broker {
         ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
         ReadQueryResponse readQueryResponse;
         try {
-            readQueryResponse = dataStoreBlockingStub.readQuery(readQuery);
+            readQueryResponse = stub.readQuery(readQuery);
             assert readQueryResponse.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());

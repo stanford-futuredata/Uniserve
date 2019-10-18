@@ -21,7 +21,7 @@ public class BrokerCurator {
 
     Optional<Pair<String, Integer>> getShardConnectString(int shard) {
         try {
-            String path = String.format("/shardMapping/%d", shard);
+            String path = String.format("/shardMapping_%d", shard);
             byte[] b = cf.getData().forPath(path);
             String connectString = new String(b);
             return Optional.of(Utilities.parseConnectString(connectString));

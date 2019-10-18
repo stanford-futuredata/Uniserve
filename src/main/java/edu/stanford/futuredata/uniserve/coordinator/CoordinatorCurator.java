@@ -27,7 +27,7 @@ class CoordinatorCurator {
     }
 
     void setShardConnectString(int shard, String connectString) throws Exception {
-        String path = String.format("/shardConnectionString%d", shard);
+        String path = String.format("/shardMapping_%d", shard);
         byte[] data = connectString.getBytes();
         if (cf.checkExists().forPath(path) != null) {
             cf.setData().forPath(path, data);
