@@ -11,8 +11,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-
 import static org.junit.Assert.assertEquals;
 
 public class BasicIntegrationTests {
@@ -20,12 +18,14 @@ public class BasicIntegrationTests {
     private static final Logger logger = LoggerFactory.getLogger(BasicIntegrationTests.class);
 
     @Test
-    public void testSimple() throws IOException {
+    public void testSimple() {
         int numShards = 1;
         Coordinator coordinator = new Coordinator(7777);
-        coordinator.startServing();
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
         DataStore dataStore = new DataStore(8888, new KVShardFactory());
-        dataStore.startServing("localhost", 7777);
+        int d_r = dataStore.startServing();
+        assertEquals(0, d_r);
         Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine(numShards));
 
         int addRowReturnCode = broker.insertRow(0, ByteString.copyFrom("1 2".getBytes()));

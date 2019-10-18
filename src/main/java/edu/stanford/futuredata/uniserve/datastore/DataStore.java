@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectInputStream;
+import java.util.Optional;
 
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -23,23 +24,37 @@ public class DataStore {
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
     private final Server server;
     private final Shard shard;
+    private final DataStoreCurator zkCurator;
+
+    private String coordinatorHost;
+    private int coordinatorPort;
 
     public DataStore(int port, ShardFactory shardFactory) {
         this.port = port;
-
-
         this.shard = shardFactory.createShard();
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
                 .build();
+        this.zkCurator = new DataStoreCurator("localhost", 2181);
     }
 
     /** Start serving requests. */
-    public void startServing(String masterHost, int masterPort) throws IOException {
-        server.start();
+    public int startServing() {
+        Optional<Pair<String, Integer>> hostPort = zkCurator.getMasterLocation();
+        if (hostPort.isPresent()) {
+            this.coordinatorHost = hostPort.get().getValue0();
+            this.coordinatorPort = hostPort.get().getValue1();
+        } else {
+            return 1;
+        }
+        try {
+            server.start();
+        } catch (IOException e) {
+            return 1;
+        }
         logger.info("DataStore server started, listening on " + port);
-        // TODO:  Pull new master address and retry.
-        ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
+        ManagedChannelBuilder channelBuilder =
+                ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub blockingStub =
                 DataStoreCoordinatorGrpc.newBlockingStub(channel);
@@ -49,6 +64,8 @@ public class DataStore {
             assert r.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
+            stopServing();
+            return 1;
         }
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
@@ -56,6 +73,7 @@ public class DataStore {
                 DataStore.this.stopServing();
             }
         });
+        return 0;
     }
 
     /** Stop serving requests and shutdown resources. */

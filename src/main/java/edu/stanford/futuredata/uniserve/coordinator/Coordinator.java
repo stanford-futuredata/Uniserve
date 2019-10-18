@@ -10,7 +10,6 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,20 +18,27 @@ public class Coordinator {
     private final int port;
     private static final Logger logger = LoggerFactory.getLogger(Coordinator.class);
     private final Server server;
+    private final CoordinatorCurator zkCurator;
 
     private List<Pair<String, Integer>> dataStoresList = new ArrayList<>();
 
     public Coordinator(int port) {
         this.port = port;
-
+        zkCurator = new CoordinatorCurator("localhost", 2181);
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new DataStoreCoordinatorService())
                 .build();
     }
 
     /** Start serving requests. */
-    public void startServing() throws IOException {
-        server.start();
+    public int startServing() {
+        try {
+            server.start();
+            zkCurator.registerCoordinator("localhost", port);
+        } catch (Exception e) {
+            this.stopServing();
+            return 1;
+        }
         logger.info("Coordinator server started, listening on " + port);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
@@ -40,6 +46,7 @@ public class Coordinator {
                 Coordinator.this.stopServing();
             }
         });
+        return 0;
     }
 
     /** Stop serving requests and shutdown resources. */
