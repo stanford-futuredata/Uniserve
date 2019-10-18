@@ -1,8 +1,6 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import edu.stanford.futuredata.uniserve.DataStoreCoordinatorGrpc;
-import edu.stanford.futuredata.uniserve.RegisterDataStoreMessage;
-import edu.stanford.futuredata.uniserve.RegisterDataStoreResponse;
+import edu.stanford.futuredata.uniserve.*;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -22,11 +20,12 @@ public class Coordinator {
 
     private List<Pair<String, Integer>> dataStoresList = new ArrayList<>();
 
-    public Coordinator(int port) {
-        this.port = port;
-        zkCurator = new CoordinatorCurator("localhost", 2181);
+    public Coordinator(String zkHost, int zkPort, int coordinatorPort) {
+        this.port = coordinatorPort;
+        zkCurator = new CoordinatorCurator(zkHost, zkPort);
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new DataStoreCoordinatorService())
+                .addService(new BrokerCoordinatorService())
                 .build();
     }
 
@@ -71,6 +70,29 @@ public class Coordinator {
             dataStoresList.add(new Pair<>(host, port));
             logger.info("Registered {} {}", host, port);
             return RegisterDataStoreResponse.newBuilder().setReturnCode(0).build();
+        }
+
+    }
+
+    private class BrokerCoordinatorService extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
+
+        @Override
+        public void shardLocation(ShardLocationMessage request,
+                                      StreamObserver<ShardLocationResponse> responseObserver) {
+            responseObserver.onNext(shardLocationHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
+            String host = dataStoresList.get(0).getValue0();
+            int port = dataStoresList.get(0).getValue1();
+            String connectString = String.format("%s:%d", host, port);
+            try {
+                zkCurator.setShardConnectString(m.getShard(), connectString);
+            } catch (Exception e) {
+                logger.error("Error adding connection string to ZK: {}", e.getMessage());
+            }
+            return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
         }
 
     }

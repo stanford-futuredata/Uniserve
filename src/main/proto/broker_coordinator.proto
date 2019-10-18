@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "edu.stanford.futuredata.uniserve";
+option java_outer_classname = "BrokerCoordinatorProto";
+
+package brokercoordinator;
+
+// Communication from datastores to the coordinator.
+service BrokerCoordinator {
+    rpc ShardLocation (ShardLocationMessage) returns (ShardLocationResponse) {}
+}
+
+message ShardLocationMessage {
+    int32 shard = 1;
+}
+
+message ShardLocationResponse {
+    int32 returnCode = 1;
+    string connectString = 2;
+}

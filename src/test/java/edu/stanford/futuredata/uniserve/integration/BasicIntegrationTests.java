@@ -20,13 +20,13 @@ public class BasicIntegrationTests {
     @Test
     public void testSimple() {
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(7777);
+        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         DataStore dataStore = new DataStore(8888, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
-        Broker broker = new Broker("127.0.0.1", 8888, new KVQueryEngine(numShards));
+        Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
 
         int addRowReturnCode = broker.insertRow(0, ByteString.copyFrom("1 2".getBytes()));
         assertEquals(0, addRowReturnCode);
