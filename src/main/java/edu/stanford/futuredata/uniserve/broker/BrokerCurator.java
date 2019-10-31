@@ -22,9 +22,13 @@ public class BrokerCurator {
     Optional<Pair<String, Integer>> getShardConnectString(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
-            byte[] b = cf.getData().forPath(path);
-            String connectString = new String(b);
-            return Optional.of(Utilities.parseConnectString(connectString));
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                String connectString = new String(b);
+                return Optional.of(Utilities.parseConnectString(connectString));
+            } else {
+                return Optional.empty();
+            }
         } catch (Exception e) {
             e.printStackTrace();
             return Optional.empty();
