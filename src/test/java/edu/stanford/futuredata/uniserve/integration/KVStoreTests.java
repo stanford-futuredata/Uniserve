@@ -1,14 +1,10 @@
 package edu.stanford.futuredata.uniserve.integration;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVQueryEngine;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVQueryPlan;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVRow;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVShardFactory;
+import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -18,6 +14,10 @@ import org.junit.After;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
 
@@ -53,10 +53,45 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan queryPlan = new KVQueryPlan(1);
+        QueryPlan queryPlan = new KVQueryPlanGet(1);
         Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals("2", queryResponse.getValue1());
+
+        dataStore.stopServing();
+        coordinator.stopServing();
+    }
+
+    @Test
+    public void testMultiKey() {
+        int numShards = 2;
+        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        DataStore dataStore = new DataStore(8888, new KVShardFactory());
+        int d_r = dataStore.startServing();
+        assertEquals(0, d_r);
+        Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
+
+        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        assertEquals(0, addRowReturnCode);
+        addRowReturnCode = broker.insertRow(new KVRow(2, 3));
+        assertEquals(0, addRowReturnCode);
+
+        QueryPlan queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
+        Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
+        assertEquals(Integer.valueOf(0), queryResponse.getValue0());
+        assertEquals("2", queryResponse.getValue1());
+
+        queryPlan = new KVQueryPlanSumGet(Collections.singletonList(2));
+        queryResponse = broker.readQuery(queryPlan);
+        assertEquals(Integer.valueOf(0), queryResponse.getValue0());
+        assertEquals("3", queryResponse.getValue1());
+
+        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 2));
+        queryResponse = broker.readQuery(queryPlan);
+        assertEquals(Integer.valueOf(0), queryResponse.getValue0());
+        assertEquals("5", queryResponse.getValue1());
 
         dataStore.stopServing();
         coordinator.stopServing();

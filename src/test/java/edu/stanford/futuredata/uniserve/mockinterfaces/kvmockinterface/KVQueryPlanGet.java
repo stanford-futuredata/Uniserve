@@ -7,11 +7,11 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlan implements QueryPlan {
+public class KVQueryPlanGet implements QueryPlan {
 
     private final Integer key;
 
-    public KVQueryPlan(Integer key) {
+    public KVQueryPlanGet(Integer key) {
         this.key = key;
     }
 
@@ -22,7 +22,7 @@ public class KVQueryPlan implements QueryPlan {
 
     @Override
     public ByteString queryShard(Shard shard) {
-        Integer value = ((KVShard) shard).queryKey(this.key);
+        Integer value = ((KVShard) shard).queryKey(this.key).get();
         return ByteString.copyFrom(value.toString().getBytes());
     }
 

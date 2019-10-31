@@ -13,10 +13,7 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectOutput;
-import java.io.ObjectOutputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -133,7 +130,7 @@ public class Broker {
                 logger.warn("Query Serialization Failed: {}", e.getMessage());
                 return new Pair<>(1, "");
             }
-            ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
+            ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
             ReadQueryResponse readQueryResponse;
             try {
                 readQueryResponse = stub.readQuery(readQuery);

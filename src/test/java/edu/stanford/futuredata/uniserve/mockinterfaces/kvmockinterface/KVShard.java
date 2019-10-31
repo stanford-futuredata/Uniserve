@@ -4,10 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class KVShard implements Shard {
 
@@ -24,8 +21,13 @@ public class KVShard implements Shard {
         return 0;
     }
 
-    public Integer queryKey(Integer key) {
-        return KVMap.getOrDefault(key, 0);
+    public Optional<Integer> queryKey(Integer key) {
+
+        if (KVMap.containsKey(key)) {
+            return Optional.of(KVMap.get(key));
+        } else {
+            return Optional.empty();
+        }
     }
 
     @Override
