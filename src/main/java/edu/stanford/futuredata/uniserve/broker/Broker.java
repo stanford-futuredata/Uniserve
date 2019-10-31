@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class Broker {
@@ -24,9 +25,9 @@ public class Broker {
 
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
     // Map from host/port pairs (used to uniquely identify a DataStore) to stubs.
-    private final Map<Pair<String, Integer>, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> connStringToStubMap = new HashMap<>();
+    private final Map<Pair<String, Integer>, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> connStringToStubMap = new ConcurrentHashMap<>();
     // Map from shards to DataStoreBlockingStubs.
-    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToStubMap = new HashMap<>();
+    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToStubMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
 
@@ -49,11 +50,9 @@ public class Broker {
     }
 
     private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {
-        // TODO:  Synchronization.
-        if (shardToStubMap.containsKey(shard)) {
-            // First, see if we have the mapping locally.
-            return Optional.of(shardToStubMap.get(shard));
-        } else {
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToStubMap.getOrDefault(shard, null);
+        if (stub == null) {
+            // TODO:  This is thread-safe, but might make many redundant requests.
             Pair<String, Integer> hostPort;
             // Then, try to pull it from ZooKeeper.
             Optional<Pair<String, Integer>> hostPortOpt = zkCurator.getShardConnectString(shard);
@@ -71,18 +70,17 @@ public class Broker {
                 }
                 hostPort = Utilities.parseConnectString(r.getConnectString());
             }
-            final BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub;
-            if (connStringToStubMap.containsKey(hostPort)) {
-                stub = connStringToStubMap.get(hostPort);
-            } else {
+            stub = connStringToStubMap.getOrDefault(hostPort, null);
+            if (stub == null) {
                 ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
                 ManagedChannel channel = channelBuilder.build();
-                stub = BrokerDataStoreGrpc.newBlockingStub(channel);
-                connStringToStubMap.put(hostPort, stub);
+                connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
+                stub = connStringToStubMap.get(hostPort);
             }
-            shardToStubMap.put(shard, stub);
-            return Optional.of(stub);
+            shardToStubMap.putIfAbsent(shard, stub);
+            stub = shardToStubMap.get(shard);
         }
+        return Optional.of(stub);
     }
 
 

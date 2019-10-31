@@ -1,19 +1,16 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
-import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Coordinator {
 
@@ -25,7 +22,7 @@ public class Coordinator {
     // List of all known datastores.  Servers can be added, but never removed.
     private final List<DataStoreDescription> dataStoresList = new ArrayList<>();
     // Map from shards to datastores, defined as indices into dataStoresList.
-    private final Map<Integer, Integer> shardToDataStoreMap = new HashMap<>();
+    private final Map<Integer, Integer> shardToDataStoreMap = new ConcurrentHashMap<>();
 
     public Coordinator(String zkHost, int zkPort, int coordinatorPort) {
         this.port = coordinatorPort;
@@ -91,28 +88,26 @@ public class Coordinator {
         }
 
         private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
-            // TODO:  Add synchronization.
             int shardNum = m.getShard();
-            if (shardToDataStoreMap.containsKey(shardNum)) {
-                DataStoreDescription dsDesc = dataStoresList.get(shardToDataStoreMap.get(shardNum));
+            int chosenDataStore = shardNum % dataStoresList.size(); // TODO:  Better DataStore choice.
+            Integer dsNum = shardToDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
+            if (dsNum != null) {
+                DataStoreDescription dsDesc = dataStoresList.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
-                return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
-            } else {
-                int chosenDataStore = shardNum % dataStoresList.size(); // TODO:  Better assignment.
-                shardToDataStoreMap.put(shardNum, chosenDataStore);
-                DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
-                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.getStub();
-                CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
-                CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
-                assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
-                String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
-                try {
-                    zkCurator.setShardConnectString(m.getShard(), connectString);
-                } catch (Exception e) {
-                    logger.error("Error adding connection string to ZK: {}", e.getMessage());
-                }
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
+            DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.getStub();
+            CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
+            CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
+            assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
+            String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+            try {
+                zkCurator.setShardConnectString(m.getShard(), connectString);
+            } catch (Exception e) {
+                logger.error("Error adding connection string to ZK: {}", e.getMessage());
+            }
+            return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
         }
 
     }
