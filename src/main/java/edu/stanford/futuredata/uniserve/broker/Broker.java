@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class Broker {
 
@@ -32,18 +33,17 @@ public class Broker {
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
 
 
-    private String masterHost = null;
-    private Integer masterPort = null;
-
     public Broker(String zkHost, int zkPort, QueryEngine queryEngine) {
         this.queryEngine = queryEngine;
         this.zkCurator = new BrokerCurator(zkHost, zkPort);
         Optional<Pair<String, Integer>> masterHostPort = zkCurator.getMasterLocation();
+        String masterHost = null;
+        Integer masterPort = null;
         if (masterHostPort.isPresent()) {
             masterHost = masterHostPort.get().getValue0();
             masterPort = masterHostPort.get().getValue1();
         } else {
-            logger.error("Broker could not find master");
+            logger.error("Broker could not find master"); // TODO:  Retry.
         }
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
@@ -88,7 +88,8 @@ public class Broker {
     }
 
 
-    public Integer insertRow(int shard, ByteString rowData) { // TODO:  Should not take in shard number.
+    public Integer insertRow(int partitionKey, ByteString rowData) {
+        int shard = this.queryEngine.keyToShard(partitionKey);
         Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
         if (stubOpt.isEmpty()) {
             logger.warn("Could not find DataStore for shard {}", shard);
@@ -107,35 +108,39 @@ public class Broker {
     }
 
     public Pair<Integer, String> readQuery(String query) {
-        int shard = 0; // TODO:  No hardcoding.
-        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
-        if (stubOpt.isEmpty()) {
-            logger.warn("Could not find DataStore for shard {}", shard);
-            return new Pair<>(1, "");
-        }
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
         QueryPlan queryPlan = queryEngine.planQuery(query);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutput out;
-        try {
-            out = new ObjectOutputStream(bos);
-            out.writeObject(queryPlan);
-            out.flush();
-        } catch (IOException e) {
-            logger.warn("Query Serialization Failed: {}", e.getMessage());
-            return new Pair<>(1, "");
+        List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Slow for huge number of keys.
+        List<Integer> shards = partitionKeys.stream().map(queryEngine::keyToShard).distinct().collect(Collectors.toList());
+        List<ByteString> intermediates = new ArrayList<>();
+        for (int shard: shards) { // TODO:  These should run in parallel.
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+            if (stubOpt.isEmpty()) {
+                logger.warn("Could not find DataStore for shard {}", shard);
+                return new Pair<>(1, "");
+            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutput out;
+            try {
+                out = new ObjectOutputStream(bos);
+                out.writeObject(queryPlan);
+                out.flush();
+            } catch (IOException e) {
+                logger.warn("Query Serialization Failed: {}", e.getMessage());
+                return new Pair<>(1, "");
+            }
+            ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
+            ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
+            ReadQueryResponse readQueryResponse;
+            try {
+                readQueryResponse = stub.readQuery(readQuery);
+                assert readQueryResponse.getReturnCode() == 0;
+            } catch (StatusRuntimeException e) {
+                logger.warn("RPC failed: {}", e.getStatus());
+                return new Pair<>(1, "");
+            }
+            intermediates.add(readQueryResponse.getResponse());
         }
-        ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
-        ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
-        ReadQueryResponse readQueryResponse;
-        try {
-            readQueryResponse = stub.readQuery(readQuery);
-            assert readQueryResponse.getReturnCode() == 0;
-        } catch (StatusRuntimeException e) {
-            logger.warn("RPC failed: {}", e.getStatus());
-            return new Pair<>(1, "");
-        }
-        List<ByteString> intermediates = Collections.singletonList(readQueryResponse.getResponse());
         String responseString = queryPlan.aggregateShardQueries(intermediates);
         return new Pair<>(0, responseString);
     }
