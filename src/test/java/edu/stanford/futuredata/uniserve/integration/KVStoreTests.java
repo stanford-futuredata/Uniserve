@@ -4,7 +4,10 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVQueryEngine;
+import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVQueryPlan;
+import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVShardFactory;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -18,9 +21,9 @@ import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 
-public class BasicIntegrationTests {
+public class KVStoreTests {
 
-    private static final Logger logger = LoggerFactory.getLogger(BasicIntegrationTests.class);
+    private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
 
     @After
     public void cleanUp() throws Exception {
@@ -37,7 +40,7 @@ public class BasicIntegrationTests {
     }
 
     @Test
-    public void testSimple() {
+    public void testSingleKey() {
         int numShards = 1;
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
@@ -47,10 +50,11 @@ public class BasicIntegrationTests {
         assertEquals(0, d_r);
         Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
 
-        int addRowReturnCode = broker.insertRow(0, ByteString.copyFrom("1 2".getBytes()));
+        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
 
-        Pair<Integer, String> queryResponse = broker.readQuery("1");
+        QueryPlan queryPlan = new KVQueryPlan(1);
+        Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals("2", queryResponse.getValue1());
 

@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.util.Arrays;
@@ -17,13 +18,9 @@ public class KVShard implements Shard {
     }
 
     @Override
-    public int addRow(ByteString row) {
-        String addString = new String(row.toByteArray());
-        String[] KVString = addString.split(" ");
-        assert KVString.length == 2;
-        Integer key = Integer.parseInt(KVString[0]);
-        Integer value = Integer.parseInt(KVString[1]);
-        KVMap.put(key, value);
+    public int addRow(Row row) {
+        KVRow kvRow = (KVRow) row;
+        KVMap.put(kvRow.getKey(), kvRow.getValue());
         return 0;
     }
 

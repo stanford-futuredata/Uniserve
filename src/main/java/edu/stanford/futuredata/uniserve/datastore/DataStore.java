@@ -3,8 +3,10 @@ package edu.stanford.futuredata.uniserve.datastore;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
 
@@ -19,6 +21,7 @@ import java.util.Optional;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.Util;
 
 public class DataStore {
 
@@ -99,11 +102,18 @@ public class DataStore {
             responseObserver.onCompleted();
         }
 
-        private InsertRowResponse addRowHandler(InsertRowMessage row) {
-            int shardNum = row.getShard();
+        private InsertRowResponse addRowHandler(InsertRowMessage rowMessage) {
+            int shardNum = rowMessage.getShard();
             if (shardMap.containsKey(shardNum)) {
-                ByteString rowData = row.getRowData();
-                shardMap.get(shardNum).addRow(rowData);
+                ByteString rowData = rowMessage.getRowData();
+                Row row;
+                try {
+                    row = (Row) Utilities.byteStringToObject(rowData);
+                } catch (IOException | ClassNotFoundException e) {
+                    logger.error("Row Deserialization Failed: {}", e.getMessage());
+                    return InsertRowResponse.newBuilder().setReturnCode(1).build();
+                }
+                shardMap.get(shardNum).addRow(row);
                 return InsertRowResponse.newBuilder().setReturnCode(0).build();
             } else {
                 logger.warn("Got read request for absent shard {}", shardNum);
@@ -121,12 +131,9 @@ public class DataStore {
             int shardNum = readQuery.getShard();
             if (shardMap.containsKey(shardNum)) {
                 ByteString serializedQuery = readQuery.getSerializedQuery();
-                ByteArrayInputStream bis = new ByteArrayInputStream(serializedQuery.toByteArray());
                 QueryPlan queryPlan;
                 try {
-                    ObjectInput in = new ObjectInputStream(bis);
-                    queryPlan = (QueryPlan) in.readObject();
-                    in.close();
+                    queryPlan = (QueryPlan) Utilities.byteStringToObject(serializedQuery);
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("Query Deserialization Failed: {}", e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();

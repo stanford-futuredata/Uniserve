@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -88,18 +89,25 @@ public class Broker {
     }
 
 
-    public Integer insertRow(int partitionKey, ByteString rowData) {
-        int shard = this.queryEngine.keyToShard(partitionKey);
+    public Integer insertRow(Row row) {
+        int shard = this.queryEngine.keyToShard(row.getPartitionKey());
         Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
         if (stubOpt.isEmpty()) {
             logger.warn("Could not find DataStore for shard {}", shard);
             return 1;
         }
         BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-        InsertRowMessage row = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
+        ByteString rowData;
+        try {
+            rowData = Utilities.objectToByteString(row);
+        } catch (IOException e) {
+            logger.warn("Row Serialization Failed: {}", e.getMessage());
+            return 1;
+        }
+        InsertRowMessage rowMessage = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
         InsertRowResponse addRowAck;
         try {
-            addRowAck = stub.insertRow(row);
+            addRowAck = stub.insertRow(rowMessage);
         } catch (StatusRuntimeException e) {
             logger.warn("RPC failed: {}", e.getStatus());
             return 1;
@@ -107,8 +115,7 @@ public class Broker {
         return addRowAck.getReturnCode();
     }
 
-    public Pair<Integer, String> readQuery(String query) {
-        QueryPlan queryPlan = queryEngine.planQuery(query);
+    public Pair<Integer, String> readQuery(QueryPlan queryPlan) {
         List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Slow for huge number of keys.
         List<Integer> shards = partitionKeys.stream().map(queryEngine::keyToShard).distinct().collect(Collectors.toList());
         List<ByteString> intermediates = new ArrayList<>();
@@ -119,17 +126,13 @@ public class Broker {
                 return new Pair<>(1, "");
             }
             BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutput out;
+            ByteString serializedQuery;
             try {
-                out = new ObjectOutputStream(bos);
-                out.writeObject(queryPlan);
-                out.flush();
+                serializedQuery = Utilities.objectToByteString(queryPlan);
             } catch (IOException e) {
                 logger.warn("Query Serialization Failed: {}", e.getMessage());
                 return new Pair<>(1, "");
             }
-            ByteString serializedQuery = ByteString.copyFrom(bos.toByteArray());
             ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(0).setSerializedQuery(serializedQuery).build();
             ReadQueryResponse readQueryResponse;
             try {

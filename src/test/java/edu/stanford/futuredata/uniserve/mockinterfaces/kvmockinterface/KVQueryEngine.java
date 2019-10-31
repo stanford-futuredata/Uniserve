@@ -12,12 +12,6 @@ public class KVQueryEngine implements QueryEngine {
     }
 
     @Override
-    public QueryPlan planQuery(String query) {
-        Integer key = Integer.parseInt(query);
-        return new KVQueryPlan(key);
-    }
-
-    @Override
     public int keyToShard(int partitionKey) {
         return partitionKey % this.numShards;
     }
