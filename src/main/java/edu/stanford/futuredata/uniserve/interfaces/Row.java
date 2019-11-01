@@ -6,5 +6,5 @@ public interface Row extends Serializable {
     /*
      A row of data.  Exposes a partition key.
      */
-    public int getPartitionKey();
+    int getPartitionKey();
 }

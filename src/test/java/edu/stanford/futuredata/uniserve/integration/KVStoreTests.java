@@ -54,10 +54,10 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan queryPlan = new KVQueryPlanGet(1);
-        Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
+        QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanGet(1);
+        Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("2", queryResponse.getValue1());
+        assertEquals(Integer.valueOf(2), queryResponse.getValue1());
 
         dataStore.stopServing();
         coordinator.stopServing();
@@ -85,20 +85,20 @@ public class KVStoreTests {
             assertEquals(0, addRowReturnCode);
         }
 
-        QueryPlan queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
-        Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
+        QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
+        Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("1", queryResponse.getValue1());
+        assertEquals(Integer.valueOf(1), queryResponse.getValue1());
 
         queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 5));
         queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("6", queryResponse.getValue1());
+        assertEquals(Integer.valueOf(6), queryResponse.getValue1());
 
         queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("55", queryResponse.getValue1());
+        assertEquals(Integer.valueOf(55), queryResponse.getValue1());
 
         for (int i = 0; i < num_datastores; i++) {
            dataStores.get(i).stopServing();
@@ -131,12 +131,12 @@ public class KVStoreTests {
         for (int i = 0; i < 100; i++) {
             int finalI = i;
             BrokerThread brokerThread = new BrokerThread() {
-                private Pair<Integer, String> queryResponse = null;
+                private Pair<Integer, Integer> queryResponse = null;
                 public void run() {
-                    QueryPlan queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
+                    QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
                     this.queryResponse = broker.readQuery(queryPlan);
                 }
-                public Pair<Integer, String> getQueryResponse() {
+                public Pair<Integer, Integer> getQueryResponse() {
                     return this.queryResponse;
                 }
             };
@@ -146,9 +146,9 @@ public class KVStoreTests {
         for (int i = 0; i < 100; i++) {
             BrokerThread brokerThread = brokerThreads.get(i);
             brokerThread.join();
-            Pair<Integer, String> queryResponse = brokerThread.getQueryResponse();
+            Pair<Integer, Integer> queryResponse = brokerThread.getQueryResponse();
             assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-            assertEquals(Integer.toString(i), queryResponse.getValue1());
+            assertEquals(Integer.valueOf(i), queryResponse.getValue1());
         }
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).stopServing();
@@ -159,5 +159,5 @@ public class KVStoreTests {
 }
 
 abstract class BrokerThread extends Thread {
-    public abstract Pair<Integer, String> getQueryResponse();
+    public abstract Pair<Integer, Integer> getQueryResponse();
 }

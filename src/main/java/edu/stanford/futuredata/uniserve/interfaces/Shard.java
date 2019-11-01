@@ -9,9 +9,9 @@ public interface Shard {
      */
 
     // Add a new row to the shard.
-    public int addRow(Row row);
+    int addRow(Row row);
     // Create files from which shard can be reconstructed.
-    public List<String> shardToData();
+    List<String> shardToData();
     // Reconstruct shard from files.
-    public int shardFromData(List<String> data);
+    int shardFromData(List<String> data);
 }

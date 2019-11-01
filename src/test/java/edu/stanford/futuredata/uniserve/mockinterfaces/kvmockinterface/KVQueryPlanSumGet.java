@@ -3,11 +3,10 @@ package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
 
-public class KVQueryPlanSumGet implements QueryPlan<Integer> {
+public class KVQueryPlanSumGet implements QueryPlan<Integer, Integer> {
 
     private final List<Integer> keys;
 
@@ -34,8 +33,7 @@ public class KVQueryPlanSumGet implements QueryPlan<Integer> {
     }
 
     @Override
-    public String aggregateShardQueries(List<Integer> shardQueryResults) {
-        int sum = shardQueryResults.stream().mapToInt(i -> i).sum();
-        return Integer.toString(sum);
+    public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
+        return shardQueryResults.stream().mapToInt(i -> i).sum();
     }
 }

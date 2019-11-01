@@ -6,7 +6,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlanGet implements QueryPlan<Integer> {
+public class KVQueryPlanGet implements QueryPlan<Integer, Integer> {
 
     private final Integer key;
 
@@ -25,7 +25,7 @@ public class KVQueryPlanGet implements QueryPlan<Integer> {
     }
 
     @Override
-    public String aggregateShardQueries(List<Integer> shardQueryResults) {
-        return Integer.toString(shardQueryResults.get(0));
+    public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
+        return shardQueryResults.get(0);
     }
 }

@@ -1,7 +1,5 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
-
 public interface QueryEngine {
     /*
      Lives on a broker.
@@ -11,5 +9,5 @@ public interface QueryEngine {
      */
 
     // To which shard should a partition key be assigned?
-    public int keyToShard(int partitionKey);
+    int keyToShard(int partitionKey);
 }

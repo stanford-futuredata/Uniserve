@@ -120,40 +120,40 @@ public class Broker {
         return addRowAck.getReturnCode();
     }
 
-    public Pair<Integer, String> readQuery(QueryPlan queryPlan) {
+    public <T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<T, V> queryPlan) {
         List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Maybe slow for huge number of keys.
         List<Integer> shards = partitionKeys.stream().map(queryEngine::keyToShard).distinct().collect(Collectors.toList());
-        List<ReadQueryThread> readQueryThreads = new ArrayList<>();
+        List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();
         for (int shard: shards) {
-            ReadQueryThread readQueryThread = new ReadQueryThread(shard, queryPlan);
+            ReadQueryThread<T> readQueryThread = new ReadQueryThread<T>(shard, queryPlan);
             readQueryThreads.add(readQueryThread);
             readQueryThread.start();
         }
-        List<Serializable> intermediates = new ArrayList<>();
+        List<T> intermediates = new ArrayList<>();
         // TODO:  Query fault tolerance.
-        for (ReadQueryThread readQueryThread : readQueryThreads) {
+        for (ReadQueryThread<T> readQueryThread : readQueryThreads) {
             try {
                 readQueryThread.join();
             } catch (InterruptedException e) {
                 logger.warn("Interrupt: {}", e.getMessage());
-                return new Pair<>(1, "");
+                return new Pair<>(1, null);
             }
-            Optional<Serializable> intermediate = readQueryThread.getIntermediate();
+            Optional<T> intermediate = readQueryThread.getIntermediate();
             if (intermediate.isPresent()) {
                 intermediates.add(intermediate.get());
             } else {
                 logger.warn("Query Failure");
-                return new Pair<>(1, "");
+                return new Pair<>(1, null);
             }
         }
-        String responseString = queryPlan.aggregateShardQueries(intermediates);
+        V responseString = queryPlan.aggregateShardQueries(intermediates);
         return new Pair<>(0, responseString);
     }
 
-    private class ReadQueryThread extends Thread {
+    private class ReadQueryThread<T extends Serializable> extends Thread {
         private final int shard;
         private final QueryPlan queryPlan;
-        private Optional<Serializable> intermediate;
+        private Optional<T> intermediate;
 
         ReadQueryThread(int shard, QueryPlan queryPlan) {
             this.shard = shard;
@@ -165,7 +165,7 @@ public class Broker {
             this.intermediate = queryShard(this.shard);
         }
 
-        private Optional<Serializable> queryShard(int shard) {
+        private Optional<T> queryShard(int shard) {
             Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
             if (stubOpt.isEmpty()) {
                 logger.warn("Could not find DataStore for shard {}", shard);
@@ -189,9 +189,9 @@ public class Broker {
                 return Optional.empty();
             }
             ByteString responseByteString = readQueryResponse.getResponse();
-            Serializable obj;
+            T obj;
             try {
-                obj = (Serializable) Utilities.byteStringToObject(responseByteString);
+                obj = (T) Utilities.byteStringToObject(responseByteString);
             } catch (IOException | ClassNotFoundException e) {
                 logger.warn("Deserialization failed: {}", e.getMessage());
                 return Optional.empty();
@@ -199,7 +199,7 @@ public class Broker {
             return Optional.of(obj);
         }
 
-        public Optional<Serializable> getIntermediate() {
+        Optional<T> getIntermediate() {
             return this.intermediate;
         }
     }

@@ -3,15 +3,15 @@ package edu.stanford.futuredata.uniserve.interfaces;
 import java.io.Serializable;
 import java.util.List;
 
-public interface QueryPlan<T extends Serializable> extends Serializable {
+public interface QueryPlan<T extends Serializable, S> extends Serializable {
     /*
-     Map a query on shards, then reduce into a result.
+     Execute a query on the shards containing certain keys, then aggregate the result.
      */
 
     // On which keys should the query execute?
-    public List<Integer> keysForQuery();
+    List<Integer> keysForQuery();
     // Execute the query on an shard (Map).
-    public T queryShard(Shard shard);
+    T queryShard(Shard shard);
     // Aggregate the outputs of queries on shards (Reduce).
-    public String aggregateShardQueries(List<T> shardQueryResults);
+    S aggregateShardQueries(List<T> shardQueryResults);
 }
