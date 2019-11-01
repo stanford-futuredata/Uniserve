@@ -61,6 +61,7 @@ public class KVStoreTests {
 
         dataStore.stopServing();
         coordinator.stopServing();
+        broker.shutdown();
     }
 
     @Test
@@ -103,6 +104,7 @@ public class KVStoreTests {
            dataStores.get(i).stopServing();
         }
         coordinator.stopServing();
+        broker.shutdown();
     }
 
     @Test
@@ -152,6 +154,7 @@ public class KVStoreTests {
             dataStores.get(i).stopServing();
         }
         coordinator.stopServing();
+        broker.shutdown();
     }
 }
 

@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import io.grpc.Channel;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -47,6 +48,14 @@ public class Broker {
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
+    }
+
+    public void shutdown() {
+        // TODO:  Synchronize with outstanding queries?
+        ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdown();
+        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: this.shardToStubMap.values()) {
+            ((ManagedChannel) stub.getChannel()).shutdown();
+        }
     }
 
     private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {

@@ -81,9 +81,11 @@ public class DataStore {
             assert r.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
+            channel.shutdown();
             stopServing();
             return 1;
         }
+        channel.shutdown();
         return 0;
     }
 
