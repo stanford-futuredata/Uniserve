@@ -5,8 +5,8 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import io.grpc.Channel;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -16,7 +16,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -120,7 +123,7 @@ public class Broker {
         return addRowAck.getReturnCode();
     }
 
-    public <T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<T, V> queryPlan) {
+    public <S extends Shard, T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<S, T, V> queryPlan) {
         List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Maybe slow for huge number of keys.
         List<Integer> shards = partitionKeys.stream().map(queryEngine::keyToShard).distinct().collect(Collectors.toList());
         List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();

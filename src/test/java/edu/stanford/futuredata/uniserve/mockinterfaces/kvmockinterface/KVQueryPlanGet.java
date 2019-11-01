@@ -6,7 +6,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlanGet implements QueryPlan<Integer, Integer> {
+public class KVQueryPlanGet implements QueryPlan<KVShard, Integer, Integer> {
 
     private final Integer key;
 
@@ -20,8 +20,8 @@ public class KVQueryPlanGet implements QueryPlan<Integer, Integer> {
     }
 
     @Override
-    public Integer queryShard(Shard shard) {
-        return ((KVShard) shard).queryKey(this.key).get();
+    public Integer queryShard(KVShard shard) {
+        return shard.queryKey(this.key).get();
     }
 
     @Override

@@ -46,7 +46,7 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore(8888, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
@@ -54,7 +54,7 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanGet(1);
+        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
         Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals(Integer.valueOf(2), queryResponse.getValue1());
@@ -73,7 +73,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore(8888, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -85,7 +85,7 @@ public class KVStoreTests {
             assertEquals(0, addRowReturnCode);
         }
 
-        QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
+        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
         Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals(Integer.valueOf(1), queryResponse.getValue1());
@@ -116,7 +116,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore(8888, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -133,7 +133,7 @@ public class KVStoreTests {
             BrokerThread brokerThread = new BrokerThread() {
                 private Pair<Integer, Integer> queryResponse = null;
                 public void run() {
-                    QueryPlan<Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
+                    QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
                     this.queryResponse = broker.readQuery(queryPlan);
                 }
                 public Pair<Integer, Integer> getQueryResponse() {

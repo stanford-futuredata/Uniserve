@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 
 public class KVQueryEngine implements QueryEngine {
 

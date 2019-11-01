@@ -1,12 +1,11 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.util.List;
 import java.util.Optional;
 
-public class KVQueryPlanSumGet implements QueryPlan<Integer, Integer> {
+public class KVQueryPlanSumGet implements QueryPlan<KVShard, Integer, Integer> {
 
     private final List<Integer> keys;
 
@@ -20,9 +19,9 @@ public class KVQueryPlanSumGet implements QueryPlan<Integer, Integer> {
     }
 
     @Override
-    public Integer queryShard(Shard shard) {
+    public Integer queryShard(KVShard shard) {
         Integer sum = 0;
-        KVShard kvShard = (KVShard) shard;
+        KVShard kvShard = shard;
         for (Integer key : keys) {
             Optional<Integer> value = kvShard.queryKey(key);
             if (value.isPresent()) {

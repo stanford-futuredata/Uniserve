@@ -1,12 +1,10 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
-import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.util.*;
 
-public class KVShard implements Shard {
+public class KVShard implements Shard<KVRow> {
 
     private final Map<Integer, Integer> KVMap;
 
@@ -15,14 +13,12 @@ public class KVShard implements Shard {
     }
 
     @Override
-    public int addRow(Row row) {
-        KVRow kvRow = (KVRow) row;
-        KVMap.put(kvRow.getKey(), kvRow.getValue());
+    public int addRow(KVRow row) {
+        KVMap.put(row.getKey(), row.getValue());
         return 0;
     }
 
     public Optional<Integer> queryKey(Integer key) {
-
         if (KVMap.containsKey(key)) {
             return Optional.of(KVMap.get(key));
         } else {

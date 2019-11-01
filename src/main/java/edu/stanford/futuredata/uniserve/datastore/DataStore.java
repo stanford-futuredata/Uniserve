@@ -9,31 +9,27 @@ import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
+import org.javatuples.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import org.javatuples.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.helpers.Util;
-
-public class DataStore {
+public class DataStore<R extends Row, S extends Shard<R>> {
 
     private final int port;
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
-    private final Map<Integer, Shard> shardMap = new HashMap<>();
+    private final Map<Integer, S> shardMap = new HashMap<>();
     private final Server server;
     private final DataStoreCurator zkCurator;
-    private final ShardFactory shardFactory;
-
-    private String coordinatorHost;
-    private int coordinatorPort;
+    private final ShardFactory<S> shardFactory;
 
 
-    public DataStore(int port, ShardFactory shardFactory) {
+    public DataStore(int port, ShardFactory<S> shardFactory) {
         this.port = port;
         this.shardFactory = shardFactory;
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
@@ -59,9 +55,11 @@ public class DataStore {
         });
         // Notify the coordinator of startup.
         Optional<Pair<String, Integer>> hostPort = zkCurator.getMasterLocation();
+        int coordinatorPort;
+        String coordinatorHost;
         if (hostPort.isPresent()) {
-            this.coordinatorHost = hostPort.get().getValue0();
-            this.coordinatorPort = hostPort.get().getValue1();
+            coordinatorHost = hostPort.get().getValue0();
+            coordinatorPort = hostPort.get().getValue1();
         } else {
             stopServing();
             return 1;
@@ -105,9 +103,9 @@ public class DataStore {
             int shardNum = rowMessage.getShard();
             if (shardMap.containsKey(shardNum)) {
                 ByteString rowData = rowMessage.getRowData();
-                Row row;
+                R row;
                 try {
-                    row = (Row) Utilities.byteStringToObject(rowData);
+                    row = (R) Utilities.byteStringToObject(rowData);
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("Row Deserialization Failed: {}", e.getMessage());
                     return InsertRowResponse.newBuilder().setReturnCode(1).build();
@@ -130,15 +128,15 @@ public class DataStore {
             int shardNum = readQuery.getShard();
             if (shardMap.containsKey(shardNum)) {
                 ByteString serializedQuery = readQuery.getSerializedQuery();
-                QueryPlan queryPlan;
+                QueryPlan<S, Serializable, Object> queryPlan;
                 try {
-                    queryPlan = (QueryPlan) Utilities.byteStringToObject(serializedQuery);
+                    queryPlan = (QueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("Query Deserialization Failed: {}", e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
                 Serializable queryResult = queryPlan.queryShard(shardMap.get(shardNum));
-                ByteString queryResponse = null;
+                ByteString queryResponse;
                 try {
                     queryResponse = Utilities.objectToByteString(queryResult);
                 } catch (IOException e) {
@@ -163,7 +161,7 @@ public class DataStore {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
-            Shard shard = shardFactory.createShard();
+            S shard = shardFactory.createShard();
             shardMap.put(shardNum, shard);
             logger.info("Created new shard {}", shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
