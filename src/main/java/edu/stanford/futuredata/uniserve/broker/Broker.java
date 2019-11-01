@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -128,7 +129,7 @@ public class Broker {
             readQueryThreads.add(readQueryThread);
             readQueryThread.start();
         }
-        List<ByteString> intermediates = new ArrayList<>();
+        List<Serializable> intermediates = new ArrayList<>();
         // TODO:  Query fault tolerance.
         for (ReadQueryThread readQueryThread : readQueryThreads) {
             try {
@@ -137,7 +138,7 @@ public class Broker {
                 logger.warn("Interrupt: {}", e.getMessage());
                 return new Pair<>(1, "");
             }
-            Optional<ByteString> intermediate = readQueryThread.getIntermediate();
+            Optional<Serializable> intermediate = readQueryThread.getIntermediate();
             if (intermediate.isPresent()) {
                 intermediates.add(intermediate.get());
             } else {
@@ -152,7 +153,7 @@ public class Broker {
     private class ReadQueryThread extends Thread {
         private final int shard;
         private final QueryPlan queryPlan;
-        private Optional<ByteString> intermediate;
+        private Optional<Serializable> intermediate;
 
         ReadQueryThread(int shard, QueryPlan queryPlan) {
             this.shard = shard;
@@ -164,7 +165,7 @@ public class Broker {
             this.intermediate = queryShard(this.shard);
         }
 
-        private Optional<ByteString> queryShard(int shard) {
+        private Optional<Serializable> queryShard(int shard) {
             Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
             if (stubOpt.isEmpty()) {
                 logger.warn("Could not find DataStore for shard {}", shard);
@@ -187,10 +188,18 @@ public class Broker {
                 logger.warn("RPC failed: {}", e.getStatus());
                 return Optional.empty();
             }
-            return Optional.of(readQueryResponse.getResponse());
+            ByteString responseByteString = readQueryResponse.getResponse();
+            Serializable obj;
+            try {
+                obj = (Serializable) Utilities.byteStringToObject(responseByteString);
+            } catch (IOException | ClassNotFoundException e) {
+                logger.warn("Deserialization failed: {}", e.getMessage());
+                return Optional.empty();
+            }
+            return Optional.of(obj);
         }
 
-        public Optional<ByteString> getIntermediate() {
+        public Optional<Serializable> getIntermediate() {
             return this.intermediate;
         }
     }

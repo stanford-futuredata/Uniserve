@@ -1,14 +1,13 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
-public class KVQueryPlanSumGet implements QueryPlan {
+public class KVQueryPlanSumGet implements QueryPlan<Integer> {
 
     private final List<Integer> keys;
 
@@ -22,7 +21,7 @@ public class KVQueryPlanSumGet implements QueryPlan {
     }
 
     @Override
-    public ByteString queryShard(Shard shard) {
+    public Integer queryShard(Shard shard) {
         Integer sum = 0;
         KVShard kvShard = (KVShard) shard;
         for (Integer key : keys) {
@@ -31,13 +30,12 @@ public class KVQueryPlanSumGet implements QueryPlan {
                 sum += value.get();
             }
         }
-        return ByteString.copyFrom(sum.toString().getBytes());
+        return sum;
     }
 
     @Override
-    public String aggregateShardQueries(List<ByteString> shardQueryResults) {
-        List<Integer> shardQueryIntegers = shardQueryResults.stream().map(b -> Integer.parseInt(new String(b.toByteArray()))).collect(Collectors.toList());
-        int sum = shardQueryIntegers.stream().mapToInt(i -> i).sum();
+    public String aggregateShardQueries(List<Integer> shardQueryResults) {
+        int sum = shardQueryResults.stream().mapToInt(i -> i).sum();
         return Integer.toString(sum);
     }
 }

@@ -1,13 +1,12 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlanGet implements QueryPlan {
+public class KVQueryPlanGet implements QueryPlan<Integer> {
 
     private final Integer key;
 
@@ -21,14 +20,12 @@ public class KVQueryPlanGet implements QueryPlan {
     }
 
     @Override
-    public ByteString queryShard(Shard shard) {
-        Integer value = ((KVShard) shard).queryKey(this.key).get();
-        return ByteString.copyFrom(value.toString().getBytes());
+    public Integer queryShard(Shard shard) {
+        return ((KVShard) shard).queryKey(this.key).get();
     }
 
     @Override
-    public String aggregateShardQueries(List<ByteString> shardQueryResults) {
-        ByteString keyResult = shardQueryResults.get(0);
-        return new String(keyResult.toByteArray());
+    public String aggregateShardQueries(List<Integer> shardQueryResults) {
+        return Integer.toString(shardQueryResults.get(0));
     }
 }

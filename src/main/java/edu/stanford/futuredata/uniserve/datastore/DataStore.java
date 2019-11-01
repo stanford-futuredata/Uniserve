@@ -10,10 +10,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectInputStream;
+import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -140,7 +137,14 @@ public class DataStore {
                     logger.error("Query Deserialization Failed: {}", e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
-                ByteString queryResponse = queryPlan.queryShard(shardMap.get(shardNum));
+                Serializable queryResult = queryPlan.queryShard(shardMap.get(shardNum));
+                ByteString queryResponse = null;
+                try {
+                    queryResponse = Utilities.objectToByteString(queryResult);
+                } catch (IOException e) {
+                    logger.error("Result Serialization Failed: {}", e.getMessage());
+                    return ReadQueryResponse.newBuilder().setReturnCode(1).build();
+                }
                 return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
             } else {
                 logger.warn("Got read request for absent shard {}", shardNum);
