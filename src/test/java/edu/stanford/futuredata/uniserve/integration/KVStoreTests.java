@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 
@@ -68,32 +69,92 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore(8888, new KVShardFactory());
-        int d_r = dataStore.startServing();
-        assertEquals(0, d_r);
+        List<DataStore> dataStores = new ArrayList<>();
+        int num_datastores = 4;
+        for (int i = 0; i < num_datastores; i++) {
+            DataStore dataStore = new DataStore(8888, new KVShardFactory());
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
         Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
 
-        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
-        assertEquals(0, addRowReturnCode);
-        addRowReturnCode = broker.insertRow(new KVRow(2, 3));
-        assertEquals(0, addRowReturnCode);
+        for (int i = 1; i < 11; i++) {
+            int addRowReturnCode = broker.insertRow(new KVRow(i, i));
+            assertEquals(0, addRowReturnCode);
+        }
 
         QueryPlan queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
         Pair<Integer, String> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("2", queryResponse.getValue1());
+        assertEquals("1", queryResponse.getValue1());
 
-        queryPlan = new KVQueryPlanSumGet(Collections.singletonList(2));
+        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 5));
         queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("3", queryResponse.getValue1());
+        assertEquals("6", queryResponse.getValue1());
 
-        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 2));
+        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals("5", queryResponse.getValue1());
+        assertEquals("55", queryResponse.getValue1());
 
-        dataStore.stopServing();
+        for (int i = 0; i < num_datastores; i++) {
+           dataStores.get(i).stopServing();
+        }
         coordinator.stopServing();
     }
+
+    @Test
+    public void testSimultaneousReadQuery() throws InterruptedException {
+        int numShards = 2;
+        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore> dataStores = new ArrayList<>();
+        int num_datastores = 4;
+        for (int i = 0; i < num_datastores; i++) {
+            DataStore dataStore = new DataStore(8888, new KVShardFactory());
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        final Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(numShards));
+
+        for (int i = 0; i < 100; i++) {
+            int addRowReturnCode = broker.insertRow(new KVRow(i, i));
+            assertEquals(0, addRowReturnCode);
+        }
+        List<BrokerThread> brokerThreads = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            int finalI = i;
+            BrokerThread brokerThread = new BrokerThread() {
+                private Pair<Integer, String> queryResponse = null;
+                public void run() {
+                    QueryPlan queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
+                    this.queryResponse = broker.readQuery(queryPlan);
+                }
+                public Pair<Integer, String> getQueryResponse() {
+                    return this.queryResponse;
+                }
+            };
+            brokerThread.start();
+            brokerThreads.add(brokerThread);
+        }
+        for (int i = 0; i < 100; i++) {
+            BrokerThread brokerThread = brokerThreads.get(i);
+            brokerThread.join();
+            Pair<Integer, String> queryResponse = brokerThread.getQueryResponse();
+            assertEquals(Integer.valueOf(0), queryResponse.getValue0());
+            assertEquals(Integer.toString(i), queryResponse.getValue1());
+        }
+        for (int i = 0; i < num_datastores; i++) {
+            dataStores.get(i).stopServing();
+        }
+        coordinator.stopServing();
+    }
+}
+
+abstract class BrokerThread extends Thread {
+    public abstract Pair<Integer, String> getQueryResponse();
 }
