@@ -161,8 +161,12 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
-            S shard = shardFactory.createShard();
-            shardMap.put(shardNum, shard);
+            Optional<S> shard = shardFactory.createShard();
+            if (shard.isEmpty()) {
+                logger.error("Shard creation failed {}", shardNum);
+                return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
+            }
+            shardMap.put(shardNum, shard.get());
             logger.info("Created new shard {}", shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
         }
