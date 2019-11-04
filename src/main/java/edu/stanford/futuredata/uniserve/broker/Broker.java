@@ -35,10 +35,17 @@ public class Broker {
     private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToStubMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
+    // Maximum number of shards.
+    private static int numShards;
 
 
-    public Broker(String zkHost, int zkPort, QueryEngine queryEngine) {
+    /*
+     * CONSTRUCTOR/TEARDOWN
+     */
+
+    public Broker(String zkHost, int zkPort, QueryEngine queryEngine, int numShards) {
         this.queryEngine = queryEngine;
+        Broker.numShards = numShards;
         this.zkCurator = new BrokerCurator(zkHost, zkPort);
         Optional<Pair<String, Integer>> masterHostPort = zkCurator.getMasterLocation();
         String masterHost = null;
@@ -60,6 +67,74 @@ public class Broker {
         for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: this.shardToStubMap.values()) {
             ((ManagedChannel) stub.getChannel()).shutdown();
         }
+    }
+
+    /*
+     * PUBLIC FUNCTIONS
+     */
+
+    public Integer insertRow(Row row) {
+        int shard = keyToShard(row.getPartitionKey());
+        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+        if (stubOpt.isEmpty()) {
+            logger.warn("Could not find DataStore for shard {}", shard);
+            return 1;
+        }
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+        ByteString rowData;
+        try {
+            rowData = Utilities.objectToByteString(row);
+        } catch (IOException e) {
+            logger.warn("Row Serialization Failed: {}", e.getMessage());
+            return 1;
+        }
+        InsertRowMessage rowMessage = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
+        InsertRowResponse addRowAck;
+        try {
+            addRowAck = stub.insertRow(rowMessage);
+        } catch (StatusRuntimeException e) {
+            logger.warn("RPC failed: {}", e.getStatus());
+            return 1;
+        }
+        return addRowAck.getReturnCode();
+    }
+
+    public <S extends Shard, T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<S, T, V> queryPlan) {
+        List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Maybe slow for huge number of keys.
+        List<Integer> shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+        List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();
+        for (int shard: shards) {
+            ReadQueryThread<T> readQueryThread = new ReadQueryThread<T>(shard, queryPlan);
+            readQueryThreads.add(readQueryThread);
+            readQueryThread.start();
+        }
+        List<T> intermediates = new ArrayList<>();
+        // TODO:  Query fault tolerance.
+        for (ReadQueryThread<T> readQueryThread : readQueryThreads) {
+            try {
+                readQueryThread.join();
+            } catch (InterruptedException e) {
+                logger.warn("Interrupt: {}", e.getMessage());
+                return new Pair<>(1, null);
+            }
+            Optional<T> intermediate = readQueryThread.getIntermediate();
+            if (intermediate.isPresent()) {
+                intermediates.add(intermediate.get());
+            } else {
+                logger.warn("Query Failure");
+                return new Pair<>(1, null);
+            }
+        }
+        V responseString = queryPlan.aggregateShardQueries(intermediates);
+        return new Pair<>(0, responseString);
+    }
+
+    /*
+     * PRIVATE FUNCTIONS
+     */
+
+    private static int keyToShard(int partitionKey) {
+        return partitionKey % Broker.numShards;
     }
 
     private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {
@@ -94,63 +169,6 @@ public class Broker {
             stub = shardToStubMap.get(shard);
         }
         return Optional.of(stub);
-    }
-
-
-    public Integer insertRow(Row row) {
-        int shard = this.queryEngine.keyToShard(row.getPartitionKey());
-        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
-        if (stubOpt.isEmpty()) {
-            logger.warn("Could not find DataStore for shard {}", shard);
-            return 1;
-        }
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-        ByteString rowData;
-        try {
-            rowData = Utilities.objectToByteString(row);
-        } catch (IOException e) {
-            logger.warn("Row Serialization Failed: {}", e.getMessage());
-            return 1;
-        }
-        InsertRowMessage rowMessage = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
-        InsertRowResponse addRowAck;
-        try {
-            addRowAck = stub.insertRow(rowMessage);
-        } catch (StatusRuntimeException e) {
-            logger.warn("RPC failed: {}", e.getStatus());
-            return 1;
-        }
-        return addRowAck.getReturnCode();
-    }
-
-    public <S extends Shard, T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<S, T, V> queryPlan) {
-        List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Maybe slow for huge number of keys.
-        List<Integer> shards = partitionKeys.stream().map(queryEngine::keyToShard).distinct().collect(Collectors.toList());
-        List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();
-        for (int shard: shards) {
-            ReadQueryThread<T> readQueryThread = new ReadQueryThread<T>(shard, queryPlan);
-            readQueryThreads.add(readQueryThread);
-            readQueryThread.start();
-        }
-        List<T> intermediates = new ArrayList<>();
-        // TODO:  Query fault tolerance.
-        for (ReadQueryThread<T> readQueryThread : readQueryThreads) {
-            try {
-                readQueryThread.join();
-            } catch (InterruptedException e) {
-                logger.warn("Interrupt: {}", e.getMessage());
-                return new Pair<>(1, null);
-            }
-            Optional<T> intermediate = readQueryThread.getIntermediate();
-            if (intermediate.isPresent()) {
-                intermediates.add(intermediate.get());
-            } else {
-                logger.warn("Query Failure");
-                return new Pair<>(1, null);
-            }
-        }
-        V responseString = queryPlan.aggregateShardQueries(intermediates);
-        return new Pair<>(0, responseString);
     }
 
     private class ReadQueryThread<T extends Serializable> extends Thread {
