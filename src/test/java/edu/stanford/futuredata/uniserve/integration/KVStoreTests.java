@@ -42,6 +42,7 @@ public class KVStoreTests {
 
     @Test
     public void testSingleKey() {
+        logger.info("testSingleKey");
         int numShards = 1;
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
@@ -66,6 +67,7 @@ public class KVStoreTests {
 
     @Test
     public void testMultiKey() {
+        logger.info("testMultiKey");
         int numShards = 2;
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
@@ -109,7 +111,8 @@ public class KVStoreTests {
 
     @Test
     public void testSimultaneousReadQuery() throws InterruptedException {
-        int numShards = 2;
+        logger.info("testSimultaneousReadQuery");
+        int numShards = 20;
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);

@@ -8,7 +8,8 @@ public interface QueryPlan<S extends Shard, I extends Serializable, T> extends S
      Execute a query on the shards containing certain keys, then aggregate the result.
      */
 
-    // On which keys should the query execute?
+    // Keys on which the query executes.  Query will execute on all shards containing any key from the list.
+    // Include -1 to execute on all shards.
     List<Integer> keysForQuery();
     // Execute the query on an shard (Map).
     I queryShard(S shard);

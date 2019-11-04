@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class Broker {
 
@@ -74,7 +75,12 @@ public class Broker {
      */
 
     public Integer insertRow(Row row) {
-        int shard = keyToShard(row.getPartitionKey());
+        int partitionKey = row.getPartitionKey();
+        if (partitionKey < 0) {
+            logger.warn("Negative partition key {}", partitionKey);
+            return 1;
+        }
+        int shard = keyToShard(partitionKey);
         Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
         if (stubOpt.isEmpty()) {
             logger.warn("Could not find DataStore for shard {}", shard);
@@ -100,8 +106,14 @@ public class Broker {
     }
 
     public <S extends Shard, T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<S, T, V> queryPlan) {
-        List<Integer> partitionKeys = queryPlan.keysForQuery(); // TODO:  Maybe slow for huge number of keys.
-        List<Integer> shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+        List<Integer> partitionKeys = queryPlan.keysForQuery();
+        List<Integer> shards;
+        if (partitionKeys.contains(-1)) {
+            // -1 is a wildcard--run on all shards.
+            shards = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+        } else {
+            shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+        }
         List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();
         for (int shard: shards) {
             ReadQueryThread<T> readQueryThread = new ReadQueryThread<T>(shard, queryPlan);
@@ -138,6 +150,7 @@ public class Broker {
     }
 
     private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {
+        // First, check the local shard-to-server map.
         BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToStubMap.getOrDefault(shard, null);
         if (stub == null) {
             // TODO:  This is thread-safe, but might make many redundant requests.

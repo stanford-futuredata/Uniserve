@@ -87,21 +87,36 @@ public class Coordinator {
             responseObserver.onCompleted();
         }
 
+        private int assignShardToDataStore(int shardNum) {
+            // TODO:  Better DataStore choice.
+            return shardNum % dataStoresList.size();
+        }
+
         private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
             int shardNum = m.getShard();
-            int chosenDataStore = shardNum % dataStoresList.size(); // TODO:  Better DataStore choice.
-            Integer dsNum = shardToDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
+            // Check if the shard's location is known.
+            Integer dsNum = shardToDataStoreMap.getOrDefault(shardNum, null);
             if (dsNum != null) {
                 DataStoreDescription dsDesc = dataStoresList.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
+            // If not, assign it to a DataStore.
+            int chosenDataStore = assignShardToDataStore(shardNum);
+            dsNum = shardToDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
+            if (dsNum != null) {
+                DataStoreDescription dsDesc = dataStoresList.get(dsNum);
+                String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+                return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
+            }
+            // Tell the DataStore to create the shard.
             DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.getStub();
             CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
             CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
             assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
             String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+            // Once the shard is created, add it to the ZooKeeper map.
             try {
                 zkCurator.setShardConnectString(m.getShard(), connectString);
             } catch (Exception e) {
