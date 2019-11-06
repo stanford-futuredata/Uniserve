@@ -10,6 +10,8 @@ public interface Shard<R extends Row> {
 
     // Add a new row to the shard.
     int addRow(R row);
+    // Destroy shard data and processes.  After destruction, shard is no longer usable.
+    void destroy();
     // Create files from which shard can be reconstructed.
     List<String> shardToData();
     // Reconstruct shard from files.

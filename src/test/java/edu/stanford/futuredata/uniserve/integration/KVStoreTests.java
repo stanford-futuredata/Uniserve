@@ -60,7 +60,7 @@ public class KVStoreTests {
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals(Integer.valueOf(2), queryResponse.getValue1());
 
-        dataStore.stopServing();
+        dataStore.shutDown();
         coordinator.stopServing();
         broker.shutdown();
     }
@@ -103,7 +103,7 @@ public class KVStoreTests {
         assertEquals(Integer.valueOf(55), queryResponse.getValue1());
 
         for (int i = 0; i < num_datastores; i++) {
-           dataStores.get(i).stopServing();
+           dataStores.get(i).shutDown();
         }
         coordinator.stopServing();
         broker.shutdown();
@@ -154,7 +154,7 @@ public class KVStoreTests {
             assertEquals(Integer.valueOf(i), queryResponse.getValue1());
         }
         for (int i = 0; i < num_datastores; i++) {
-            dataStores.get(i).stopServing();
+            dataStores.get(i).shutDown();
         }
         coordinator.stopServing();
         broker.shutdown();

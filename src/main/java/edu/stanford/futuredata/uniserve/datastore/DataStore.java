@@ -15,15 +15,15 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class DataStore<R extends Row, S extends Shard<R>> {
 
     private final int port;
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
-    private final Map<Integer, S> shardMap = new HashMap<>();
+    private final Map<Integer, S> shardMap = new ConcurrentHashMap<>();
     private final Server server;
     private final DataStoreCurator zkCurator;
     private final ShardFactory<S> shardFactory;
@@ -50,7 +50,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {
-                DataStore.this.stopServing();
+                DataStore.this.shutDown();
             }
         });
         // Notify the coordinator of startup.
@@ -61,7 +61,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             coordinatorHost = hostPort.get().getValue0();
             coordinatorPort = hostPort.get().getValue1();
         } else {
-            stopServing();
+            shutDown();
             return 1;
         }
         logger.info("DataStore server started, listening on " + port);
@@ -77,7 +77,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
             channel.shutdown();
-            stopServing();
+            shutDown();
             return 1;
         }
         channel.shutdown();
@@ -85,9 +85,13 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     }
 
     /** Stop serving requests and shutdown resources. */
-    public void stopServing() {
+    public void shutDown() {
         if (server != null) {
             server.shutdown();
+        }
+        for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
+            entry.getValue().destroy();
+            shardMap.remove(entry.getKey());
         }
     }
 

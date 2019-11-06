@@ -18,6 +18,9 @@ public class KVShard implements Shard<KVRow> {
         return 0;
     }
 
+    @Override
+    public void destroy() {}
+
     public Optional<Integer> queryKey(Integer key) {
         if (KVMap.containsKey(key)) {
             return Optional.of(KVMap.get(key));
