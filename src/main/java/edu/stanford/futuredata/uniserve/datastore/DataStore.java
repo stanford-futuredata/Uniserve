@@ -110,8 +110,8 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                     logger.error("Row Deserialization Failed: {}", e.getMessage());
                     return InsertRowResponse.newBuilder().setReturnCode(1).build();
                 }
-                shardMap.get(shardNum).addRow(row);
-                return InsertRowResponse.newBuilder().setReturnCode(0).build();
+                int addRowReturnCode = shardMap.get(shardNum).addRow(row);
+                return InsertRowResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
                 logger.warn("Got read request for absent shard {}", shardNum);
                 return InsertRowResponse.newBuilder().setReturnCode(1).build();
