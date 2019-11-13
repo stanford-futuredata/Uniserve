@@ -51,7 +51,7 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(8000, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(zkHost, zkPort, 8000, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(), numShards);
@@ -79,7 +79,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(8100 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(zkHost, zkPort, 8100 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -123,7 +123,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(8200 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(zkHost, zkPort, 8200 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);

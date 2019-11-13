@@ -29,14 +29,14 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final ShardFactory<S> shardFactory;
 
 
-    public DataStore(int port, ShardFactory<S> shardFactory) {
+    public DataStore(String zkHost, int zkPort, int port, ShardFactory<S> shardFactory) {
         this.port = port;
         this.shardFactory = shardFactory;
         ServerBuilder serverBuilder = ServerBuilder.forPort(port);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
                 .addService(new CoordinatorDataStoreService())
                 .build();
-        this.zkCurator = new DataStoreCurator("localhost", 2181);
+        this.zkCurator = new DataStoreCurator(zkHost, zkPort);
     }
 
     /** Start serving requests. */
