@@ -48,7 +48,7 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(8000, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(), numShards);
@@ -70,13 +70,13 @@ public class KVStoreTests {
     public void testMultiKey() {
         logger.info("testMultiKey");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
+        Coordinator coordinator = new Coordinator("localhost", 2181, 7778);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(8100 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -114,13 +114,13 @@ public class KVStoreTests {
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 20;
-        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
+        Coordinator coordinator = new Coordinator("localhost", 2181, 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(8888, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(8200 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
