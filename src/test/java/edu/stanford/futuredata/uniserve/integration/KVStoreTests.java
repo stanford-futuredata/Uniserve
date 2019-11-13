@@ -27,10 +27,13 @@ public class KVStoreTests {
 
     private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
 
+    private String zkHost = "127.0.0.1";
+    private Integer zkPort = 2181;
+
     @AfterEach
     public void cleanUp() throws Exception {
         // Clean up ZooKeeper
-        String connectString = "localhost:2181";
+        String connectString = String.format("%s:%d", zkHost, zkPort);
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         CuratorFramework cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
@@ -45,7 +48,7 @@ public class KVStoreTests {
     public void testSingleKey() {
         logger.info("testSingleKey");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator("localhost", 2181, 7777);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         DataStore dataStore = new DataStore<>(8000, new KVShardFactory());
@@ -70,7 +73,7 @@ public class KVStoreTests {
     public void testMultiKey() {
         logger.info("testMultiKey");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator("localhost", 2181, 7778);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7778);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
@@ -81,7 +84,7 @@ public class KVStoreTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(), numShards);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
         for (int i = 1; i < 11; i++) {
             int addRowReturnCode = broker.insertRow(new KVRow(i, i));
@@ -114,7 +117,7 @@ public class KVStoreTests {
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 20;
-        Coordinator coordinator = new Coordinator("localhost", 2181, 7779);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
