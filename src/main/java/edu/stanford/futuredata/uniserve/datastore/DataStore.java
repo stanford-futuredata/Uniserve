@@ -45,6 +45,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         try {
             server.start();
         } catch (IOException e) {
+            logger.warn("DataStore startup failed: {}", e.getMessage());
             return 1;
         }
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -61,6 +62,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             coordinatorHost = hostPort.get().getValue0();
             coordinatorPort = hostPort.get().getValue1();
         } else {
+            logger.warn("DataStore--Coordinator lookup failed");
             shutDown();
             return 1;
         }

@@ -39,6 +39,7 @@ public class Coordinator {
             server.start();
             zkCurator.registerCoordinator("localhost", port);
         } catch (Exception e) {
+            logger.warn("Coordinator startup failed: {}", e.getMessage());
             this.stopServing();
             return 1;
         }
