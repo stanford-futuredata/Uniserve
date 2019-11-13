@@ -54,7 +54,7 @@ public class KVStoreTests {
         DataStore dataStore = new DataStore<>(zkHost, zkPort, 8000, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
-        Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(), numShards);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
@@ -128,7 +128,7 @@ public class KVStoreTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker("127.0.0.1", 2181, new KVQueryEngine(), numShards);
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
         for (int i = 0; i < 100; i++) {
             int addRowReturnCode = broker.insertRow(new KVRow(i, i));
