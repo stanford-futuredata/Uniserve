@@ -14,8 +14,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class Coordinator {
 
-    private final int port;
     private static final Logger logger = LoggerFactory.getLogger(Coordinator.class);
+
+    private final String coordinatorHost;
+    private final int coordinatorPort;
     private final Server server;
     private final CoordinatorCurator zkCurator;
 
@@ -24,10 +26,11 @@ public class Coordinator {
     // Map from shards to datastores, defined as indices into dataStoresList.
     private final Map<Integer, Integer> shardToDataStoreMap = new ConcurrentHashMap<>();
 
-    public Coordinator(String zkHost, int zkPort, int coordinatorPort) {
-        this.port = coordinatorPort;
+    public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
+        this.coordinatorHost = coordinatorHost;
+        this.coordinatorPort = coordinatorPort;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
-        ServerBuilder serverBuilder = ServerBuilder.forPort(port);
+        ServerBuilder serverBuilder = ServerBuilder.forPort(coordinatorPort);
         this.server = serverBuilder.addService(new DataStoreCoordinatorService())
                 .addService(new BrokerCoordinatorService())
                 .build();
@@ -37,13 +40,13 @@ public class Coordinator {
     public int startServing() {
         try {
             server.start();
-            zkCurator.registerCoordinator("localhost", port);
+            zkCurator.registerCoordinator(coordinatorHost, coordinatorPort);
         } catch (Exception e) {
             logger.warn("Coordinator startup failed: {}", e.getMessage());
             this.stopServing();
             return 1;
         }
-        logger.info("Coordinator server started, listening on " + port);
+        logger.info("Coordinator server started, listening on " + coordinatorPort);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {

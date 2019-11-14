@@ -48,10 +48,10 @@ public class KVStoreTests {
     public void testSingleKey() {
         logger.info("testSingleKey");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7777);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(zkHost, zkPort, 8000, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(zkHost, zkPort, "127.0.0.1", 8000, new KVShardFactory());
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
@@ -73,13 +73,13 @@ public class KVStoreTests {
     public void testMultiKey() {
         logger.info("testMultiKey");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7778);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(zkHost, zkPort, 8100 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(zkHost, zkPort,"127.0.0.1",  8100 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -117,13 +117,13 @@ public class KVStoreTests {
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 20;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, 7779);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(zkHost, zkPort, 8200 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(zkHost, zkPort, "127.0.0.1", 8200 + i, new KVShardFactory());
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);

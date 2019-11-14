@@ -21,18 +21,21 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class DataStore<R extends Row, S extends Shard<R>> {
 
-    private final int port;
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
+
+    private final String dsHost;
+    private final int dsPort;
     private final Map<Integer, S> shardMap = new ConcurrentHashMap<>();
     private final Server server;
     private final DataStoreCurator zkCurator;
     private final ShardFactory<S> shardFactory;
 
 
-    public DataStore(String zkHost, int zkPort, int port, ShardFactory<S> shardFactory) {
-        this.port = port;
+    public DataStore(String zkHost, int zkPort, String dsHost, int dsPort, ShardFactory<S> shardFactory) {
+        this.dsHost = dsHost;
+        this.dsPort = dsPort;
         this.shardFactory = shardFactory;
-        ServerBuilder serverBuilder = ServerBuilder.forPort(port);
+        ServerBuilder serverBuilder = ServerBuilder.forPort(dsPort);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
                 .addService(new CoordinatorDataStoreService())
                 .build();
@@ -66,13 +69,13 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             shutDown();
             return 1;
         }
-        logger.info("DataStore server started, listening on " + port);
+        logger.info("DataStore server started, listening on " + dsPort);
         ManagedChannelBuilder channelBuilder =
                 ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub blockingStub =
                 DataStoreCoordinatorGrpc.newBlockingStub(channel);
-        RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost("localhost").setPort(port).build();
+        RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost(dsHost).setPort(dsPort).build();
         try {
             RegisterDataStoreResponse r = blockingStub.registerDataStore(m);
             assert r.getReturnCode() == 0;
