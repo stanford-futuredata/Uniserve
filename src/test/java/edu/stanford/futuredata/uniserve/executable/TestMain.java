@@ -28,12 +28,12 @@ public class TestMain {
         if (cmd.hasOption("coordinator")) {
             System.out.println("Starting coordinator!");
             runCoordinator(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
-                    cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("p")));
+                    cmd.getOptionValue("h"), Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("datastore")) {
             System.out.println("Starting datastore!");
             runDataStore(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
-                    cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("p")));
+                    cmd.getOptionValue("h"), Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("broker")) {
             System.out.println("Starting broker!");
