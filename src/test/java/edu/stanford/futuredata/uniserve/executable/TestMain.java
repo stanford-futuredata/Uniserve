@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.executable;
 
+import com.amazonaws.util.EC2MetadataUtils;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
@@ -25,15 +26,25 @@ public class TestMain {
         CommandLineParser parser = new DefaultParser();
         CommandLine cmd = parser.parse(options, args);
 
+        String serverHost = null;
+        if (cmd.hasOption("h")) {
+            String hostString = cmd.getOptionValue("h");
+            if (hostString.equals("aws")) {
+                serverHost = EC2MetadataUtils.getPrivateIpAddress();
+            } else {
+                serverHost = hostString;
+            }
+        }
+
         if (cmd.hasOption("coordinator")) {
             System.out.println("Starting coordinator!");
             runCoordinator(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
-                    cmd.getOptionValue("h"), Integer.parseInt(cmd.getOptionValue("p")));
+                    serverHost, Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("datastore")) {
             System.out.println("Starting datastore!");
             runDataStore(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
-                    cmd.getOptionValue("h"), Integer.parseInt(cmd.getOptionValue("p")));
+                    serverHost, Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("broker")) {
             System.out.println("Starting broker!");
