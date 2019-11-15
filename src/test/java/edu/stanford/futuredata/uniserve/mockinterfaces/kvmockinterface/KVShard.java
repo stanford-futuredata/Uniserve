@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.io.*;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,10 +13,12 @@ public class KVShard implements Shard<KVRow> {
     private final Map<Integer, Integer> KVMap;
     private final static AtomicInteger numShards = new AtomicInteger(0);
     private final Integer shardNum;
+    private final Path shardPath;
 
-    public KVShard() {
+    public KVShard(Path shardPath) {
         this.shardNum = numShards.getAndIncrement();
         this.KVMap = new ConcurrentHashMap<>();
+        this.shardPath = shardPath;
     }
 
     @Override
@@ -36,15 +39,15 @@ public class KVShard implements Shard<KVRow> {
     }
 
     @Override
-    public Optional<String> shardToData() {
-        String shardDir = String.format("/var/tmp/KVShard%d/", shardNum);
-        File shardDirFile = new File(shardDir);
+    public Optional<Path> shardToData() {
+        Path shardDir = Path.of(shardPath.toString(), Integer.toString(shardNum));
+        File shardDirFile = shardDir.toFile();
         if (!shardDirFile.exists()) {
-            shardDirFile.mkdir();
+            shardDirFile.mkdirs();
         }
-        String mapFile = shardDir + "map.obj";
+        Path mapFile = Path.of(shardDir.toString(), "map.obj");
         try {
-            FileOutputStream f = new FileOutputStream(new File(mapFile));
+            FileOutputStream f = new FileOutputStream(mapFile.toFile());
             ObjectOutputStream o = new ObjectOutputStream(f);
             o.writeObject(KVMap);
             o.close();

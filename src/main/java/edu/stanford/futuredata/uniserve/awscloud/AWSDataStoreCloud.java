@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Optional;
 
 public class AWSDataStoreCloud implements DataStoreCloud {
@@ -23,9 +24,9 @@ public class AWSDataStoreCloud implements DataStoreCloud {
     }
 
     @Override
-    public Optional<String> uploadShardToCloud(String shardDirectory, String shardName) {
+    public Optional<String> uploadShardToCloud(Path shardDirectory, String shardName) {
         TransferManager tx = TransferManagerBuilder.standard().build();
-        File dirFile = new File(shardDirectory);
+        File dirFile = shardDirectory.toFile();
         try {
             MultipleFileUpload mfu = tx.uploadDirectory(bucket, shardName, dirFile, true);
             for (Upload upload : mfu.getSubTransfers()) {
@@ -39,7 +40,7 @@ public class AWSDataStoreCloud implements DataStoreCloud {
     }
 
     @Override
-    public int downloadShardFromCloud(String shardDirectory, String shardCloudName) {
+    public int downloadShardFromCloud(Path shardDirectory, String shardCloudName) {
         return 0;
     }
 }

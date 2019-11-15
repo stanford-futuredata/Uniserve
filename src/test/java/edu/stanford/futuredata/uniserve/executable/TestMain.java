@@ -10,6 +10,8 @@ import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.cli.*;
 import org.javatuples.Pair;
 
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestMain {
@@ -63,7 +65,7 @@ public class TestMain {
     }
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort) throws InterruptedException {
-        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort, dsHost, dsPort);
+        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         while(true) {

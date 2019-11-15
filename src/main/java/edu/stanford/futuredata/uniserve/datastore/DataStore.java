@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,13 +31,15 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final DataStoreCurator zkCurator;
     private final ShardFactory<S> shardFactory;
     private final DataStoreCloud dsCloud;
+    private final Path baseDirectory;
 
 
-    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, String zkHost, int zkPort, String dsHost, int dsPort) {
+    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
         this.dsCloud = dsCloud;
         this.shardFactory = shardFactory;
+        this.baseDirectory = baseDirectory;
         ServerBuilder serverBuilder = ServerBuilder.forPort(dsPort);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
                 .addService(new CoordinatorDataStoreService())
@@ -105,7 +108,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     /** Synchronously upload a shard to the cloud then TODO notify the coordinator of its location. **/
     public int uploadShardToCloud(int shardNum) {
         Shard<R> shard = shardMap.get(shardNum);
-        Optional<String> shardDirectory = shard.shardToData();
+        Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("Shard {} serialization failed", shardNum);
             return 1;
@@ -188,7 +191,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
-            Optional<S> shard = shardFactory.createShard();
+            Optional<S> shard = shardFactory.createShard(Path.of(baseDirectory.toString(), Integer.toString(shardNum)));
             if (shard.isEmpty()) {
                 logger.error("Shard creation failed {}", shardNum);
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
