@@ -2,14 +2,20 @@ package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
+import java.io.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class KVShard implements Shard<KVRow> {
 
     private final Map<Integer, Integer> KVMap;
+    private final static AtomicInteger numShards = new AtomicInteger(0);
+    private final Integer shardNum;
 
     public KVShard() {
-        this.KVMap = new HashMap<>();
+        this.shardNum = numShards.getAndIncrement();
+        this.KVMap = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -30,12 +36,22 @@ public class KVShard implements Shard<KVRow> {
     }
 
     @Override
-    public List<String> shardToData() {
-        return Arrays.asList("foo", "bar");
-    }
-
-    @Override
-    public int shardFromData(List<String> data) {
-        return 0;
+    public Optional<String> shardToData() {
+        String shardDir = String.format("/var/tmp/KVShard%d/", shardNum);
+        File shardDirFile = new File(shardDir);
+        if (!shardDirFile.exists()) {
+            shardDirFile.mkdir();
+        }
+        String mapFile = shardDir + "map.obj";
+        try {
+            FileOutputStream f = new FileOutputStream(new File(mapFile));
+            ObjectOutputStream o = new ObjectOutputStream(f);
+            o.writeObject(KVMap);
+            o.close();
+            f.close();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+        return Optional.of(shardDir);
     }
 }

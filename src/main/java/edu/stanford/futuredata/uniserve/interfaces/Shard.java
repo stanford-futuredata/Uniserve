@@ -1,6 +1,6 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
-import java.util.List;
+import java.util.Optional;
 
 public interface Shard<R extends Row> {
     /*
@@ -12,8 +12,6 @@ public interface Shard<R extends Row> {
     int addRow(R row);
     // Destroy shard data and processes.  After destruction, shard is no longer usable.
     void destroy();
-    // Create files from which shard can be reconstructed.
-    List<String> shardToData();
-    // Reconstruct shard from files.
-    int shardFromData(List<String> data);
+    // Return directory containing shard files.
+    Optional<String> shardToData();
 }

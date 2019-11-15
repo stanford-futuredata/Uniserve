@@ -29,11 +29,13 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final Server server;
     private final DataStoreCurator zkCurator;
     private final ShardFactory<S> shardFactory;
+    private final DataStoreCloud dsCloud;
 
 
-    public DataStore(String zkHost, int zkPort, String dsHost, int dsPort, ShardFactory<S> shardFactory) {
+    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, String zkHost, int zkPort, String dsHost, int dsPort) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
+        this.dsCloud = dsCloud;
         this.shardFactory = shardFactory;
         ServerBuilder serverBuilder = ServerBuilder.forPort(dsPort);
         this.server = serverBuilder.addService(new BrokerDataStoreService())
@@ -98,6 +100,22 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             entry.getValue().destroy();
             shardMap.remove(entry.getKey());
         }
+    }
+
+    /** Synchronously upload a shard to the cloud then TODO notify the coordinator of its location. **/
+    public int uploadShardToCloud(int shardNum) {
+        Shard<R> shard = shardMap.get(shardNum);
+        Optional<String> shardDirectory = shard.shardToData();
+        if (shardDirectory.isEmpty()) {
+            logger.warn("Shard {} serialization failed", shardNum);
+            return 1;
+        }
+        Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum));
+        if (cloudName.isEmpty()) {
+            logger.warn("Shard {} upload failed", shardNum);
+            return 1;
+        }
+        return 0;
     }
 
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {

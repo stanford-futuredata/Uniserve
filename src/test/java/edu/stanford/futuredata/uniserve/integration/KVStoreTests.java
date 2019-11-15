@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.integration;
 
+import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
@@ -51,7 +52,7 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(zkHost, zkPort, "127.0.0.1", 8000, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort, "127.0.0.1", 8000);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
@@ -79,7 +80,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(zkHost, zkPort,"127.0.0.1",  8100 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort,"127.0.0.1",  8100 + i);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -123,7 +124,7 @@ public class KVStoreTests {
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(zkHost, zkPort, "127.0.0.1", 8200 + i, new KVShardFactory());
+            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort, "127.0.0.1", 8200 + i);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -160,6 +161,29 @@ public class KVStoreTests {
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();
         }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testShardUpload() {
+        logger.info("testShardUpload");
+        int numShards = 1;
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort, "127.0.0.1", 8000);
+        int d_r = dataStore.startServing();
+        assertEquals(0, d_r);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        assertEquals(0, addRowReturnCode);
+
+        int dsUploadReturnCode = dataStore.uploadShardToCloud(0);
+        assertEquals(0, dsUploadReturnCode);
+
+        dataStore.shutDown();
         coordinator.stopServing();
         broker.shutdown();
     }

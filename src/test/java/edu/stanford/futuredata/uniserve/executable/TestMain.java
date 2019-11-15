@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.executable;
 
 import com.amazonaws.util.EC2MetadataUtils;
+import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
@@ -62,7 +63,7 @@ public class TestMain {
     }
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort) throws InterruptedException {
-        DataStore dataStore = new DataStore<>(zkHost, zkPort, dsHost, dsPort, new KVShardFactory());
+        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), zkHost, zkPort, dsHost, dsPort);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         while(true) {
