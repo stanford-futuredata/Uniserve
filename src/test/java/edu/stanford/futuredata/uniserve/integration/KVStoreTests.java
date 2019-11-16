@@ -5,7 +5,9 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
+import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -16,13 +18,12 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 public class KVStoreTests {
@@ -44,6 +45,8 @@ public class KVStoreTests {
                 cf.delete().deletingChildrenIfNeeded().forPath("/" + child);
             }
         }
+        // Clean up directories.
+        FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve"));
     }
 
     @Test
@@ -183,6 +186,8 @@ public class KVStoreTests {
 
         int dsUploadReturnCode = dataStore.uploadShardToCloud(0);
         assertEquals(0, dsUploadReturnCode);
+        Optional shard = dataStore.downloadShardFromCloud(0, "0");
+        assertTrue(shard.isPresent());
 
         dataStore.shutDown();
         coordinator.stopServing();

@@ -15,9 +15,18 @@ public class KVShard implements Shard<KVRow> {
     private final Integer shardNum;
     private final Path shardPath;
 
-    public KVShard(Path shardPath) {
+    public KVShard(Path shardPath, boolean shardExists) throws IOException, ClassNotFoundException {
         this.shardNum = numShards.getAndIncrement();
-        this.KVMap = new ConcurrentHashMap<>();
+        if (shardExists) {
+            Path mapFile = Path.of(shardPath.toString(), "map.obj");
+            FileInputStream f = new FileInputStream(mapFile.toFile());
+            ObjectInputStream o = new ObjectInputStream(f);
+            this.KVMap = (ConcurrentHashMap<Integer, Integer>) o.readObject();
+            o.close();
+            f.close();
+        } else {
+            this.KVMap = new ConcurrentHashMap<>();
+        }
         this.shardPath = shardPath;
     }
 

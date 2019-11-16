@@ -121,6 +121,18 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         return 0;
     }
 
+    /** Synchronously download a shard from the cloud **/
+    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName) {
+        Path downloadDirectory = baseDirectory; //TODO:  Make a new directory instead.
+        int downloadReturnCode = dsCloud.downloadShardFromCloud(downloadDirectory, cloudName);
+        if (downloadReturnCode != 0) {
+            logger.warn("Shard {} download failed", shardNum);
+            return Optional.empty();
+        }
+        Path targetDirectory = Path.of(baseDirectory.toString(), cloudName);
+        return shardFactory.createShardFromDir(targetDirectory);
+    }
+
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
         @Override
@@ -191,7 +203,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
-            Optional<S> shard = shardFactory.createShard(Path.of(baseDirectory.toString(), Integer.toString(shardNum)));
+            Optional<S> shard = shardFactory.createNewShard(Path.of(baseDirectory.toString(), Integer.toString(shardNum)));
             if (shard.isEmpty()) {
                 logger.error("Shard creation failed {}", shardNum);
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
