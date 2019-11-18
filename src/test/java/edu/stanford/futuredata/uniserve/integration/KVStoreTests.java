@@ -176,7 +176,7 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
@@ -184,9 +184,12 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
 
-        int dsUploadReturnCode = dataStore.uploadShardToCloud(0);
-        assertEquals(0, dsUploadReturnCode);
-        Optional shard = dataStore.downloadShardFromCloud(0, "0");
+        Optional<Pair<String, Integer>> uploadResult = dataStore.uploadShardToCloud(0);
+        assertTrue(uploadResult.isPresent());
+        String cloudName = uploadResult.get().getValue0();
+        Integer shardVersion = uploadResult.get().getValue1();
+        assertEquals(shardVersion, 1);
+        Optional shard = dataStore.downloadShardFromCloud(0, cloudName, 1);
         assertTrue(shard.isPresent());
 
         dataStore.shutDown();

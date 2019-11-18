@@ -49,12 +49,7 @@ public class KVShard implements Shard<KVRow> {
 
     @Override
     public Optional<Path> shardToData() {
-        Path shardDir = Path.of(shardPath.toString(), Integer.toString(shardNum));
-        File shardDirFile = shardDir.toFile();
-        if (!shardDirFile.exists()) {
-            shardDirFile.mkdirs();
-        }
-        Path mapFile = Path.of(shardDir.toString(), "map.obj");
+        Path mapFile = Path.of(shardPath.toString(), "map.obj");
         try {
             FileOutputStream f = new FileOutputStream(mapFile.toFile());
             ObjectOutputStream o = new ObjectOutputStream(f);
@@ -64,6 +59,6 @@ public class KVShard implements Shard<KVRow> {
         } catch (IOException e) {
             return Optional.empty();
         }
-        return Optional.of(shardDir);
+        return Optional.of(shardPath);
     }
 }

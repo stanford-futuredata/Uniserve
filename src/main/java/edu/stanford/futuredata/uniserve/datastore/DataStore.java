@@ -13,12 +13,14 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DataStore<R extends Row, S extends Shard<R>> {
 
@@ -27,6 +29,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final String dsHost;
     private final int dsPort;
     private final Map<Integer, S> shardMap = new ConcurrentHashMap<>();
+    private final Map<Integer, AtomicInteger> shardVersionMap = new ConcurrentHashMap<>();
     private final Server server;
     private final DataStoreCurator zkCurator;
     private final ShardFactory<S> shardFactory;
@@ -105,31 +108,40 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         }
     }
 
-    /** Synchronously upload a shard to the cloud then TODO notify the coordinator of its location. **/
-    public int uploadShardToCloud(int shardNum) {
+    /** Synchronously upload a shard to the cloud, returning its name and version number. **/
+    public Optional<Pair<String, Integer>> uploadShardToCloud(int shardNum) {
         Shard<R> shard = shardMap.get(shardNum);
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("Shard {} serialization failed", shardNum);
-            return 1;
+            return Optional.empty();
         }
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum));
         if (cloudName.isEmpty()) {
             logger.warn("Shard {} upload failed", shardNum);
-            return 1;
+            return Optional.empty();
         }
-        return 0;
+        Integer versionNumber = shardVersionMap.get(shardNum).incrementAndGet();
+        return Optional.of(new Pair<>(cloudName.get(), versionNumber));
     }
 
     /** Synchronously download a shard from the cloud **/
-    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName) {
-        Path downloadDirectory = baseDirectory; //TODO:  Make a new directory instead.
+    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber) {
+        Path downloadDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber));
+        File downloadDirFile = downloadDirectory.toFile();
+        if (!downloadDirFile.exists()) {
+            boolean mkdirs = downloadDirFile.mkdirs();
+            if (!mkdirs) {
+                logger.warn("Shard {} version {} mkdirs failed", shardNum, versionNumber);
+                return Optional.empty();
+            }
+        }
         int downloadReturnCode = dsCloud.downloadShardFromCloud(downloadDirectory, cloudName);
         if (downloadReturnCode != 0) {
             logger.warn("Shard {} download failed", shardNum);
             return Optional.empty();
         }
-        Path targetDirectory = Path.of(baseDirectory.toString(), cloudName);
+        Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
         return shardFactory.createShardFromDir(targetDirectory);
     }
 
@@ -203,11 +215,23 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
-            Optional<S> shard = shardFactory.createNewShard(Path.of(baseDirectory.toString(), Integer.toString(shardNum)));
+            int shardVersionNumber = 0;
+            Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(shardVersionNumber), Integer.toString(shardNum));
+            File shardPathFile = shardPath.toFile();
+            if (!shardPathFile.exists()) {
+                boolean mkdirs = shardPathFile.mkdirs();
+                if (!mkdirs) {
+                    logger.error("Shard directory creation failed {}", shardNum);
+                    return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
+                }
+            }
+            Optional<S> shard = shardFactory.createNewShard(shardPath);
             if (shard.isEmpty()) {
                 logger.error("Shard creation failed {}", shardNum);
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
             }
+            assert (!shardMap.containsKey(shardNum) && !shardVersionMap.containsKey(shardNum));
+            shardVersionMap.put(shardNum, new AtomicInteger(shardVersionNumber));
             shardMap.put(shardNum, shard.get());
             logger.info("Created new shard {}", shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
