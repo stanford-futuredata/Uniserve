@@ -37,8 +37,8 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
-    private boolean uploadThread = true;
-    private final UploadShardThread uploadShardThread;
+    private boolean runUploadShardDaemon = true;
+    private final UploadShardDaemon uploadShardDaemon;
     private final static int uploadThreadSleepDurationMillis = 1000;
 
 
@@ -53,7 +53,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 .addService(new CoordinatorDataStoreService())
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
-        uploadShardThread = new UploadShardThread();
+        uploadShardDaemon = new UploadShardDaemon();
     }
 
     /** Start serving requests. */
@@ -97,7 +97,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             shutDown();
             return 1;
         }
-        uploadShardThread.start();
+        uploadShardDaemon.start();
         return 0;
     }
 
@@ -105,10 +105,10 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     public void shutDown() {
         coordinatorChannel.shutdown();
         server.shutdown();
-        uploadThread = false;
+        runUploadShardDaemon = false;
         try {
-            uploadShardThread.interrupt();
-            uploadShardThread.join();
+            uploadShardDaemon.interrupt();
+            uploadShardDaemon.join();
         } catch (InterruptedException ignored) {}
         for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
             entry.getValue().destroy();
@@ -153,10 +153,10 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         return shardFactory.createShardFromDir(targetDirectory);
     }
 
-    private class UploadShardThread extends Thread {
+    private class UploadShardDaemon extends Thread {
         @Override
         public void run() {
-            while (uploadThread) {
+            while (runUploadShardDaemon) {
                 for (Integer shardNum : shardMap.keySet()) {
                     Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
                     assert(nameVersion.isPresent()); // TODO:  Error handling.

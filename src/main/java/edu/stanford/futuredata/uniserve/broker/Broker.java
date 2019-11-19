@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -32,12 +33,20 @@ public class Broker {
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
     // Map from host/port pairs (used to uniquely identify a DataStore) to stubs.
     private final Map<Pair<String, Integer>, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> connStringToStubMap = new ConcurrentHashMap<>();
-    // Map from shards to DataStoreBlockingStubs.
-    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToStubMap = new ConcurrentHashMap<>();
+    // Map from shards to the primary's DataStoreBlockingStubs.
+    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToPrimaryStubMap = new ConcurrentHashMap<>();
+    // Map from shards to the replicas' DataStoreBlockingStubs.
+    private final Map<Integer, List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub>> shardToReplicaStubMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Maximum number of shards.
     private static int numShards;
+    // Daemon thread updating the shard maps.
+    private ShardMapUpdateDaemon shardMapUpdateDaemon;
+    // Should the daemon run?
+    private boolean runShardMapUpdateDaemon = true;
+    // How long should the daemon wait between runs?
+    private static final int shardMapDaemonSleepDurationMillis = 1000;
 
 
     /*
@@ -60,13 +69,25 @@ public class Broker {
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
+        shardMapUpdateDaemon = new ShardMapUpdateDaemon();
+        shardMapUpdateDaemon.start();
     }
 
     public void shutdown() {
+        runShardMapUpdateDaemon = false;
+        try {
+            shardMapUpdateDaemon.interrupt();
+            shardMapUpdateDaemon.join();
+        } catch (InterruptedException ignored) {}
         // TODO:  Synchronize with outstanding queries?
         ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdown();
-        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: this.shardToStubMap.values()) {
+        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: this.shardToPrimaryStubMap.values()) {
             ((ManagedChannel) stub.getChannel()).shutdown();
+        }
+        for (List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs: this.shardToReplicaStubMap.values()) {
+            for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: stubs) {
+                ((ManagedChannel) stub.getChannel()).shutdown();
+            }
         }
     }
 
@@ -81,7 +102,7 @@ public class Broker {
             return 1;
         }
         int shard = keyToShard(partitionKey);
-        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shard);
         if (stubOpt.isEmpty()) {
             logger.warn("Could not find DataStore for shard {}", shard);
             return 1;
@@ -149,14 +170,25 @@ public class Broker {
         return partitionKey % Broker.numShards;
     }
 
-    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getStubForShard(int shard) {
+    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubFromHostPort(Pair<String, Integer> hostPort) {
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = connStringToStubMap.getOrDefault(hostPort, null);
+        if (stub == null) {
+            ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
+            ManagedChannel channel = channelBuilder.build();
+            connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
+            stub = connStringToStubMap.get(hostPort);
+        }
+        return stub;
+    }
+
+    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getPrimaryStubForShard(int shard) {
         // First, check the local shard-to-server map.
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToStubMap.getOrDefault(shard, null);
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToPrimaryStubMap.getOrDefault(shard, null);
         if (stub == null) {
             // TODO:  This is thread-safe, but might make many redundant requests.
             Pair<String, Integer> hostPort;
             // Then, try to pull it from ZooKeeper.
-            Optional<Pair<String, Integer>> hostPortOpt = zkCurator.getShardConnectString(shard);
+            Optional<Pair<String, Integer>> hostPortOpt = zkCurator.getShardPrimaryConnectString(shard);
             if (hostPortOpt.isPresent()) {
                 hostPort = hostPortOpt.get();
             } else {
@@ -171,17 +203,51 @@ public class Broker {
                 }
                 hostPort = Utilities.parseConnectString(r.getConnectString());
             }
-            stub = connStringToStubMap.getOrDefault(hostPort, null);
-            if (stub == null) {
-                ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
-                ManagedChannel channel = channelBuilder.build();
-                connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
-                stub = connStringToStubMap.get(hostPort);
-            }
-            shardToStubMap.putIfAbsent(shard, stub);
-            stub = shardToStubMap.get(shard);
+            stub = getStubFromHostPort(hostPort);
+            shardToPrimaryStubMap.putIfAbsent(shard, stub);
+            stub = shardToPrimaryStubMap.get(shard);
         }
         return Optional.of(stub);
+    }
+
+    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getAnyStubForShard(int shard) {
+        // If replicas are known, return a random replica.
+        List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs = shardToReplicaStubMap.getOrDefault(shard, null);
+        if (stubs != null) {
+            return Optional.of(stubs.get(ThreadLocalRandom.current().nextInt(stubs.size())));
+        }
+        // Otherwise, return the primary if it is known.
+        return getPrimaryStubForShard(shard);
+    }
+
+    private class ShardMapUpdateDaemon extends Thread {
+        @Override
+        public void run() {
+            while (runShardMapUpdateDaemon) {
+                for (Integer shardNum : shardToPrimaryStubMap.keySet()) {
+                    Optional<Pair<Pair<String, Integer>, List<Pair<String, Integer>>>> connectStrings =
+                            zkCurator.getShardPrimaryReplicaConnectStrings(shardNum);
+                    if (connectStrings.isEmpty()) {
+                        logger.error("ZK has lost information on Shard {}", shardNum);
+                        continue;
+                    }
+                    Pair<String, Integer> primaryHostPort = connectStrings.get().getValue0();
+                    BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub = getStubFromHostPort(primaryHostPort);
+                    List<Pair<String, Integer>> replicaHostPorts = connectStrings.get().getValue1();
+                    List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> replicaStubs = new ArrayList<>();
+                    for (Pair<String, Integer> replicaHostPort: replicaHostPorts) {
+                        replicaStubs.add(getStubFromHostPort(replicaHostPort));
+                    }
+                    shardToPrimaryStubMap.put(shardNum, primaryStub);
+                    shardToReplicaStubMap.put(shardNum, replicaStubs);
+                }
+                try {
+                    Thread.sleep(shardMapDaemonSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
     }
 
     private class ReadQueryThread<T extends Serializable> extends Thread {
@@ -200,7 +266,7 @@ public class Broker {
         }
 
         private Optional<T> queryShard(int shard) {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getStubForShard(shard);
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shard);
             if (stubOpt.isEmpty()) {
                 logger.warn("Could not find DataStore for shard {}", shard);
                 return Optional.empty();

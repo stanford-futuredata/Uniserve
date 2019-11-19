@@ -8,7 +8,9 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class BrokerCurator {
     private final CuratorFramework cf;
@@ -20,14 +22,33 @@ public class BrokerCurator {
         cf.start();
     }
 
-    Optional<Pair<String, Integer>> getShardConnectString(int shard) {
+    Optional<Pair<String, Integer>> getShardPrimaryConnectString(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
                 ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                String connectString = zkShardDescription.connectString;
+                String connectString = zkShardDescription.primaryConnectString;
                 return Optional.of(Utilities.parseConnectString(connectString));
+            } else {
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Optional.empty();
+        }
+    }
+
+    Optional<Pair<Pair<String, Integer>, List<Pair<String, Integer>>>> getShardPrimaryReplicaConnectStrings(int shard) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
+                Pair<String, Integer> primaryConnectString = Utilities.parseConnectString(zkShardDescription.primaryConnectString);
+                List<Pair<String, Integer>> replicaConnectStrings =
+                        zkShardDescription.secondaryConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
+                return Optional.of(new Pair<>(primaryConnectString, replicaConnectStrings));
             } else {
                 return Optional.empty();
             }

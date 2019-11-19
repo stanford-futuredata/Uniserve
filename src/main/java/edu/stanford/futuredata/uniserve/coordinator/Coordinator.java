@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class Coordinator {
 
@@ -25,7 +26,9 @@ public class Coordinator {
     // List of all known datastores.  Servers can be added, but never removed.
     private final List<DataStoreDescription> dataStoresList = new ArrayList<>();
     // Map from shards to datastores, defined as indices into dataStoresList.
-    private final Map<Integer, Integer> shardToDataStoreMap = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> shardToPrimaryDataStoreMap = new ConcurrentHashMap<>();
+    private final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -91,9 +94,11 @@ public class Coordinator {
             int shardNum = m.getShardNum();
             String cloudName = m.getShardCloudName();
             int versionNumber = m.getVersionNumber();
-            String connectString = dataStoresList.get(shardToDataStoreMap.get(shardNum)).connectString;
+            String connectString = dataStoresList.get(shardToPrimaryDataStoreMap.get(shardNum)).connectString;
+            List<String> replicaConnectStrings = shardToReplicaDataStoreMap.get(shardNum).stream().map((Integer x) -> dataStoresList.get(x).connectString).collect(Collectors.toList());
+            shardToVersionMap.put(shardNum, versionNumber);
             try {
-                zkCurator.setShardConnectString(shardNum, connectString, cloudName, versionNumber);
+                zkCurator.setZKShardDescription(shardNum, connectString, cloudName, versionNumber, replicaConnectStrings);
             } catch (Exception e) {
                 logger.error("Error updating connection string in ZK: {}", e.getMessage());
                 return ShardUpdateResponse.newBuilder().setReturnCode(1).build();
@@ -120,7 +125,7 @@ public class Coordinator {
         private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
             int shardNum = m.getShard();
             // Check if the shard's location is known.
-            Integer dsNum = shardToDataStoreMap.getOrDefault(shardNum, null);
+            Integer dsNum = shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
             if (dsNum != null) {
                 DataStoreDescription dsDesc = dataStoresList.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
@@ -128,12 +133,14 @@ public class Coordinator {
             }
             // If not, assign it to a DataStore.
             int chosenDataStore = assignShardToDataStore(shardNum);
-            dsNum = shardToDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
+            dsNum = shardToPrimaryDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
             if (dsNum != null) {
                 DataStoreDescription dsDesc = dataStoresList.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
+            shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
+            shardToVersionMap.put(shardNum, 0);
             // Tell the DataStore to create the shard.
             DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
@@ -143,7 +150,7 @@ public class Coordinator {
             String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
             // Once the shard is created, add it to the ZooKeeper map.
             try {
-                zkCurator.setShardConnectString(m.getShard(), connectString, Utilities.null_name, 0);
+                zkCurator.setZKShardDescription(m.getShard(), connectString, Utilities.null_name, 0, new ArrayList<>());
             } catch (Exception e) {
                 logger.error("Error adding connection string to ZK: {}", e.getMessage());
             }
