@@ -188,7 +188,7 @@ public class KVStoreTests {
         assertTrue(uploadResult.isPresent());
         String cloudName = uploadResult.get().getValue0();
         Integer shardVersion = uploadResult.get().getValue1();
-        assertEquals(shardVersion, 1);
+        assertTrue(shardVersion >= 1);
         Optional shard = dataStore.downloadShardFromCloud(0, cloudName, 1);
         assertTrue(shard.isPresent());
 

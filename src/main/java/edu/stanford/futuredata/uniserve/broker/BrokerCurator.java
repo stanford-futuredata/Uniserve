@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.broker;
 
+import edu.stanford.futuredata.uniserve.datastore.ZKShardDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -24,7 +25,8 @@ public class BrokerCurator {
             String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
-                String connectString = new String(b);
+                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
+                String connectString = zkShardDescription.connectString;
                 return Optional.of(Utilities.parseConnectString(connectString));
             } else {
                 return Optional.empty();

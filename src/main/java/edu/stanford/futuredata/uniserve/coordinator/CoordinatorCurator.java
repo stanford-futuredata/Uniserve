@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import edu.stanford.futuredata.uniserve.datastore.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -35,9 +36,10 @@ class CoordinatorCurator {
         }
     }
 
-    void setShardConnectString(int shard, String connectString) throws Exception {
+    void setShardConnectString(int shard, String connectString, String cloudName, int versionNumber) throws Exception {
         String path = String.format("/shardMapping/%d", shard);
-        byte[] data = connectString.getBytes();
+        ZKShardDescription zkShardDescription = new ZKShardDescription(connectString, cloudName, versionNumber);
+        byte[] data = zkShardDescription.stringSummary.getBytes();
         if (cf.checkExists().forPath(path) != null) {
             cf.setData().forPath(path, data);
         } else {

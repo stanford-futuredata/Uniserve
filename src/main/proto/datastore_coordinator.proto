@@ -9,6 +9,7 @@ package datastorecoordinator;
 // Communication from datastores to the coordinator.
 service DataStoreCoordinator {
     rpc RegisterDataStore (RegisterDataStoreMessage) returns (RegisterDataStoreResponse) {}
+    rpc ShardUpdate (ShardUpdateMessage) returns (ShardUpdateResponse) {}
 }
 
 message RegisterDataStoreMessage {
@@ -17,5 +18,15 @@ message RegisterDataStoreMessage {
 }
 
 message RegisterDataStoreResponse {
+    int32 returnCode = 1;
+}
+
+message ShardUpdateMessage {
+    int32 shardNum = 1;
+    string shardCloudName = 2;
+    int32 versionNumber = 3;
+}
+
+message ShardUpdateResponse {
     int32 returnCode = 1;
 }

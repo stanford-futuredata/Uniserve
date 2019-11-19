@@ -35,6 +35,11 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final ShardFactory<S> shardFactory;
     private final DataStoreCloud dsCloud;
     private final Path baseDirectory;
+    private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
+    private ManagedChannel coordinatorChannel = null;
+    private boolean uploadThread = true;
+    private final UploadShardThread uploadShardThread;
+    private final static int uploadThreadSleepDurationMillis = 1000;
 
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
@@ -48,6 +53,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 .addService(new CoordinatorDataStoreService())
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
+        uploadShardThread = new UploadShardThread();
     }
 
     /** Start serving requests. */
@@ -80,28 +86,30 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         logger.info("DataStore server started, listening on " + dsPort);
         ManagedChannelBuilder channelBuilder =
                 ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext();
-        ManagedChannel channel = channelBuilder.build();
-        DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub blockingStub =
-                DataStoreCoordinatorGrpc.newBlockingStub(channel);
+        coordinatorChannel = channelBuilder.build();
+        coordinatorStub = DataStoreCoordinatorGrpc.newBlockingStub(coordinatorChannel);
         RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost(dsHost).setPort(dsPort).build();
         try {
-            RegisterDataStoreResponse r = blockingStub.registerDataStore(m);
+            RegisterDataStoreResponse r = coordinatorStub.registerDataStore(m);
             assert r.getReturnCode() == 0;
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
-            channel.shutdown();
             shutDown();
             return 1;
         }
-        channel.shutdown();
+        uploadShardThread.start();
         return 0;
     }
 
     /** Stop serving requests and shutdown resources. */
     public void shutDown() {
-        if (server != null) {
-            server.shutdown();
-        }
+        coordinatorChannel.shutdown();
+        server.shutdown();
+        uploadThread = false;
+        try {
+            uploadShardThread.interrupt();
+            uploadShardThread.join();
+        } catch (InterruptedException ignored) {}
         for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
             entry.getValue().destroy();
             shardMap.remove(entry.getKey());
@@ -143,6 +151,31 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
         return shardFactory.createShardFromDir(targetDirectory);
+    }
+
+    private class UploadShardThread extends Thread {
+        @Override
+        public void run() {
+            while (uploadThread) {
+                for (Integer shardNum : shardMap.keySet()) {
+                    Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
+                    assert(nameVersion.isPresent()); // TODO:  Error handling.
+                    ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(nameVersion.get().getValue0())
+                            .setVersionNumber(nameVersion.get().getValue1()).build();
+                    try {
+                        ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
+                        assert(shardUpdateResponse.getReturnCode() == 0); // TODO:  Error handling.
+                    } catch (StatusRuntimeException e) {
+                        logger.warn("ShardUpdateResponse RPC Failure {}", e.getMessage());
+                    }
+                }
+                try {
+                    Thread.sleep(uploadThreadSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
     }
 
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {

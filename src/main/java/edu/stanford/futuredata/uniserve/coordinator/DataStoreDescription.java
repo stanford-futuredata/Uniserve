@@ -6,9 +6,10 @@ import io.grpc.ManagedChannelBuilder;
 
 public class DataStoreDescription {
 
-    private final String host;
-    private final int port;
-    private final CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub;
+    public final String host;
+    public final int port;
+    public final CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub;
+    public final String connectString;
 
     public DataStoreDescription(String host, int port) {
         this.host = host;
@@ -16,17 +17,6 @@ public class DataStoreDescription {
         ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(host, port).usePlaintext();
         ManagedChannel channel = channelBuilder.build();
         this.stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
-    }
-
-    public String getHost() {
-        return this.host;
-    }
-
-    public int getPort() {
-        return this.port;
-    }
-
-    public CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub getStub() {
-        return stub;
+        this.connectString = String.format("%s:%d", host, port);
     }
 }

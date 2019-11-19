@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -76,10 +77,30 @@ public class Coordinator {
             String host = m.getHost();
             int port = m.getPort();
             dataStoresList.add(new DataStoreDescription(host, port));
-            logger.info("Registered {} {}", host, port);
+            logger.info("Registered DataStore {} {}", host, port);
             return RegisterDataStoreResponse.newBuilder().setReturnCode(0).build();
         }
 
+        @Override
+        public void shardUpdate(ShardUpdateMessage request, StreamObserver<ShardUpdateResponse> responseObserver) {
+            responseObserver.onNext(shardUpdateHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private ShardUpdateResponse shardUpdateHandler(ShardUpdateMessage m) {
+            int shardNum = m.getShardNum();
+            String cloudName = m.getShardCloudName();
+            int versionNumber = m.getVersionNumber();
+            String connectString = dataStoresList.get(shardToDataStoreMap.get(shardNum)).connectString;
+            try {
+                zkCurator.setShardConnectString(shardNum, connectString, cloudName, versionNumber);
+            } catch (Exception e) {
+                logger.error("Error updating connection string in ZK: {}", e.getMessage());
+                return ShardUpdateResponse.newBuilder().setReturnCode(1).build();
+            }
+            logger.info("Uploaded Shard {} Version {}", cloudName, versionNumber);
+            return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
+        }
     }
 
     private class BrokerCoordinatorService extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
@@ -102,7 +123,7 @@ public class Coordinator {
             Integer dsNum = shardToDataStoreMap.getOrDefault(shardNum, null);
             if (dsNum != null) {
                 DataStoreDescription dsDesc = dataStoresList.get(dsNum);
-                String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+                String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
             // If not, assign it to a DataStore.
@@ -110,19 +131,19 @@ public class Coordinator {
             dsNum = shardToDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
             if (dsNum != null) {
                 DataStoreDescription dsDesc = dataStoresList.get(dsNum);
-                String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+                String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
             // Tell the DataStore to create the shard.
             DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
-            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.getStub();
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
             CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
             CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
             assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
-            String connectString = String.format("%s:%d", dsDesc.getHost(), dsDesc.getPort());
+            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
             // Once the shard is created, add it to the ZooKeeper map.
             try {
-                zkCurator.setShardConnectString(m.getShard(), connectString);
+                zkCurator.setShardConnectString(m.getShard(), connectString, Utilities.null_name, 0);
             } catch (Exception e) {
                 logger.error("Error adding connection string to ZK: {}", e.getMessage());
             }

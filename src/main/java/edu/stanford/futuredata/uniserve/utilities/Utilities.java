@@ -8,6 +8,8 @@ import org.javatuples.Pair;
 import java.io.*;
 
 public class Utilities {
+    public static String null_name = "__null__unready__";
+
     public static Pair<String, Integer> parseConnectString(String connectString) {
         String[] hostPort = connectString.split(":");
         String host = hostPort[0];
