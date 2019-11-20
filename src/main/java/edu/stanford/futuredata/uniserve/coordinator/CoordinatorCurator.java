@@ -37,12 +37,32 @@ class CoordinatorCurator {
         } else {
             cf.create().forPath(shardMappingPath, new byte[0]);
         }
+        String shardReplicaMappingPath = "/shardReplicaMapping";
+        if (cf.checkExists().forPath(shardReplicaMappingPath) != null) {
+            cf.setData().forPath(shardReplicaMappingPath, new byte[0]);
+        } else {
+            cf.create().forPath(shardReplicaMappingPath, new byte[0]);
+        }
     }
 
-    void setZKShardDescription(int shard, String primaryConnectString, String cloudName, int versionNumber, List<String> secondaryConnectStrings) throws Exception {
+    void setZKShardDescription(int shard, String primaryConnectString, String cloudName, int versionNumber) throws Exception {
         String path = String.format("/shardMapping/%d", shard);
-        ZKShardDescription zkShardDescription = new ZKShardDescription(primaryConnectString, cloudName, versionNumber, secondaryConnectStrings);
+        ZKShardDescription zkShardDescription = new ZKShardDescription(primaryConnectString, cloudName, versionNumber);
         byte[] data = zkShardDescription.stringSummary.getBytes();
+        if (cf.checkExists().forPath(path) != null) {
+            cf.setData().forPath(path, data);
+        } else {
+            cf.create().forPath(path, data);
+        }
+    }
+
+    void setShardReplicas(int shard, List<String> replicaConnectStrings) throws Exception {
+        String path = String.format("/shardReplicaMapping/%d", shard);
+        StringBuilder replicaStringBuilder = new StringBuilder();
+        for (String replicaConnectString: replicaConnectStrings) {
+            replicaStringBuilder.append(replicaConnectString).append('\n');
+        }
+        byte[] data = replicaStringBuilder.toString().getBytes();
         if (cf.checkExists().forPath(path) != null) {
             cf.setData().forPath(path, data);
         } else {

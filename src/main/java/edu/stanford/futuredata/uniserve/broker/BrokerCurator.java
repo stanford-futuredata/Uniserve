@@ -8,6 +8,7 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -39,16 +40,15 @@ public class BrokerCurator {
         }
     }
 
-    Optional<Pair<Pair<String, Integer>, List<Pair<String, Integer>>>> getShardPrimaryReplicaConnectStrings(int shard) {
+    Optional<List<Pair<String, Integer>>> getShardReplicaConnectStrings(int shard) {
         try {
-            String path = String.format("/shardMapping/%d", shard);
+            String path = String.format("/shardReplicaMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
-                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                Pair<String, Integer> primaryConnectString = Utilities.parseConnectString(zkShardDescription.primaryConnectString);
+                List<String> replicasConnectStrings = Arrays.asList(new String(b).split("\n"));
                 List<Pair<String, Integer>> replicaConnectStrings =
-                        zkShardDescription.secondaryConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
-                return Optional.of(new Pair<>(primaryConnectString, replicaConnectStrings));
+                        replicasConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
+                return Optional.of(replicaConnectStrings);
             } else {
                 return Optional.empty();
             }

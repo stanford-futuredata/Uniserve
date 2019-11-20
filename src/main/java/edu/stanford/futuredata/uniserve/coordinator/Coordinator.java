@@ -95,10 +95,9 @@ public class Coordinator {
             String cloudName = m.getShardCloudName();
             int versionNumber = m.getVersionNumber();
             String connectString = dataStoresList.get(shardToPrimaryDataStoreMap.get(shardNum)).connectString;
-            List<String> replicaConnectStrings = shardToReplicaDataStoreMap.get(shardNum).stream().map((Integer x) -> dataStoresList.get(x).connectString).collect(Collectors.toList());
             shardToVersionMap.put(shardNum, versionNumber);
             try {
-                zkCurator.setZKShardDescription(shardNum, connectString, cloudName, versionNumber, replicaConnectStrings);
+                zkCurator.setZKShardDescription(shardNum, connectString, cloudName, versionNumber);
             } catch (Exception e) {
                 logger.error("Error updating connection string in ZK: {}", e.getMessage());
                 return ShardUpdateResponse.newBuilder().setReturnCode(1).build();
@@ -150,9 +149,14 @@ public class Coordinator {
             String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
             // Once the shard is created, add it to the ZooKeeper map.
             try {
-                zkCurator.setZKShardDescription(m.getShard(), connectString, Utilities.null_name, 0, new ArrayList<>());
+                zkCurator.setZKShardDescription(m.getShard(), connectString, Utilities.null_name, 0);
             } catch (Exception e) {
                 logger.error("Error adding connection string to ZK: {}", e.getMessage());
+            }
+            try {
+                zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
+            } catch (Exception e) {
+                logger.error("Error adding replicas to ZK: {}", e.getMessage());
             }
             return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
         }

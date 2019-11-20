@@ -225,15 +225,17 @@ public class Broker {
         public void run() {
             while (runShardMapUpdateDaemon) {
                 for (Integer shardNum : shardToPrimaryStubMap.keySet()) {
-                    Optional<Pair<Pair<String, Integer>, List<Pair<String, Integer>>>> connectStrings =
-                            zkCurator.getShardPrimaryReplicaConnectStrings(shardNum);
-                    if (connectStrings.isEmpty()) {
+                    Optional<Pair<String, Integer>> primaryHostPortOpt =
+                            zkCurator.getShardPrimaryConnectString(shardNum);
+                    Optional<List<Pair<String, Integer>>> replicaHostPortsOpt =
+                            zkCurator.getShardReplicaConnectStrings(shardNum);
+                    if (primaryHostPortOpt.isEmpty() || replicaHostPortsOpt.isEmpty()) {
                         logger.error("ZK has lost information on Shard {}", shardNum);
                         continue;
                     }
-                    Pair<String, Integer> primaryHostPort = connectStrings.get().getValue0();
+                    Pair<String, Integer> primaryHostPort = primaryHostPortOpt.get();
                     BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub = getStubFromHostPort(primaryHostPort);
-                    List<Pair<String, Integer>> replicaHostPorts = connectStrings.get().getValue1();
+                    List<Pair<String, Integer>> replicaHostPorts = replicaHostPortsOpt.get();
                     List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> replicaStubs = new ArrayList<>();
                     for (Pair<String, Integer> replicaHostPort: replicaHostPorts) {
                         replicaStubs.add(getStubFromHostPort(replicaHostPort));
