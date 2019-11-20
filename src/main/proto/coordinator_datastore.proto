@@ -9,6 +9,7 @@ package coordinatordatastore;
 // Communication from coordinator to the datastores.
 service CoordinatorDataStore {
     rpc createNewShard (CreateNewShardMessage) returns (CreateNewShardResponse) {}
+    rpc loadExistingShard (LoadExistingShardMessage) returns (LoadExistingShardResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -16,5 +17,13 @@ message CreateNewShardMessage {
 }
 
 message CreateNewShardResponse {
+    int32 returnCode = 1;
+}
+
+message LoadExistingShardMessage {
+    int32 shard = 1;
+}
+
+message LoadExistingShardResponse {
     int32 returnCode = 1;
 }

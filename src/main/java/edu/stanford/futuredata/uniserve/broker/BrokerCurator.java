@@ -8,6 +8,7 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -44,11 +45,15 @@ public class BrokerCurator {
         try {
             String path = String.format("/shardReplicaMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
-                byte[] b = cf.getData().forPath(path);
-                List<String> replicasConnectStrings = Arrays.asList(new String(b).split("\n"));
-                List<Pair<String, Integer>> replicaConnectStrings =
-                        replicasConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
-                return Optional.of(replicaConnectStrings);
+                String replicaDataString = new String(cf.getData().forPath(path));
+                if (replicaDataString.length() > 0) {
+                    List<String> replicasConnectStrings = Arrays.asList(replicaDataString.split("\n"));
+                    List<Pair<String, Integer>> replicaHostPorts =
+                            replicasConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
+                    return Optional.of(replicaHostPorts);
+                } else {
+                    return Optional.of(new ArrayList<>());
+                }
             } else {
                 return Optional.empty();
             }

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,9 @@ public class Coordinator {
     private final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
     private final Map<Integer, Integer> shardToPrimaryDataStoreMap = new ConcurrentHashMap<>();
     private final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
+    private boolean runReplicationDaemon = true;
+    private final ReplicationDaemon replicationDaemon;
+    private final static int replicationDaemonSleepDurationMillis = 1000;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -38,6 +42,7 @@ public class Coordinator {
         this.server = serverBuilder.addService(new DataStoreCoordinatorService())
                 .addService(new BrokerCoordinatorService())
                 .build();
+        replicationDaemon = new ReplicationDaemon();
     }
 
     /** Start serving requests. */
@@ -57,6 +62,7 @@ public class Coordinator {
                 Coordinator.this.stopServing();
             }
         });
+        replicationDaemon.start();
         return 0;
     }
 
@@ -65,6 +71,51 @@ public class Coordinator {
         if (server != null) {
             server.shutdown();
         }
+        runReplicationDaemon = false;
+        try {
+            replicationDaemon.interrupt();
+            replicationDaemon.join();
+        } catch (InterruptedException ignored) {}
+    }
+
+    private class ReplicationDaemon extends Thread {
+        @Override
+        public void run() {
+            while (runReplicationDaemon) {
+                for (Map.Entry<Integer, Integer> shardVersionEntry : shardToVersionMap.entrySet()) {
+                    int shardNum = shardVersionEntry.getKey();
+                    int shardVersion = shardVersionEntry.getValue();
+                    if (shardVersion > 0) {
+                        int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
+                        List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+                        if (dataStoresList.size() > 1 && replicaDataStores.size() == 0) {
+                            int newReplicaDataStore = (primaryDataStore + 1) % dataStoresList.size();
+                            assert(newReplicaDataStore != primaryDataStore);
+                            DataStoreDescription dsDesc = dataStoresList.get(newReplicaDataStore);
+                            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
+                            LoadExistingShardMessage m = LoadExistingShardMessage.newBuilder().setShard(shardNum).build();
+                            LoadExistingShardResponse r = stub.loadExistingShard(m);
+                            if (r.getReturnCode() != 0) {
+                                logger.warn("Shard {} load failed on DataStore {}", shardNum, newReplicaDataStore);
+                                continue;
+                            }
+                            shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(newReplicaDataStore));
+                            try {
+                                zkCurator.setShardReplicas(shardNum, Collections.singletonList(dsDesc.connectString));
+                            } catch (Exception e) {
+                                logger.warn("Shard {} ZK Replica Set Failed", shardNum);
+                            }
+                        }
+                    }
+                }
+                try {
+                    Thread.sleep(replicationDaemonSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+
     }
 
     private class DataStoreCoordinatorService extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {

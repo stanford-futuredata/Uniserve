@@ -213,7 +213,7 @@ public class Broker {
     private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getAnyStubForShard(int shard) {
         // If replicas are known, return a random replica.
         List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs = shardToReplicaStubMap.getOrDefault(shard, null);
-        if (stubs != null) {
+        if (stubs != null && stubs.size() > 0) {
             return Optional.of(stubs.get(ThreadLocalRandom.current().nextInt(stubs.size())));
         }
         // Otherwise, return the primary if it is known.

@@ -28,7 +28,8 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
     private final String dsHost;
     private final int dsPort;
-    private final Map<Integer, S> shardMap = new ConcurrentHashMap<>();
+    private final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>();
+    private final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
     private final Map<Integer, AtomicInteger> shardVersionMap = new ConcurrentHashMap<>();
     private final Server server;
     private final DataStoreCurator zkCurator;
@@ -110,15 +111,15 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             uploadShardDaemon.interrupt();
             uploadShardDaemon.join();
         } catch (InterruptedException ignored) {}
-        for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
+        for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
-            shardMap.remove(entry.getKey());
+            primaryShardMap.remove(entry.getKey());
         }
     }
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     public Optional<Pair<String, Integer>> uploadShardToCloud(int shardNum) {
-        Shard<R> shard = shardMap.get(shardNum);
+        Shard<R> shard = primaryShardMap.get(shardNum);
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("Shard {} serialization failed", shardNum);
@@ -157,9 +158,11 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         @Override
         public void run() {
             while (runUploadShardDaemon) {
-                for (Integer shardNum : shardMap.keySet()) {
+                for (Integer shardNum : primaryShardMap.keySet()) {
                     Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
-                    assert(nameVersion.isPresent()); // TODO:  Error handling.
+                    if (nameVersion.isEmpty()) {
+                        continue; // TODO:  Error handling.
+                    }
                     ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(nameVersion.get().getValue0())
                             .setVersionNumber(nameVersion.get().getValue1()).build();
                     try {
@@ -188,7 +191,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private InsertRowResponse addRowHandler(InsertRowMessage rowMessage) {
             int shardNum = rowMessage.getShard();
-            if (shardMap.containsKey(shardNum)) {
+            if (primaryShardMap.containsKey(shardNum)) {
                 ByteString rowData = rowMessage.getRowData();
                 R row;
                 try {
@@ -197,7 +200,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                     logger.error("Row Deserialization Failed: {}", e.getMessage());
                     return InsertRowResponse.newBuilder().setReturnCode(1).build();
                 }
-                int addRowReturnCode = shardMap.get(shardNum).addRow(row);
+                int addRowReturnCode = primaryShardMap.get(shardNum).addRow(row);
                 return InsertRowResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
                 logger.warn("Got read request for absent shard {}", shardNum);
@@ -213,7 +216,11 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
             int shardNum = readQuery.getShard();
-            if (shardMap.containsKey(shardNum)) {
+            S queriedShard = replicaShardMap.getOrDefault(shardNum, null);
+            if (queriedShard == null) {
+                queriedShard = primaryShardMap.getOrDefault(shardNum, null);
+            }
+            if (queriedShard != null) {
                 ByteString serializedQuery = readQuery.getSerializedQuery();
                 QueryPlan<S, Serializable, Object> queryPlan;
                 try {
@@ -222,7 +229,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                     logger.error("Query Deserialization Failed: {}", e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
-                Serializable queryResult = queryPlan.queryShard(shardMap.get(shardNum));
+                Serializable queryResult = queryPlan.queryShard(queriedShard);
                 ByteString queryResponse;
                 try {
                     queryResponse = Utilities.objectToByteString(queryResult);
@@ -248,6 +255,8 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
         private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
             int shardNum = request.getShard();
+            assert (!primaryShardMap.containsKey(shardNum));
+            assert (!replicaShardMap.containsKey(shardNum));
             int shardVersionNumber = 0;
             Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(shardVersionNumber), Integer.toString(shardNum));
             File shardPathFile = shardPath.toFile();
@@ -263,11 +272,37 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 logger.error("Shard creation failed {}", shardNum);
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
             }
-            assert (!shardMap.containsKey(shardNum) && !shardVersionMap.containsKey(shardNum));
             shardVersionMap.put(shardNum, new AtomicInteger(shardVersionNumber));
-            shardMap.put(shardNum, shard.get());
-            logger.info("Created new shard {}", shardNum);
+            primaryShardMap.put(shardNum, shard.get());
+            logger.info("Created new primary shard {}", shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
+        }
+
+        @Override
+        public void loadExistingShard(LoadExistingShardMessage request, StreamObserver<LoadExistingShardResponse> responseObserver) {
+            responseObserver.onNext(loadExistingShardHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private LoadExistingShardResponse loadExistingShardHandler(LoadExistingShardMessage request) {
+            int shardNum = request.getShard();
+            assert(!primaryShardMap.containsKey(shardNum));
+            assert(!replicaShardMap.containsKey(shardNum));
+            Optional<Pair<String, Integer>> cloudNameVersion = zkCurator.getShardCloudNameVersion(shardNum);
+            if (cloudNameVersion.isEmpty()) {
+                logger.error("Loading shard not in ZK: {}", shardNum);
+                return LoadExistingShardResponse.newBuilder().setReturnCode(1).build();
+            }
+            String cloudName = cloudNameVersion.get().getValue0();
+            int versionNumber = cloudNameVersion.get().getValue1();
+            Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, versionNumber);
+            if (loadedShard.isEmpty()) {
+                logger.error("Shard load failed {}", shardNum);
+                return LoadExistingShardResponse.newBuilder().setReturnCode(1).build();
+            }
+            replicaShardMap.put(shardNum, loadedShard.get());
+            logger.info("Loaded new replica shard {}", shardNum);
+            return LoadExistingShardResponse.newBuilder().setReturnCode(0).build();
         }
     }
 }

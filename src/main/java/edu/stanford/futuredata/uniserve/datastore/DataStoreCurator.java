@@ -7,7 +7,6 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 
-import java.io.IOException;
 import java.util.Optional;
 
 class DataStoreCurator {
@@ -32,4 +31,21 @@ class DataStoreCurator {
             return Optional.empty();
         }
     }
+
+    Optional<Pair<String, Integer>> getShardCloudNameVersion(int shard) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
+                return Optional.of(new Pair<>(zkShardDescription.cloudName, zkShardDescription.versionNumber));
+            } else {
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Optional.empty();
+        }
+    }
+
 }

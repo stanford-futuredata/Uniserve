@@ -29,8 +29,11 @@ public class AWSDataStoreCloud implements DataStoreCloud {
             for (Upload upload : mfu.getSubTransfers()) {
                 upload.waitForUploadResult();
             }
-        } catch (AmazonServiceException | InterruptedException e) {
-            logger.warn("Shard upload failed: {}", e.getMessage());
+        } catch (AmazonServiceException e) {
+            logger.warn("Shard upload failed: {}, {}", e.getErrorCode(), e.getErrorMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            logger.warn("Shard upload interrupted");
             return Optional.empty();
         }
         return Optional.of(shardName);

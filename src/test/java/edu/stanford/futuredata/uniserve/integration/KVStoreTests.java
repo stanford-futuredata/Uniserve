@@ -121,14 +121,14 @@ public class KVStoreTests {
     @Test
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
-        int numShards = 20;
+        int numShards = 10;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8200 + i);
+            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -139,6 +139,7 @@ public class KVStoreTests {
             int addRowReturnCode = broker.insertRow(new KVRow(i, i));
             assertEquals(0, addRowReturnCode);
         }
+        Thread.sleep(10000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             int finalI = i;
