@@ -98,7 +98,9 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             shutDown();
             return 1;
         }
-        uploadShardDaemon.start();
+        if (dsCloud != null) {
+            uploadShardDaemon.start();
+        }
         return 0;
     }
 
@@ -106,11 +108,14 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     public void shutDown() {
         coordinatorChannel.shutdown();
         server.shutdown();
-        runUploadShardDaemon = false;
-        try {
-            uploadShardDaemon.interrupt();
-            uploadShardDaemon.join();
-        } catch (InterruptedException ignored) {}
+        if (dsCloud != null) {
+            runUploadShardDaemon = false;
+            try {
+                uploadShardDaemon.interrupt();
+                uploadShardDaemon.join();
+            } catch (InterruptedException ignored) {
+            }
+        }
         for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
