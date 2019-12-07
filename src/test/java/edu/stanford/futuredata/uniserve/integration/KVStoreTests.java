@@ -5,7 +5,6 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
@@ -19,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -30,23 +30,35 @@ public class KVStoreTests {
 
     private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
 
-    private String zkHost = "127.0.0.1";
-    private Integer zkPort = 2181;
+    private static String zkHost = "127.0.0.1";
+    private static Integer zkPort = 2181;
 
-    @AfterEach
-    public void cleanUp() throws Exception {
+    public static void cleanUp(String zkHost, int zkPort) {
         // Clean up ZooKeeper
         String connectString = String.format("%s:%d", zkHost, zkPort);
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         CuratorFramework cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
-        for (String child: cf.getChildren().forPath("/")) {
-            if (!child.equals("zookeeper")) {
-                cf.delete().deletingChildrenIfNeeded().forPath("/" + child);
+        try {
+            for (String child : cf.getChildren().forPath("/")) {
+                if (!child.equals("zookeeper")) {
+                    cf.delete().deletingChildrenIfNeeded().forPath("/" + child);
+                }
             }
+        } catch (Exception e) {
+            logger.info("Zookeeper cleanup failed: {}", e.getMessage());
         }
         // Clean up directories.
-        FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve"));
+        try {
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve"));
+        } catch (IOException e) {
+            logger.info("FS cleanpu failed: {}", e.getMessage());
+        }
+    }
+
+    @AfterEach
+    private void unitTestCleanUp() throws Exception {
+        cleanUp(zkHost, zkPort);
     }
 
     @Test
@@ -139,7 +151,7 @@ public class KVStoreTests {
             int addRowReturnCode = broker.insertRow(new KVRow(i, i));
             assertEquals(0, addRowReturnCode);
         }
-        Thread.sleep(10000);
+        Thread.sleep(2000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             int finalI = i;
@@ -190,7 +202,7 @@ public class KVStoreTests {
         String cloudName = uploadResult.get().getValue0();
         Integer shardVersion = uploadResult.get().getValue1();
         assertTrue(shardVersion >= 1);
-        Optional shard = dataStore.downloadShardFromCloud(0, cloudName, 1);
+        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, cloudName, 1);
         assertTrue(shard.isPresent());
 
         dataStore.shutDown();

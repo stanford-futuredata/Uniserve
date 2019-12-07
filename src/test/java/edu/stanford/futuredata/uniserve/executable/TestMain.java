@@ -5,17 +5,23 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.cli.*;
 import org.javatuples.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestMain {
-    public static void main(String[] args) throws ParseException, InterruptedException {
+
+    private static final Logger logger = LoggerFactory.getLogger(TestMain.class);
+
+    public static void main(String[] args) throws Exception {
         Options options = new Options();
         options.addOption("coordinator", false, "Start Coordinator?");
         options.addOption("broker", false, "Start Broker?");
@@ -40,17 +46,17 @@ public class TestMain {
         }
 
         if (cmd.hasOption("coordinator")) {
-            System.out.println("Starting coordinator!");
+            logger.info("Starting coordinator!");
             runCoordinator(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
                     serverHost, Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("datastore")) {
-            System.out.println("Starting datastore!");
+            logger.info("Starting datastore!");
             runDataStore(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
                     serverHost, Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("broker")) {
-            System.out.println("Starting broker!");
+            logger.info("Starting broker!");
             runBroker(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")));
         }
     }
@@ -59,29 +65,29 @@ public class TestMain {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, cHost, cPort);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        while(true) {
-            Thread.sleep(10);
-        }
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            coordinator.stopServing();
+            KVStoreTests.cleanUp(zkHost, zkPort);
+        }));
+        Thread.sleep(Long.MAX_VALUE);
     }
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort) throws InterruptedException {
-        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort);
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
-        while(true) {
-            Thread.sleep(10);
-        }
+        Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));
+        Thread.sleep(Long.MAX_VALUE);
     }
 
     private static void runBroker(String zkHost, int zkPort) {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
-
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
-
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
         Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
         assertEquals(Integer.valueOf(0), queryResponse.getValue0());
         assertEquals(Integer.valueOf(2), queryResponse.getValue1());
+        broker.shutdown();
     }
 }
