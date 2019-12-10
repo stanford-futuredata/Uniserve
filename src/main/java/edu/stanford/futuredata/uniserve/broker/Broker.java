@@ -16,10 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
@@ -127,15 +124,61 @@ public class Broker {
     }
 
     public <S extends Shard, T extends Serializable, V> V scheduleQuery(QueryPlan<S, T, V> queryPlan) {
-        ExecuteQueryPlanThread<S, T, V> executeQueryPlanThread = new ExecuteQueryPlanThread<>(queryPlan);
-        executeQueryPlanThread.start();
+        Set<QueryPlan> unexecutedQueryPlans = new HashSet<>();
+        // DFS the query plan tree to construct a list of all sub-query plans.
+        Stack<QueryPlan> searchStack = new Stack<>();
+        searchStack.push(queryPlan);
+        while (!searchStack.empty()) {
+            QueryPlan q = searchStack.pop();
+            unexecutedQueryPlans.add(q);
+            List<QueryPlan> subQueries = q.getSubQueries();
+            for (QueryPlan sq : subQueries) {
+                searchStack.push(sq);
+            }
+        }
+        // Spin on the list of sub-query plans, asynchronously executing each as soon as its dependencies are resolved.
+        Map<QueryPlan, Object> executedQueryPlans = new HashMap<>();
+        List<ExecuteQueryPlanThread> executeQueryPlanThreads = new ArrayList<>();
+        while (!unexecutedQueryPlans.isEmpty()) {
+            // If a subquery thread has finished, store its result and remove the thread.
+            List<ExecuteQueryPlanThread> updatedExecuteQueryPlanThreads = new ArrayList<>();
+            for (ExecuteQueryPlanThread t : executeQueryPlanThreads) {
+                if (!t.isAlive()) {
+                    executedQueryPlans.put(t.getQueryPlan(), t.getQueryResult());
+                } else {
+                    updatedExecuteQueryPlanThreads.add(t);
+                }
+            }
+            // If all dependencies of a subquery are resolved, execute the subquery.
+            executeQueryPlanThreads = updatedExecuteQueryPlanThreads;
+            Set<QueryPlan> updatedUnexecutedQueryPlans = new HashSet<>();
+            for (QueryPlan q: unexecutedQueryPlans) {
+                if (executedQueryPlans.keySet().containsAll(q.getSubQueries())) {
+                    List<Object> subQueryResults = new ArrayList<>();
+                    List<QueryPlan> subQueries = q.getSubQueries();
+                    for (QueryPlan sq: subQueries) {
+                        subQueryResults.add(executedQueryPlans.get(sq));
+                    }
+                    q.setSubQueryResults(subQueryResults);
+                    ExecuteQueryPlanThread t = new ExecuteQueryPlanThread(q);
+                    t.start();
+                    executeQueryPlanThreads.add(t);
+                } else {
+                    updatedUnexecutedQueryPlans.add(q);
+                }
+            }
+            unexecutedQueryPlans = updatedUnexecutedQueryPlans;
+        }
+        // When all dependencies are resolved, the only query still executing will be the top-level one.  Return its result.
+        assert(executeQueryPlanThreads.size() == 1);
+        ExecuteQueryPlanThread<S, T, V> finalThread = (ExecuteQueryPlanThread<S, T, V>) executeQueryPlanThreads.get(0);
         try {
-            executeQueryPlanThread.join();
+            finalThread.join();
         } catch (InterruptedException e) {
-            logger.error("Interrupted query: {}", e.getMessage());
+            logger.error("Query execution thread interrupted: {}", e.getMessage());
             assert(false);
         }
-        return executeQueryPlanThread.getQueryResult();
+        return finalThread.getQueryResult();
     }
 
     /*
@@ -276,6 +319,7 @@ public class Broker {
         }
 
         V getQueryResult() { return this.queryResult; }
+        QueryPlan<S, T, V> getQueryPlan() { return this.queryPlan; }
     }
 
     private class QueryShardThread<T extends Serializable> extends Thread {

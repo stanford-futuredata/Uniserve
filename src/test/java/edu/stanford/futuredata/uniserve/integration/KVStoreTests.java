@@ -127,6 +127,32 @@ public class KVStoreTests {
     }
 
     @Test
+    public void testBasicNestedQuery() {
+        logger.info("testBasicNestedQuery");
+        int numShards = 1;
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
+        int d_r = dataStore.startServing();
+        assertEquals(0, d_r);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        int addRowReturnCode = broker.insertRow(new KVRow(0, 1));
+        assertEquals(0, addRowReturnCode);
+        addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        assertEquals(0, addRowReturnCode);
+
+        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanBasicNested(0);
+        Integer queryResponse = broker.scheduleQuery(queryPlan);
+        assertEquals(Integer.valueOf(2), queryResponse);
+
+        dataStore.shutDown();
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 10;
