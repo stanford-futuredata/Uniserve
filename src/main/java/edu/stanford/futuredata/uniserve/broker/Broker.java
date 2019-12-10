@@ -126,40 +126,16 @@ public class Broker {
         return addRowAck.getReturnCode();
     }
 
-    public <S extends Shard, T extends Serializable, V> Pair<Integer, V> readQuery(QueryPlan<S, T, V> queryPlan) {
-        List<Integer> partitionKeys = queryPlan.keysForQuery();
-        List<Integer> shards;
-        if (partitionKeys.contains(-1)) {
-            // -1 is a wildcard--run on all shards.
-            shards = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
-        } else {
-            shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+    public <S extends Shard, T extends Serializable, V> V scheduleQuery(QueryPlan<S, T, V> queryPlan) {
+        ExecuteQueryPlanThread<S, T, V> executeQueryPlanThread = new ExecuteQueryPlanThread<>(queryPlan);
+        executeQueryPlanThread.start();
+        try {
+            executeQueryPlanThread.join();
+        } catch (InterruptedException e) {
+            logger.error("Interrupted query: {}", e.getMessage());
+            assert(false);
         }
-        List<ReadQueryThread<T>> readQueryThreads = new ArrayList<>();
-        for (int shard: shards) {
-            ReadQueryThread<T> readQueryThread = new ReadQueryThread<T>(shard, queryPlan);
-            readQueryThreads.add(readQueryThread);
-            readQueryThread.start();
-        }
-        List<T> intermediates = new ArrayList<>();
-        // TODO:  Query fault tolerance.
-        for (ReadQueryThread<T> readQueryThread : readQueryThreads) {
-            try {
-                readQueryThread.join();
-            } catch (InterruptedException e) {
-                logger.warn("Interrupt: {}", e.getMessage());
-                return new Pair<>(1, null);
-            }
-            Optional<T> intermediate = readQueryThread.getIntermediate();
-            if (intermediate.isPresent()) {
-                intermediates.add(intermediate.get());
-            } else {
-                logger.warn("Query Failure");
-                return new Pair<>(1, null);
-            }
-        }
-        V responseString = queryPlan.aggregateShardQueries(intermediates);
-        return new Pair<>(0, responseString);
+        return executeQueryPlanThread.getQueryResult();
     }
 
     /*
@@ -252,12 +228,62 @@ public class Broker {
         }
     }
 
-    private class ReadQueryThread<T extends Serializable> extends Thread {
+    private class ExecuteQueryPlanThread <S extends Shard, T extends Serializable, V> extends Thread {
+
+        private final QueryPlan<S, T, V> queryPlan;
+        private V queryResult;
+
+        ExecuteQueryPlanThread(QueryPlan<S, T, V> queryPlan) {
+            this.queryPlan = queryPlan;
+        }
+
+        @Override
+        public void run() { this.queryResult = executeQueryPlan(queryPlan); }
+
+        public V executeQueryPlan(QueryPlan<S, T, V> queryPlan) {
+            List<Integer> partitionKeys = queryPlan.keysForQuery();
+            List<Integer> shards;
+            if (partitionKeys.contains(-1)) {
+                // -1 is a wildcard--run on all shards.
+                shards = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+            } else {
+                shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+            }
+            List<QueryShardThread<T>> queryShardThreads = new ArrayList<>();
+            for (int shard : shards) {
+                QueryShardThread<T> queryShardThread = new QueryShardThread<T>(shard, queryPlan);
+                queryShardThreads.add(queryShardThread);
+                queryShardThread.start();
+            }
+            List<T> intermediates = new ArrayList<>();
+            for (QueryShardThread<T> queryShardThread : queryShardThreads) {
+                try {
+                    queryShardThread.join();
+                } catch (InterruptedException e) {
+                    logger.error("Query interrupted: {}", e.getMessage());
+                    assert(false);
+                }
+                Optional<T> intermediate = queryShardThread.getIntermediate();
+                if (intermediate.isPresent()) {
+                    intermediates.add(intermediate.get());
+                } else {
+                    // TODO:  Query fault tolerance.
+                    logger.warn("Query Failure");
+                    assert(false);
+                }
+            }
+            return queryPlan.aggregateShardQueries(intermediates);
+        }
+
+        V getQueryResult() { return this.queryResult; }
+    }
+
+    private class QueryShardThread<T extends Serializable> extends Thread {
         private final int shard;
         private final QueryPlan queryPlan;
         private Optional<T> intermediate;
 
-        ReadQueryThread(int shard, QueryPlan queryPlan) {
+        QueryShardThread(int shard, QueryPlan queryPlan) {
             this.shard = shard;
             this.queryPlan = queryPlan;
         }
@@ -295,7 +321,7 @@ public class Broker {
             try {
                 obj = (T) Utilities.byteStringToObject(responseByteString);
             } catch (IOException | ClassNotFoundException e) {
-                logger.warn("Deserialization failed: {}", e.getMessage());
+                logger.error("Deserialization failed: {}", e.getMessage());
                 return Optional.empty();
             }
             return Optional.of(obj);

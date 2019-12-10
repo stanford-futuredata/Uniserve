@@ -85,9 +85,8 @@ public class TestMain {
         int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
         assertEquals(0, addRowReturnCode);
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
-        Pair<Integer, Integer> queryResponse = broker.readQuery(queryPlan);
-        assertEquals(Integer.valueOf(0), queryResponse.getValue0());
-        assertEquals(Integer.valueOf(2), queryResponse.getValue1());
+        Integer queryResponse = broker.scheduleQuery(queryPlan);
+        assertEquals(Integer.valueOf(2), queryResponse);
         broker.shutdown();
     }
 }

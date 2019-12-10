@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,4 +36,10 @@ public class KVQueryPlanSumGet implements QueryPlan<KVShard, Integer, Integer> {
     public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
         return shardQueryResults.stream().mapToInt(i -> i).sum();
     }
+
+    @Override
+    public List<QueryPlan> getSubQueries() {return Collections.emptyList();}
+
+    @Override
+    public void setSubQueryResults(List<Object> subQueryResults) {}
 }

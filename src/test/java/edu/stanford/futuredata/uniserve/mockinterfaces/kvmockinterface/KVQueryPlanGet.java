@@ -28,4 +28,10 @@ public class KVQueryPlanGet implements QueryPlan<KVShard, Integer, Integer> {
     public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
         return shardQueryResults.get(0);
     }
+
+    @Override
+    public List<QueryPlan> getSubQueries() {return Collections.emptyList();}
+
+    @Override
+    public void setSubQueryResults(List<Object> subQueryResults) {}
 }

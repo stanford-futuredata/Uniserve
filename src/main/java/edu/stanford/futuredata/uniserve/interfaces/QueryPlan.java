@@ -15,4 +15,8 @@ public interface QueryPlan<S extends Shard, I extends Serializable, T> extends S
     I queryShard(S shard);
     // Aggregate the outputs of queries on shards (Reduce).
     T aggregateShardQueries(List<I> shardQueryResults);
+    // Get query plans for subqueries.
+    List<QueryPlan> getSubQueries();
+    // Set results of subqueries.
+    void setSubQueryResults(List<Object> subQueryResults);
 }
