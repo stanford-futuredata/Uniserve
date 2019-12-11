@@ -82,36 +82,48 @@ public class Coordinator {
         @Override
         public void run() {
             while (runReplicationDaemon) {
+                List<Thread> replicationThreadList = new ArrayList<>();
                 for (Map.Entry<Integer, Integer> shardVersionEntry : shardToVersionMap.entrySet()) {
-                    int shardNum = shardVersionEntry.getKey();
-                    int shardVersion = shardVersionEntry.getValue();
-                    if (shardVersion > 0) {
-                        int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
-                        List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
-                        if (dataStoresList.size() > 1 && replicaDataStores.size() == 0) {
-                            int newReplicaDataStore = (primaryDataStore + 1) % dataStoresList.size();
-                            assert(newReplicaDataStore != primaryDataStore);
-                            DataStoreDescription dsDesc = dataStoresList.get(newReplicaDataStore);
-                            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
-                            LoadExistingShardMessage m = LoadExistingShardMessage.newBuilder().setShard(shardNum).build();
-                            LoadExistingShardResponse r = stub.loadExistingShard(m);
-                            if (r.getReturnCode() != 0) {
-                                logger.warn("Shard {} load failed on DataStore {}", shardNum, newReplicaDataStore);
-                                continue;
-                            }
-                            shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(newReplicaDataStore));
-                            try {
-                                zkCurator.setShardReplicas(shardNum, Collections.singletonList(dsDesc.connectString));
-                            } catch (Exception e) {
-                                logger.warn("Shard {} ZK Replica Set Failed", shardNum);
+                    Thread replicationThread = new Thread(() -> {
+                        int shardNum = shardVersionEntry.getKey();
+                        int shardVersion = shardVersionEntry.getValue();
+                        if (shardVersion > 0) {
+                            int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
+                            List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+                            if (dataStoresList.size() > 1 && replicaDataStores.size() == 0) {
+                                int newReplicaDataStore = (primaryDataStore + 1) % dataStoresList.size();
+                                assert (newReplicaDataStore != primaryDataStore);
+                                DataStoreDescription dsDesc = dataStoresList.get(newReplicaDataStore);
+                                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
+                                LoadExistingShardMessage m = LoadExistingShardMessage.newBuilder().setShard(shardNum).build();
+                                LoadExistingShardResponse r = stub.loadExistingShard(m);
+                                if (r.getReturnCode() != 0) {
+                                    logger.warn("Shard {} load failed on DataStore {}", shardNum, newReplicaDataStore);
+                                    return;
+                                }
+                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(newReplicaDataStore));
+                                try {
+                                    zkCurator.setShardReplicas(shardNum, Collections.singletonList(dsDesc.connectString));
+                                } catch (Exception e) {
+                                    logger.error("Shard {} ZK Replica Set Failed", shardNum);
+                                }
                             }
                         }
+                    });
+                    replicationThread.start();
+                    replicationThreadList.add(replicationThread);
+                }
+                for (Thread replicationThread: replicationThreadList) {
+                    try {
+                        replicationThread.join();
+                    } catch (InterruptedException e) {
+                        return;
                     }
                 }
                 try {
                     Thread.sleep(replicationDaemonSleepDurationMillis);
                 } catch (InterruptedException e) {
-                    break;
+                    return;
                 }
             }
         }

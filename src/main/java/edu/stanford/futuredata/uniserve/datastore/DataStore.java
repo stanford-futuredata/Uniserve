@@ -17,6 +17,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -163,24 +165,36 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         @Override
         public void run() {
             while (runUploadShardDaemon) {
+                List<Thread> uploadThreadList = new ArrayList<>();
                 for (Integer shardNum : primaryShardMap.keySet()) {
-                    Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
-                    if (nameVersion.isEmpty()) {
-                        continue; // TODO:  Error handling.
-                    }
-                    ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(nameVersion.get().getValue0())
-                            .setVersionNumber(nameVersion.get().getValue1()).build();
+                    Thread uploadThread = new Thread(() -> {
+                        Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
+                        if (nameVersion.isEmpty()) {
+                            return; // TODO:  Error handling.
+                        }
+                        ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(nameVersion.get().getValue0())
+                                .setVersionNumber(nameVersion.get().getValue1()).build();
+                        try {
+                            ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
+                            assert (shardUpdateResponse.getReturnCode() == 0); // TODO:  Error handling.
+                        } catch (StatusRuntimeException e) {
+                            logger.warn("ShardUpdateResponse RPC Failure {}", e.getMessage());
+                        }
+                    });
+                    uploadThread.start();
+                    uploadThreadList.add(uploadThread);
+                }
+                for (Thread uploadThread: uploadThreadList) {
                     try {
-                        ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
-                        assert(shardUpdateResponse.getReturnCode() == 0); // TODO:  Error handling.
-                    } catch (StatusRuntimeException e) {
-                        logger.warn("ShardUpdateResponse RPC Failure {}", e.getMessage());
+                        uploadThread.join();
+                    } catch (InterruptedException e) {
+                        return;
                     }
                 }
                 try {
                     Thread.sleep(uploadThreadSleepDurationMillis);
                 } catch (InterruptedException e) {
-                    break;
+                    return;
                 }
             }
         }
