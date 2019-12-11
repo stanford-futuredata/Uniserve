@@ -7,6 +7,8 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -15,7 +17,9 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class BrokerCurator {
+    // TODO:  Figure out what to actually do when ZK fails.
     private final CuratorFramework cf;
+    private static final Logger logger = LoggerFactory.getLogger(BrokerCurator.class);
 
     BrokerCurator(String zkHost, int zkPort) {
         String connectString = String.format("%s:%d", zkHost, zkPort);
@@ -24,20 +28,33 @@ public class BrokerCurator {
         cf.start();
     }
 
+    String getConnectStringFromDSID(int dsID) {
+        try {
+            String path = String.format("/dsDescription/%d", dsID);
+            byte[] b = cf.getData().forPath(path);
+            return new String(b);
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
     Optional<Pair<String, Integer>> getShardPrimaryConnectString(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
                 ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                String connectString = zkShardDescription.primaryConnectString;
+                String connectString = getConnectStringFromDSID(zkShardDescription.dsID);
                 return Optional.of(Utilities.parseConnectString(connectString));
             } else {
                 return Optional.empty();
             }
         } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
         }
     }
 
@@ -47,9 +64,9 @@ public class BrokerCurator {
             if (cf.checkExists().forPath(path) != null) {
                 String replicaDataString = new String(cf.getData().forPath(path));
                 if (replicaDataString.length() > 0) {
-                    List<String> replicasConnectStrings = Arrays.asList(replicaDataString.split("\n"));
+                    List<String> replicaStringDSIDs = Arrays.asList(replicaDataString.split("\n"));
                     List<Pair<String, Integer>> replicaHostPorts =
-                            replicasConnectStrings.stream().map(Utilities::parseConnectString).collect(Collectors.toList());
+                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getConnectStringFromDSID).map(Utilities::parseConnectString).collect(Collectors.toList());
                     return Optional.of(replicaHostPorts);
                 } else {
                     return Optional.of(new ArrayList<>());
@@ -58,20 +75,26 @@ public class BrokerCurator {
                 return Optional.empty();
             }
         } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
         }
     }
 
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
-            byte[] b = cf.getData().forPath(path);
-            String connectString = new String(b);
-            return Optional.of(Utilities.parseConnectString(connectString));
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                String connectString = new String(b);
+                return Optional.of(Utilities.parseConnectString(connectString));
+            } else {
+                return Optional.empty();
+            }
         } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
         }
     }
 

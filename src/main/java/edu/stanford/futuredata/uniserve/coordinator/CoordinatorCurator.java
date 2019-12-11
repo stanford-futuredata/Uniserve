@@ -5,12 +5,14 @@ import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
 
 class CoordinatorCurator {
-
+    // TODO:  Figure out what to actually do when ZK fails.
+    private static final Logger logger = LoggerFactory.getLogger(CoordinatorCurator.class);
     private final CuratorFramework cf;
 
     CoordinatorCurator(String zkHost, int zkPort) {
@@ -20,53 +22,89 @@ class CoordinatorCurator {
         cf.start();
     }
 
-    void registerCoordinator(String host, int port) throws Exception {
+    void registerCoordinator(String host, int port) {
         // Create coordinator location node.
-        String path = "/coordinator_host_port";
-        byte[] data = String.format("%s:%d", host, port).getBytes();
-        if (cf.checkExists().forPath(path) != null) {
-            cf.setData().forPath(path, data);
-        } else {
-            cf.create().forPath(path, data);
-        }
+        try {
+            String path = "/coordinator_host_port";
+            byte[] data = String.format("%s:%d", host, port).getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
 
-        // Create directory root nodes.
-        String shardMappingPath = "/shardMapping";
-        if (cf.checkExists().forPath(shardMappingPath) != null) {
-            cf.setData().forPath(shardMappingPath, new byte[0]);
-        } else {
-            cf.create().forPath(shardMappingPath, new byte[0]);
-        }
-        String shardReplicaMappingPath = "/shardReplicaMapping";
-        if (cf.checkExists().forPath(shardReplicaMappingPath) != null) {
-            cf.setData().forPath(shardReplicaMappingPath, new byte[0]);
-        } else {
-            cf.create().forPath(shardReplicaMappingPath, new byte[0]);
+            // Create directory root nodes.
+            String dsDescriptionPath = "/dsDescription";
+            if (cf.checkExists().forPath(dsDescriptionPath) != null) {
+                cf.setData().forPath(dsDescriptionPath, new byte[0]);
+            } else {
+                cf.create().forPath(dsDescriptionPath, new byte[0]);
+            }
+            String shardMappingPath = "/shardMapping";
+            if (cf.checkExists().forPath(shardMappingPath) != null) {
+                cf.setData().forPath(shardMappingPath, new byte[0]);
+            } else {
+                cf.create().forPath(shardMappingPath, new byte[0]);
+            }
+            String shardReplicaMappingPath = "/shardReplicaMapping";
+            if (cf.checkExists().forPath(shardReplicaMappingPath) != null) {
+                cf.setData().forPath(shardReplicaMappingPath, new byte[0]);
+            } else {
+                cf.create().forPath(shardReplicaMappingPath, new byte[0]);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
         }
     }
 
-    void setZKShardDescription(int shard, String primaryConnectString, String cloudName, int versionNumber) throws Exception {
-        String path = String.format("/shardMapping/%d", shard);
-        ZKShardDescription zkShardDescription = new ZKShardDescription(primaryConnectString, cloudName, versionNumber);
-        byte[] data = zkShardDescription.stringSummary.getBytes();
-        if (cf.checkExists().forPath(path) != null) {
-            cf.setData().forPath(path, data);
-        } else {
-            cf.create().forPath(path, data);
+    void setDSDescription(int dsID, String host, int port) {
+        try {
+            String path = String.format("/dsDescription/%d", dsID);
+            byte[] data = String.format("%s:%d", host, port).getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
         }
     }
 
-    void setShardReplicas(int shard, List<String> replicaConnectStrings) throws Exception {
-        String path = String.format("/shardReplicaMapping/%d", shard);
-        StringBuilder replicaStringBuilder = new StringBuilder();
-        for (String replicaConnectString: replicaConnectStrings) {
-            replicaStringBuilder.append(replicaConnectString).append('\n');
+    void setZKShardDescription(int shard, int dsID, String cloudName, int versionNumber) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            ZKShardDescription zkShardDescription = new ZKShardDescription(dsID, cloudName, versionNumber);
+            byte[] data = zkShardDescription.stringSummary.getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
         }
-        byte[] data = replicaStringBuilder.toString().getBytes();
-        if (cf.checkExists().forPath(path) != null) {
-            cf.setData().forPath(path, data);
-        } else {
-            cf.create().forPath(path, data);
+    }
+
+    void setShardReplicas(int shard, List<Integer> dsIDs) {
+        try {
+            String path = String.format("/shardReplicaMapping/%d", shard);
+            StringBuilder replicaStringBuilder = new StringBuilder();
+            for (Integer dsID : dsIDs) {
+                replicaStringBuilder.append(dsID.toString()).append('\n');
+            }
+            byte[] data = replicaStringBuilder.toString().getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
         }
     }
 

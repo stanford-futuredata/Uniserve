@@ -6,12 +6,15 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 
 class DataStoreCurator {
-
+    // TODO:  Figure out what to actually do when ZK fails.
     private final CuratorFramework cf;
+    private static final Logger logger = LoggerFactory.getLogger(DataStoreCurator.class);
 
     DataStoreCurator(String zkHost, int zkPort) {
         String connectString = String.format("%s:%d", zkHost, zkPort);
@@ -23,12 +26,17 @@ class DataStoreCurator {
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
-            byte[] b = cf.getData().forPath(path);
-            String connectString = new String(b);
-            return Optional.of(Utilities.parseConnectString(connectString));
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                String connectString = new String(b);
+                return Optional.of(Utilities.parseConnectString(connectString));
+            } else {
+                return Optional.empty();
+            }
         } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
         }
     }
 
@@ -43,8 +51,9 @@ class DataStoreCurator {
                 return Optional.empty();
             }
         } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
         }
     }
 

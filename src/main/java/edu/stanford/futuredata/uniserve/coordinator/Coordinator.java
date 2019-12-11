@@ -85,6 +85,7 @@ public class Coordinator {
     private class ReplicationDaemon extends Thread {
         @Override
         public void run() {
+            // TODO:  Make sane and robust.
             while (runReplicationDaemon) {
                 List<Thread> replicationThreadList = new ArrayList<>();
                 for (Map.Entry<Integer, Integer> shardVersionEntry : shardToVersionMap.entrySet()) {
@@ -95,33 +96,29 @@ public class Coordinator {
                             int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
                             List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
                             if (dataStoresMap.size() > 1 && replicaDataStores.size() == 0) {
-                                int newReplicaDataStore = (primaryDataStore + 1) % dataStoresMap.size();
-                                assert (newReplicaDataStore != primaryDataStore);
-                                DataStoreDescription dsDesc = dataStoresMap.get(newReplicaDataStore);
+                                int replicaID = (primaryDataStore + 1) % dataStoresMap.size();
+                                assert (replicaID != primaryDataStore);
+                                DataStoreDescription dsDesc = dataStoresMap.get(replicaID);
                                 CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
                                 LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
                                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
                                 if (r.getReturnCode() != 0) {
-                                    logger.warn("Shard {} load failed on DataStore {}", shardNum, newReplicaDataStore);
+                                    logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
                                     return;
                                 }
-                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(newReplicaDataStore));
-                                try {
-                                    zkCurator.setShardReplicas(shardNum, Collections.singletonList(dsDesc.connectString));
-                                } catch (Exception e) {
-                                    logger.error("Shard {} ZK Replica Set Failed", shardNum);
-                                }
+                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
+                                zkCurator.setShardReplicas(shardNum, Collections.singletonList(replicaID));
                             }
                         }
                     });
                     replicationThread.start();
                     replicationThreadList.add(replicationThread);
                 }
-                for (Thread replicationThread: replicationThreadList) {
+                for (int i = 0; i < replicationThreadList.size(); i++) {
                     try {
-                        replicationThread.join();
+                        replicationThreadList.get(i).join();
                     } catch (InterruptedException e) {
-                        return;
+                        i--;
                     }
                 }
                 try {
@@ -148,7 +145,8 @@ public class Coordinator {
             int port = m.getPort();
             int dsID = dataStoreNumber.getAndIncrement();
             dataStoresMap.put(dsID, new DataStoreDescription(host, port));
-            logger.info("Registered DataStore {} {}", host, port);
+            zkCurator.setDSDescription(dsID, host, port);
+            logger.info("Registered DataStore ID: {} Host: {} Port: {}", dsID, host, port);
             return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
         }
 
@@ -162,14 +160,9 @@ public class Coordinator {
             int shardNum = m.getShardNum();
             String cloudName = m.getShardCloudName();
             int versionNumber = m.getVersionNumber();
-            String connectString = dataStoresMap.get(shardToPrimaryDataStoreMap.get(shardNum)).connectString;
+            int dsID = shardToPrimaryDataStoreMap.get(shardNum);
             shardToVersionMap.put(shardNum, versionNumber);
-            try {
-                zkCurator.setZKShardDescription(shardNum, connectString, cloudName, versionNumber);
-            } catch (Exception e) {
-                logger.error("Error updating connection string in ZK: {}", e.getMessage());
-                return ShardUpdateResponse.newBuilder().setReturnCode(1).build();
-            }
+            zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber);
             return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
         }
     }
@@ -191,40 +184,32 @@ public class Coordinator {
         private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
             int shardNum = m.getShard();
             // Check if the shard's location is known.
-            Integer dsNum = shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
-            if (dsNum != null) {
-                DataStoreDescription dsDesc = dataStoresMap.get(dsNum);
+            Integer dsID = shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
+            if (dsID != null) {
+                DataStoreDescription dsDesc = dataStoresMap.get(dsID);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
             // If not, assign it to a DataStore.
-            int chosenDataStore = assignShardToDataStore(shardNum);
-            dsNum = shardToPrimaryDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
-            if (dsNum != null) {
-                DataStoreDescription dsDesc = dataStoresMap.get(dsNum);
+            int newDSID = assignShardToDataStore(shardNum);
+            dsID = shardToPrimaryDataStoreMap.putIfAbsent(shardNum, newDSID);
+            if (dsID != null) {
+                DataStoreDescription dsDesc = dataStoresMap.get(dsID);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
             shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
             shardToVersionMap.put(shardNum, 0);
             // Tell the DataStore to create the shard.
-            DataStoreDescription dsDesc = dataStoresMap.get(chosenDataStore);
+            DataStoreDescription dsDesc = dataStoresMap.get(newDSID);
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
             CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
             CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
             assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
-            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
             // Once the shard is created, add it to the ZooKeeper map.
-            try {
-                zkCurator.setZKShardDescription(m.getShard(), connectString, Utilities.null_name, 0);
-            } catch (Exception e) {
-                logger.error("Error adding connection string to ZK: {}", e.getMessage());
-            }
-            try {
-                zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
-            } catch (Exception e) {
-                logger.error("Error adding replicas to ZK: {}", e.getMessage());
-            }
+            zkCurator.setZKShardDescription(m.getShard(), newDSID, Utilities.null_name, 0);
+            zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
+            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
             return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
         }
 
