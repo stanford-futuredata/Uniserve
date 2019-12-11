@@ -95,8 +95,8 @@ public class Coordinator {
                                 assert (newReplicaDataStore != primaryDataStore);
                                 DataStoreDescription dsDesc = dataStoresList.get(newReplicaDataStore);
                                 CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
-                                LoadExistingShardMessage m = LoadExistingShardMessage.newBuilder().setShard(shardNum).build();
-                                LoadExistingShardResponse r = stub.loadExistingShard(m);
+                                LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
+                                LoadShardReplicaResponse r = stub.loadShardReplica(m);
                                 if (r.getReturnCode() != 0) {
                                     logger.warn("Shard {} load failed on DataStore {}", shardNum, newReplicaDataStore);
                                     return;

@@ -298,30 +298,30 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         }
 
         @Override
-        public void loadExistingShard(LoadExistingShardMessage request, StreamObserver<LoadExistingShardResponse> responseObserver) {
-            responseObserver.onNext(loadExistingShardHandler(request));
+        public void loadShardReplica(LoadShardReplicaMessage request, StreamObserver<LoadShardReplicaResponse> responseObserver) {
+            responseObserver.onNext(loadShardReplicaHandler(request));
             responseObserver.onCompleted();
         }
 
-        private LoadExistingShardResponse loadExistingShardHandler(LoadExistingShardMessage request) {
+        private LoadShardReplicaResponse loadShardReplicaHandler(LoadShardReplicaMessage request) {
             int shardNum = request.getShard();
             assert(!primaryShardMap.containsKey(shardNum));
             assert(!replicaShardMap.containsKey(shardNum));
             Optional<Pair<String, Integer>> cloudNameVersion = zkCurator.getShardCloudNameVersion(shardNum);
             if (cloudNameVersion.isEmpty()) {
                 logger.error("Loading shard not in ZK: {}", shardNum);
-                return LoadExistingShardResponse.newBuilder().setReturnCode(1).build();
+                return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
             String cloudName = cloudNameVersion.get().getValue0();
             int versionNumber = cloudNameVersion.get().getValue1();
             Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, versionNumber);
             if (loadedShard.isEmpty()) {
                 logger.error("Shard load failed {}", shardNum);
-                return LoadExistingShardResponse.newBuilder().setReturnCode(1).build();
+                return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
             replicaShardMap.put(shardNum, loadedShard.get());
             logger.info("Loaded new replica shard {}", shardNum);
-            return LoadExistingShardResponse.newBuilder().setReturnCode(0).build();
+            return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
         }
     }
 }
