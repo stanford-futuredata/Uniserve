@@ -28,6 +28,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
 
+    private int dsID;
     private final String dsHost;
     private final int dsPort;
     private final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>();
@@ -40,6 +41,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
+
     private boolean runUploadShardDaemon = true;
     private final UploadShardDaemon uploadShardDaemon;
     private final static int uploadThreadSleepDurationMillis = 1000;
@@ -51,8 +53,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         this.dsCloud = dsCloud;
         this.shardFactory = shardFactory;
         this.baseDirectory = baseDirectory;
-        ServerBuilder serverBuilder = ServerBuilder.forPort(dsPort);
-        this.server = serverBuilder.addService(new BrokerDataStoreService())
+        this.server = ServerBuilder.forPort(dsPort).addService(new BrokerDataStoreService())
                 .addService(new CoordinatorDataStoreService())
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
@@ -87,14 +88,14 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             return 1;
         }
         logger.info("DataStore server started, listening on " + dsPort);
-        ManagedChannelBuilder channelBuilder =
-                ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext();
-        coordinatorChannel = channelBuilder.build();
+        coordinatorChannel =
+                ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext().build();
         coordinatorStub = DataStoreCoordinatorGrpc.newBlockingStub(coordinatorChannel);
         RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost(dsHost).setPort(dsPort).build();
         try {
             RegisterDataStoreResponse r = coordinatorStub.registerDataStore(m);
             assert r.getReturnCode() == 0;
+            this.dsID = r.getDataStoreID();
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
             shutDown();
@@ -129,12 +130,12 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         Shard<R> shard = primaryShardMap.get(shardNum);
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
-            logger.warn("Shard {} serialization failed", shardNum);
+            logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
             return Optional.empty();
         }
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum));
         if (cloudName.isEmpty()) {
-            logger.warn("Shard {} upload failed", shardNum);
+            logger.warn("DS{} Shard {} upload failed", dsID, shardNum);
             return Optional.empty();
         }
         Integer versionNumber = shardVersionMap.get(shardNum).incrementAndGet();
@@ -148,13 +149,13 @@ public class DataStore<R extends Row, S extends Shard<R>> {
         if (!downloadDirFile.exists()) {
             boolean mkdirs = downloadDirFile.mkdirs();
             if (!mkdirs) {
-                logger.warn("Shard {} version {} mkdirs failed", shardNum, versionNumber);
+                logger.warn("DS{} Shard {} version {} mkdirs failed", dsID, shardNum, versionNumber);
                 return Optional.empty();
             }
         }
         int downloadReturnCode = dsCloud.downloadShardFromCloud(downloadDirectory, cloudName);
         if (downloadReturnCode != 0) {
-            logger.warn("Shard {} download failed", shardNum);
+            logger.warn("DS{} Shard {} download failed", dsID, shardNum);
             return Optional.empty();
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
@@ -178,7 +179,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                             ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
                             assert (shardUpdateResponse.getReturnCode() == 0); // TODO:  Error handling.
                         } catch (StatusRuntimeException e) {
-                            logger.warn("ShardUpdateResponse RPC Failure {}", e.getMessage());
+                            logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
                         }
                     });
                     uploadThread.start();
@@ -216,13 +217,13 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 try {
                     row = (R) Utilities.byteStringToObject(rowData);
                 } catch (IOException | ClassNotFoundException e) {
-                    logger.error("Row Deserialization Failed: {}", e.getMessage());
+                    logger.error("DS{} Row Deserialization Failed: {}", dsID, e.getMessage());
                     return InsertRowResponse.newBuilder().setReturnCode(1).build();
                 }
                 int addRowReturnCode = primaryShardMap.get(shardNum).addRow(row);
                 return InsertRowResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
-                logger.warn("Got read request for absent shard {}", shardNum);
+                logger.warn("DS{} Got write request for absent shard {}", dsID, shardNum);
                 return InsertRowResponse.newBuilder().setReturnCode(1).build();
             }
         }
@@ -245,7 +246,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 try {
                     queryPlan = (QueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
                 } catch (IOException | ClassNotFoundException e) {
-                    logger.error("Query Deserialization Failed: {}", e.getMessage());
+                    logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
                 Serializable queryResult = queryPlan.queryShard(queriedShard);
@@ -253,12 +254,12 @@ public class DataStore<R extends Row, S extends Shard<R>> {
                 try {
                     queryResponse = Utilities.objectToByteString(queryResult);
                 } catch (IOException e) {
-                    logger.error("Result Serialization Failed: {}", e.getMessage());
+                    logger.error("DS{} Result Serialization Failed: {}", dsID, e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
                 return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
             } else {
-                logger.warn("Got read request for absent shard {}", shardNum);
+                logger.warn("DS{} Got read request for absent shard {}", dsID, shardNum);
                 return ReadQueryResponse.newBuilder().setReturnCode(1).build();
             }
         }
@@ -282,18 +283,18 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             if (!shardPathFile.exists()) {
                 boolean mkdirs = shardPathFile.mkdirs();
                 if (!mkdirs) {
-                    logger.error("Shard directory creation failed {}", shardNum);
+                    logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
                     return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
                 }
             }
             Optional<S> shard = shardFactory.createNewShard(shardPath);
             if (shard.isEmpty()) {
-                logger.error("Shard creation failed {}", shardNum);
+                logger.error("DS{} Shard creation failed {}", dsID, shardNum);
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
             }
             shardVersionMap.put(shardNum, new AtomicInteger(shardVersionNumber));
             primaryShardMap.put(shardNum, shard.get());
-            logger.info("Created new primary shard {}", shardNum);
+            logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
         }
 
@@ -309,18 +310,18 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             assert(!replicaShardMap.containsKey(shardNum));
             Optional<Pair<String, Integer>> cloudNameVersion = zkCurator.getShardCloudNameVersion(shardNum);
             if (cloudNameVersion.isEmpty()) {
-                logger.error("Loading shard not in ZK: {}", shardNum);
+                logger.error("DS{} Loading shard not in ZK: {}", dsID, shardNum);
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
             String cloudName = cloudNameVersion.get().getValue0();
             int versionNumber = cloudNameVersion.get().getValue1();
             Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, versionNumber);
             if (loadedShard.isEmpty()) {
-                logger.error("Shard load failed {}", shardNum);
+                logger.error("DS{} Shard load failed {}", dsID, shardNum);
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
             replicaShardMap.put(shardNum, loadedShard.get());
-            logger.info("Loaded new replica shard {}", shardNum);
+            logger.info("DS{} Loaded new replica shard {}", dsID, shardNum);
             return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
         }
     }

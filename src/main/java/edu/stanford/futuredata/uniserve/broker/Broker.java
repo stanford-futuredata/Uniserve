@@ -63,8 +63,7 @@ public class Broker {
         } else {
             logger.error("Broker could not find master"); // TODO:  Retry.
         }
-        ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext();
-        ManagedChannel channel = channelBuilder.build();
+        ManagedChannel channel = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext().build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
         shardMapUpdateDaemon = new ShardMapUpdateDaemon();
         shardMapUpdateDaemon.start();
@@ -192,8 +191,7 @@ public class Broker {
     private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubFromHostPort(Pair<String, Integer> hostPort) {
         BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = connStringToStubMap.getOrDefault(hostPort, null);
         if (stub == null) {
-            ManagedChannelBuilder channelBuilder = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext();
-            ManagedChannel channel = channelBuilder.build();
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext().build();
             connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
             stub = connStringToStubMap.get(hostPort);
         }

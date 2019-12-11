@@ -19,6 +19,7 @@ message RegisterDataStoreMessage {
 
 message RegisterDataStoreResponse {
     int32 returnCode = 1;
+    int32 dataStoreID = 2;
 }
 
 message ShardUpdateMessage {

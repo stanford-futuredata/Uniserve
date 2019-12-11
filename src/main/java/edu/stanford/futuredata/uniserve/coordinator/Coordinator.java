@@ -13,7 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Coordinator {
 
@@ -24,12 +24,17 @@ public class Coordinator {
     private final Server server;
     private final CoordinatorCurator zkCurator;
 
-    // List of all known datastores.  Servers can be added, but never removed.
-    private final List<DataStoreDescription> dataStoresList = new ArrayList<>();
-    // Map from shards to datastores, defined as indices into dataStoresList.
+    // Used to assign each datastore a unique incremental ID.
+    private final AtomicInteger dataStoreNumber = new AtomicInteger(0);
+    // Map from datastore IDs to their descriptions.
+    private final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
+    // Map from shards to last uploaded versions.
     private final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
+    // Map from shards to their primaries.
     private final Map<Integer, Integer> shardToPrimaryDataStoreMap = new ConcurrentHashMap<>();
+    // Map from shards to their replicas.
     private final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
+
     private boolean runReplicationDaemon = true;
     private final ReplicationDaemon replicationDaemon;
     private final static int replicationDaemonSleepDurationMillis = 1000;
@@ -38,8 +43,7 @@ public class Coordinator {
         this.coordinatorHost = coordinatorHost;
         this.coordinatorPort = coordinatorPort;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
-        ServerBuilder serverBuilder = ServerBuilder.forPort(coordinatorPort);
-        this.server = serverBuilder.addService(new DataStoreCoordinatorService())
+        this.server = ServerBuilder.forPort(coordinatorPort).addService(new DataStoreCoordinatorService())
                 .addService(new BrokerCoordinatorService())
                 .build();
         replicationDaemon = new ReplicationDaemon();
@@ -90,10 +94,10 @@ public class Coordinator {
                         if (shardVersion > 0) {
                             int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
                             List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
-                            if (dataStoresList.size() > 1 && replicaDataStores.size() == 0) {
-                                int newReplicaDataStore = (primaryDataStore + 1) % dataStoresList.size();
+                            if (dataStoresMap.size() > 1 && replicaDataStores.size() == 0) {
+                                int newReplicaDataStore = (primaryDataStore + 1) % dataStoresMap.size();
                                 assert (newReplicaDataStore != primaryDataStore);
-                                DataStoreDescription dsDesc = dataStoresList.get(newReplicaDataStore);
+                                DataStoreDescription dsDesc = dataStoresMap.get(newReplicaDataStore);
                                 CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
                                 LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
                                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
@@ -142,9 +146,10 @@ public class Coordinator {
         private RegisterDataStoreResponse registerDataStoreHandler(RegisterDataStoreMessage m) {
             String host = m.getHost();
             int port = m.getPort();
-            dataStoresList.add(new DataStoreDescription(host, port));
+            int dsID = dataStoreNumber.getAndIncrement();
+            dataStoresMap.put(dsID, new DataStoreDescription(host, port));
             logger.info("Registered DataStore {} {}", host, port);
-            return RegisterDataStoreResponse.newBuilder().setReturnCode(0).build();
+            return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
         }
 
         @Override
@@ -157,7 +162,7 @@ public class Coordinator {
             int shardNum = m.getShardNum();
             String cloudName = m.getShardCloudName();
             int versionNumber = m.getVersionNumber();
-            String connectString = dataStoresList.get(shardToPrimaryDataStoreMap.get(shardNum)).connectString;
+            String connectString = dataStoresMap.get(shardToPrimaryDataStoreMap.get(shardNum)).connectString;
             shardToVersionMap.put(shardNum, versionNumber);
             try {
                 zkCurator.setZKShardDescription(shardNum, connectString, cloudName, versionNumber);
@@ -165,7 +170,6 @@ public class Coordinator {
                 logger.error("Error updating connection string in ZK: {}", e.getMessage());
                 return ShardUpdateResponse.newBuilder().setReturnCode(1).build();
             }
-            logger.info("Uploaded Shard {} Version {}", cloudName, versionNumber);
             return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
         }
     }
@@ -181,7 +185,7 @@ public class Coordinator {
 
         private int assignShardToDataStore(int shardNum) {
             // TODO:  Better DataStore choice.
-            return shardNum % dataStoresList.size();
+            return shardNum % dataStoresMap.size();
         }
 
         private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
@@ -189,7 +193,7 @@ public class Coordinator {
             // Check if the shard's location is known.
             Integer dsNum = shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
             if (dsNum != null) {
-                DataStoreDescription dsDesc = dataStoresList.get(dsNum);
+                DataStoreDescription dsDesc = dataStoresMap.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
@@ -197,14 +201,14 @@ public class Coordinator {
             int chosenDataStore = assignShardToDataStore(shardNum);
             dsNum = shardToPrimaryDataStoreMap.putIfAbsent(shardNum, chosenDataStore);
             if (dsNum != null) {
-                DataStoreDescription dsDesc = dataStoresList.get(dsNum);
+                DataStoreDescription dsDesc = dataStoresMap.get(dsNum);
                 String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
                 return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
             }
             shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
             shardToVersionMap.put(shardNum, 0);
             // Tell the DataStore to create the shard.
-            DataStoreDescription dsDesc = dataStoresList.get(chosenDataStore);
+            DataStoreDescription dsDesc = dataStoresMap.get(chosenDataStore);
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
             CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
             CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
