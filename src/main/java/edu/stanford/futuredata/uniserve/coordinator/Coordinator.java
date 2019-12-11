@@ -163,6 +163,7 @@ public class Coordinator {
             int dsID = shardToPrimaryDataStoreMap.get(shardNum);
             shardToVersionMap.put(shardNum, versionNumber);
             zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber);
+            logger.info("Uploaded Shard {} Version {}", shardNum, versionNumber);
             return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
         }
     }

@@ -5,8 +5,11 @@ import java.util.Optional;
 
 public interface Shard<R extends Row> {
     /*
-     Stores a shard of data.  Probably contains an internal index structure for fast queries.
-     For durability, can be saved as files to persistent storage (S3?) and reconstructed.
+     A stateful data structure.
+
+     Shard concurrency contract:
+     Writes (addRow) always have exclusive access to the shard.
+     Reads (shardToData and queries) run concurrently with other reads, but never with writes.
      */
 
     // Add a new row to the shard.
