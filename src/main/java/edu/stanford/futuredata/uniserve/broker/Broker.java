@@ -88,48 +88,34 @@ public class Broker {
      * PUBLIC FUNCTIONS
      */
 
-    public <R extends Row, S extends Shard> Integer writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-        Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
-        for (Row row: rows) {
+    public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+        Map<Integer, List<R>> shardRowListMap = new HashMap<>();
+        for (R row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
             int shard = keyToShard(partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
-        Map<Integer, Row[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
-                collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray(new Row[0])));
-        for (Integer shard: shardRowArrayMap.keySet()) {
-            Row[] rowArray = shardRowArrayMap.get(shard);
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shard);
-            if (stubOpt.isEmpty()) {
-                logger.error("Could not find DataStore for shard {}", shard);  //TODO:  Retry
-                return 1;
-            }
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-            ByteString serializedQuery;
-            ByteString rowData;
-            try {
-                serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                rowData = Utilities.objectToByteString(rowArray);
-            } catch (IOException e) {
-                logger.error("Write Query Serialization Failed: {}", e.getMessage());
-                assert (false);
-                return 1;
-            }
-            WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder().setShard(shard).
-                    setSerializedQuery(serializedQuery).setRowData(rowData).build();
-            WriteQueryResponse writeQueryResponse;
-            try {
-                writeQueryResponse = stub.writeQuery(rowMessage);
-            } catch (StatusRuntimeException e) {
-                logger.warn("RPC failed: {}", e.getStatus());
-                return 1;
-            }
-            if (writeQueryResponse.getReturnCode() != 0) {
-                return 1;
-            }
+        Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
+                collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
+        List<WriteQueryShardThread<R, S>> writeQueryShardThreads = new ArrayList<>();
+        for (Integer shardNum: shardRowArrayMap.keySet()) {
+            R[] rowArray = shardRowArrayMap.get(shardNum);
+            WriteQueryShardThread<R, S> t = new WriteQueryShardThread<>(shardNum, writeQueryPlan, rowArray);
+            t.start();
+            writeQueryShardThreads.add(t);
         }
-        return 0;
+        boolean success = true;
+        for (WriteQueryShardThread<R, S> t: writeQueryShardThreads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                logger.error("Write query interrupted: {}", e.getMessage());
+                assert(false);
+            }
+            success = success && t.isSuccess();
+        }
+        return success;
     }
 
     public <S extends Shard, T extends Serializable, V> V readQuery(ReadQueryPlan<S, T, V> readQueryPlan) {
@@ -202,8 +188,12 @@ public class Broker {
         BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = connStringToStubMap.getOrDefault(hostPort, null);
         if (stub == null) {
             ManagedChannel channel = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext().build();
-            connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
-            stub = connStringToStubMap.get(hostPort);
+            stub = connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
+            if (stub == null) {
+                stub = connStringToStubMap.get(hostPort); // No entry exists.
+            } else {
+                channel.shutdown(); // Stub already exists.
+            }
         }
         return stub;
     }
@@ -279,8 +269,58 @@ public class Broker {
         }
     }
 
-    private class ExecuteReadQueryStageThread<S extends Shard, T extends Serializable, V> extends Thread {
+    private class WriteQueryShardThread<R extends Row, S extends Shard> extends Thread {
+        private final int shardNum;
+        private final WriteQueryPlan<R, S> writeQueryPlan;
+        private final R[] rowArray;
+        private boolean success;
 
+        WriteQueryShardThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray) {
+            this.shardNum = shardNum;
+            this.writeQueryPlan = writeQueryPlan;
+            this.rowArray = rowArray;
+        }
+
+        @Override
+        public void run() { this.success = writeQueryShard(); }
+
+        private boolean writeQueryShard() {
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+            if (stubOpt.isEmpty()) {
+                logger.error("Could not find DataStore for shard {}", shardNum);
+                assert(false);  // TODO:  Retry
+                return false;
+            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+            ByteString serializedQuery;
+            ByteString rowData;
+            try {
+                serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                rowData = Utilities.objectToByteString(rowArray);
+            } catch (IOException e) {
+                logger.error("Write Query Serialization Failed: {}", e.getMessage());
+                assert (false);
+                return false;
+            }
+            WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder().setShard(shardNum).
+                    setSerializedQuery(serializedQuery).setRowData(rowData).build();
+            WriteQueryResponse writeQueryResponse;
+            try {
+                writeQueryResponse = stub.writeQuery(rowMessage);
+            } catch (StatusRuntimeException e) {
+                logger.warn("RPC failed: {}", e.getStatus());
+                assert(false); // TODO:  Retry
+                return false;
+            }
+            return writeQueryResponse.getReturnCode() == 0;
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+    }
+
+    private class ExecuteReadQueryStageThread<S extends Shard, T extends Serializable, V> extends Thread {
         private final ReadQueryPlan<S, T, V> readQueryPlan;
         private V queryResult;
 
@@ -293,16 +333,16 @@ public class Broker {
 
         public V executeReadQueryStage(ReadQueryPlan<S, T, V> readQueryPlan) {
             List<Integer> partitionKeys = readQueryPlan.keysForQuery();
-            List<Integer> shards;
+            List<Integer> shardNums;
             if (partitionKeys.contains(-1)) {
                 // -1 is a wildcard--run on all shards.
-                shards = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+                shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
             } else {
-                shards = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+                shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
             }
             List<ReadQueryShardThread<T>> readQueryShardThreads = new ArrayList<>();
-            for (int shard : shards) {
-                ReadQueryShardThread<T> readQueryShardThread = new ReadQueryShardThread<T>(shard, readQueryPlan);
+            for (int shardNum : shardNums) {
+                ReadQueryShardThread<T> readQueryShardThread = new ReadQueryShardThread<>(shardNum, readQueryPlan);
                 readQueryShardThreads.add(readQueryShardThread);
                 readQueryShardThread.start();
             }
@@ -331,18 +371,18 @@ public class Broker {
     }
 
     private class ReadQueryShardThread<T extends Serializable> extends Thread {
-        private final int shard;
+        private final int shardNum;
         private final ReadQueryPlan readQueryPlan;
         private Optional<T> intermediate;
 
-        ReadQueryShardThread(int shard, ReadQueryPlan readQueryPlan) {
-            this.shard = shard;
+        ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan) {
+            this.shardNum = shardNum;
             this.readQueryPlan = readQueryPlan;
         }
 
         @Override
         public void run() {
-            this.intermediate = queryShard(this.shard);
+            this.intermediate = queryShard(this.shardNum);
         }
 
         private Optional<T> queryShard(int shard) {

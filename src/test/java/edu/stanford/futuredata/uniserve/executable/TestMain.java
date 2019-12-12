@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestMain {
 
@@ -84,8 +85,8 @@ public class TestMain {
     private static void runBroker(String zkHost, int zkPort) {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        int addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
-        assertEquals(0, addRowReturnCode);
+        boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
+        assertTrue(writeSuccess);
         ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
         Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
