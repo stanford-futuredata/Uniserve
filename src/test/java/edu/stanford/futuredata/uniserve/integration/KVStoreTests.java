@@ -5,6 +5,7 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
@@ -73,7 +74,7 @@ public class KVStoreTests {
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
@@ -101,11 +102,12 @@ public class KVStoreTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
-
+        List<Row> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
-            int addRowReturnCode = broker.insertRow(new KVRow(i, i));
-            assertEquals(0, addRowReturnCode);
+            rows.add(new KVRow(i, i));
         }
+        int addRowReturnCode = broker.insertRow(rows);
+        assertEquals(0, addRowReturnCode);
 
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
         Integer queryResponse = broker.scheduleQuery(queryPlan);
@@ -138,9 +140,9 @@ public class KVStoreTests {
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(new KVRow(0, 1));
+        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(0, 1)));
         assertEquals(0, addRowReturnCode);
-        addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanBasicNested(0);
@@ -169,10 +171,13 @@ public class KVStoreTests {
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        for (int i = 0; i < 100; i++) {
-            int addRowReturnCode = broker.insertRow(new KVRow(i, i));
-            assertEquals(0, addRowReturnCode);
+        List<Row> rows = new ArrayList<>();
+        for (int i = 1; i < 100; i++) {
+            rows.add(new KVRow(i, i));
         }
+        int addRowReturnCode = broker.insertRow(rows);
+        assertEquals(0, addRowReturnCode);
+
         Thread.sleep(2000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
@@ -215,7 +220,7 @@ public class KVStoreTests {
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         Optional<Pair<String, Integer>> uploadResult = dataStore.uploadShardToCloud(0);

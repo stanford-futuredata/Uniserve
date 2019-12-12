@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 public interface Shard<R extends Row> {
@@ -13,7 +14,7 @@ public interface Shard<R extends Row> {
      */
 
     // Add a new row to the shard.
-    int addRow(R row);
+    int insertRows(List<R> rows);
     // Destroy shard data and processes.  After destruction, shard is no longer usable.
     void destroy();
     // Return directory containing shard files.

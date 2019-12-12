@@ -17,10 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -232,16 +229,16 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             int shardNum = rowMessage.getShard();
             if (primaryShardMap.containsKey(shardNum)) {
                 ByteString rowData = rowMessage.getRowData();
-                R row;
+                List<R> rows;
                 try {
-                    row = (R) Utilities.byteStringToObject(rowData);
+                    rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowData));
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("DS{} Row Deserialization Failed: {}", dsID, e.getMessage());
                     return InsertRowResponse.newBuilder().setReturnCode(1).build();
                 }
                 S shard = primaryShardMap.get(shardNum);
                 shardLockMap.get(shardNum).writeLock().lock();
-                int addRowReturnCode = shard.addRow(row);
+                int addRowReturnCode = shard.insertRows(rows);
                 assert(addRowReturnCode == 0); // TODO:  Handle failure better.  Probably need 2PC with replicas.
                 shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
                 shardLockMap.get(shardNum).writeLock().unlock();

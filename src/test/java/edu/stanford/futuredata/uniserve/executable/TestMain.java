@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -82,7 +83,7 @@ public class TestMain {
 
     private static void runBroker(String zkHost, int zkPort) {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
-        int addRowReturnCode = broker.insertRow(new KVRow(1, 2));
+        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
         QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
         Integer queryResponse = broker.scheduleQuery(queryPlan);

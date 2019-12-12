@@ -91,35 +91,45 @@ public class Broker {
      * PUBLIC FUNCTIONS
      */
 
-    public Integer insertRow(Row row) {
-        int partitionKey = row.getPartitionKey();
-        if (partitionKey < 0) {
-            logger.warn("Negative partition key {}", partitionKey);
-            return 1;
+    public Integer insertRow(List<Row> rows) {
+        Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
+        for (Row row: rows) {
+            int partitionKey = row.getPartitionKey();
+            assert(partitionKey >= 0);
+            int shard = keyToShard(partitionKey);
+            shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
-        int shard = keyToShard(partitionKey);
-        Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shard);
-        if (stubOpt.isEmpty()) {
-            logger.warn("Could not find DataStore for shard {}", shard);
-            return 1;
+        Map<Integer, Row[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
+                collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray(new Row[0])));
+        for (Integer shard: shardRowArrayMap.keySet()) {
+            Row[] rowArray = shardRowArrayMap.get(shard);
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shard);
+            if (stubOpt.isEmpty()) {
+                logger.error("Could not find DataStore for shard {}", shard);  //TODO:  Retry
+                return 1;
+            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+            ByteString rowData;
+            try {
+                rowData = Utilities.objectToByteString(rowArray);
+            } catch (IOException e) {
+                logger.error("Row Serialization Failed: {}", e.getMessage());
+                assert (false);
+                return 1;
+            }
+            InsertRowMessage rowMessage = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
+            InsertRowResponse addRowAck;
+            try {
+                addRowAck = stub.insertRow(rowMessage);
+            } catch (StatusRuntimeException e) {
+                logger.warn("RPC failed: {}", e.getStatus());
+                return 1;
+            }
+            if (addRowAck.getReturnCode() != 0) {
+                return 1;
+            }
         }
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-        ByteString rowData;
-        try {
-            rowData = Utilities.objectToByteString(row);
-        } catch (IOException e) {
-            logger.warn("Row Serialization Failed: {}", e.getMessage());
-            return 1;
-        }
-        InsertRowMessage rowMessage = InsertRowMessage.newBuilder().setShard(shard).setRowData(rowData).build();
-        InsertRowResponse addRowAck;
-        try {
-            addRowAck = stub.insertRow(rowMessage);
-        } catch (StatusRuntimeException e) {
-            logger.warn("RPC failed: {}", e.getStatus());
-            return 1;
-        }
-        return addRowAck.getReturnCode();
+        return 0;
     }
 
     public <S extends Shard, T extends Serializable, V> V scheduleQuery(QueryPlan<S, T, V> queryPlan) {

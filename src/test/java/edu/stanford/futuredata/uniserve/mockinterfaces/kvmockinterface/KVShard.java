@@ -31,8 +31,10 @@ public class KVShard implements Shard<KVRow> {
     }
 
     @Override
-    public int addRow(KVRow row) {
-        KVMap.put(row.getKey(), row.getValue());
+    public int insertRows(List<KVRow> rows) {
+        for (KVRow row : rows) {
+            KVMap.put(row.getKey(), row.getValue());
+        }
         return 0;
     }
 
