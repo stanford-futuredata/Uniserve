@@ -5,15 +5,15 @@ import java.util.List;
 
 public interface ReadQueryPlan<S extends Shard, I extends Serializable, T> extends Serializable {
     /*
-     Execute a query on the shards containing certain keys, then aggregate the result.
+     Execute a read query.
      */
 
     // Keys on which the query executes.  Query will execute on all shards containing any key from the list.
     // Include -1 to execute on all shards.
     List<Integer> keysForQuery();
-    // Execute the query on an shard (Map).
+    // This function will execute on each shard containing at least one key from keysForQuery.
     I queryShard(S shard);
-    // Aggregate the outputs of queries on shards (Reduce).
+    // The query will return the result of this function executed on all results from queryShard.
     T aggregateShardQueries(List<I> shardQueryResults);
     // Get query plans for subqueries.
     List<ReadQueryPlan> getSubQueries();

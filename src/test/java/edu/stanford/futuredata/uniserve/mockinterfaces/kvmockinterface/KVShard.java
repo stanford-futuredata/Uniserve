@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class KVShard implements Shard<KVRow> {
+public class KVShard implements Shard {
 
     private final Map<Integer, Integer> KVMap;
     private final static AtomicInteger numShards = new AtomicInteger(0);
@@ -31,14 +31,6 @@ public class KVShard implements Shard<KVRow> {
     }
 
     @Override
-    public int insertRows(List<KVRow> rows) {
-        for (KVRow row : rows) {
-            KVMap.put(row.getKey(), row.getValue());
-        }
-        return 0;
-    }
-
-    @Override
     public void destroy() {}
 
     public Optional<Integer> queryKey(Integer key) {
@@ -46,6 +38,12 @@ public class KVShard implements Shard<KVRow> {
             return Optional.of(KVMap.get(key));
         } else {
             return Optional.empty();
+        }
+    }
+
+    public void insertRows(List<KVRow> rows) {
+        for (KVRow row: rows) {
+            KVMap.put(row.getKey(), row.getValue());
         }
     }
 

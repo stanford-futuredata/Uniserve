@@ -2,10 +2,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
+import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
@@ -22,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class DataStore<R extends Row, S extends Shard<R>> {
+public class DataStore<R extends Row, S extends Shard> {
 
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
 
@@ -135,7 +132,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     public Optional<Pair<String, Integer>> uploadShardToCloud(int shardNum) {
-        Shard<R> shard = primaryShardMap.get(shardNum);
+        Shard shard = primaryShardMap.get(shardNum);
         shardLockMap.get(shardNum).readLock().lock();
         Integer versionNumber = shardVersionMap.get(shardNum);
         Optional<Path> shardDirectory = shard.shardToData();
@@ -219,32 +216,41 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
         @Override
-        public void insertRow(InsertRowMessage request, StreamObserver<InsertRowResponse> responseObserver) {
-            responseObserver.onNext(addRowHandler(request));
+        public void writeQuery(WriteQueryMessage request, StreamObserver<WriteQueryResponse> responseObserver) {
+            responseObserver.onNext(writeQueryHandler(request));
             responseObserver.onCompleted();
         }
 
-        private InsertRowResponse addRowHandler(InsertRowMessage rowMessage) {
+        private WriteQueryResponse writeQueryHandler(WriteQueryMessage rowMessage) {
             int shardNum = rowMessage.getShard();
             if (primaryShardMap.containsKey(shardNum)) {
-                ByteString rowData = rowMessage.getRowData();
+                WriteQueryPlan<R, S> writeQueryPlan;
                 List<R> rows;
                 try {
-                    rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowData));
+                    writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(rowMessage.getSerializedQuery());
+                    rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowMessage.getRowData()));
                 } catch (IOException | ClassNotFoundException e) {
-                    logger.error("DS{} Row Deserialization Failed: {}", dsID, e.getMessage());
-                    return InsertRowResponse.newBuilder().setReturnCode(1).build();
+                    logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
+                    assert(false);
+                    return WriteQueryResponse.newBuilder().setReturnCode(1).build();
                 }
                 S shard = primaryShardMap.get(shardNum);
                 shardLockMap.get(shardNum).writeLock().lock();
-                int addRowReturnCode = shard.insertRows(rows);
-                assert(addRowReturnCode == 0); // TODO:  Handle failure better.  Probably need 2PC with replicas.
-                shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                boolean querySuccess = writeQueryPlan.preCommit(shard, rows);
+                int addRowReturnCode;
+                if (querySuccess) {
+                    writeQueryPlan.commit(shard);
+                    shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                    addRowReturnCode = 0;
+                } else {
+                    writeQueryPlan.abort(shard);
+                    addRowReturnCode = 1;
+                }
                 shardLockMap.get(shardNum).writeLock().unlock();
-                return InsertRowResponse.newBuilder().setReturnCode(addRowReturnCode).build();
+                return WriteQueryResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
                 logger.warn("DS{} Got write request for absent shard {}", dsID, shardNum);
-                return InsertRowResponse.newBuilder().setReturnCode(1).build();
+                return WriteQueryResponse.newBuilder().setReturnCode(1).build();
             }
         }
 

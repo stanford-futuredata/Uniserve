@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.cli.*;
 import org.slf4j.Logger;
@@ -82,10 +83,11 @@ public class TestMain {
 
     private static void runBroker(String zkHost, int zkPort) {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
-        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
         ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
-        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
+        Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
         broker.shutdown();
     }

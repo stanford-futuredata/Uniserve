@@ -9,17 +9,18 @@ package brokerdatastore;
 // Communication from brokers to datastores.
 service BrokerDataStore {
     // Add a row to a DataStore server.  Return an acknowledgement.
-    rpc InsertRow (InsertRowMessage) returns (InsertRowResponse) {}
+    rpc WriteQuery (WriteQueryMessage) returns (WriteQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
 }
 
-message InsertRowMessage {
+message WriteQueryMessage {
     int32 shard = 1;
-    bytes rowData = 2;
+    bytes serializedQuery = 2;
+    bytes rowData = 3;
 }
 
-message InsertRowResponse {
+message WriteQueryResponse {
     int32 returnCode = 1;
 }
 

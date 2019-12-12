@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
+import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
@@ -69,16 +70,18 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
+                Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
-        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
+        Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
         dataStore.shutDown();
@@ -93,32 +96,34 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        List<DataStore> dataStores = new ArrayList<>();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
+                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
-        List<Row> rows = new ArrayList<>();
+        List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));
         }
-        int addRowReturnCode = broker.insertRow(rows);
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, rows);
         assertEquals(0, addRowReturnCode);
 
         ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
-        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
+        Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(1), queryResponse);
 
         readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 5));
-        queryResponse = broker.scheduleQuery(readQueryPlan);
+        queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(6), queryResponse);
 
         readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
-        queryResponse = broker.scheduleQuery(readQueryPlan);
+        queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(55), queryResponse);
 
         for (int i = 0; i < num_datastores; i++) {
@@ -135,18 +140,22 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
+        DataStore<KVRow, KVShard> dataStore =
+                new DataStore<>(null,
+                        new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
+                        zkHost, zkPort, "127.0.0.1", 8000);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(0, 1)));
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(0, 1)));
         assertEquals(0, addRowReturnCode);
-        addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
+        addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanNested(0);
-        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
+        Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
         dataStore.shutDown();
@@ -161,21 +170,24 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        List<DataStore> dataStores = new ArrayList<>();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i);
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        List<Row> rows = new ArrayList<>();
+        List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 100; i++) {
             rows.add(new KVRow(i, i));
         }
-        int addRowReturnCode = broker.insertRow(rows);
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, rows);
         assertEquals(0, addRowReturnCode);
 
         Thread.sleep(2000);
@@ -186,7 +198,7 @@ public class KVStoreTests {
                 private Integer queryResponse = null;
                 public void run() {
                     ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(finalI));
-                    this.queryResponse = broker.scheduleQuery(readQueryPlan);
+                    this.queryResponse = broker.readQuery(readQueryPlan);
                 }
                 public Integer getQueryResponse() {
                     return this.queryResponse;
@@ -215,12 +227,15 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
-        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000);
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
+                zkHost, zkPort, "127.0.0.1", 8000);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        int addRowReturnCode = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
         Optional<Pair<String, Integer>> uploadResult = dataStore.uploadShardToCloud(0);
