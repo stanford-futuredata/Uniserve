@@ -1,8 +1,6 @@
 package edu.stanford.futuredata.uniserve.utilities;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.ReadQueryResponse;
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
 import org.javatuples.Pair;
 
 import java.io.*;

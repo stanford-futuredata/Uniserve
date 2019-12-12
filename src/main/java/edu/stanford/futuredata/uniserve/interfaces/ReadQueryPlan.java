@@ -3,7 +3,7 @@ package edu.stanford.futuredata.uniserve.interfaces;
 import java.io.Serializable;
 import java.util.List;
 
-public interface QueryPlan<S extends Shard, I extends Serializable, T> extends Serializable {
+public interface ReadQueryPlan<S extends Shard, I extends Serializable, T> extends Serializable {
     /*
      Execute a query on the shards containing certain keys, then aggregate the result.
      */
@@ -16,7 +16,7 @@ public interface QueryPlan<S extends Shard, I extends Serializable, T> extends S
     // Aggregate the outputs of queries on shards (Reduce).
     T aggregateShardQueries(List<I> shardQueryResults);
     // Get query plans for subqueries.
-    List<QueryPlan> getSubQueries();
+    List<ReadQueryPlan> getSubQueries();
     // Set results of subqueries.
     void setSubQueryResults(List<Object> subQueryResults);
 }

@@ -4,7 +4,7 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.io.FileUtils;
@@ -77,8 +77,8 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanGet(1);
-        Integer queryResponse = broker.scheduleQuery(queryPlan);
+        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
+        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
         dataStore.shutDown();
@@ -109,16 +109,16 @@ public class KVStoreTests {
         int addRowReturnCode = broker.insertRow(rows);
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(1));
-        Integer queryResponse = broker.scheduleQuery(queryPlan);
+        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
+        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
         assertEquals(Integer.valueOf(1), queryResponse);
 
-        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 5));
-        queryResponse = broker.scheduleQuery(queryPlan);
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 5));
+        queryResponse = broker.scheduleQuery(readQueryPlan);
         assertEquals(Integer.valueOf(6), queryResponse);
 
-        queryPlan = new KVQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
-        queryResponse = broker.scheduleQuery(queryPlan);
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        queryResponse = broker.scheduleQuery(readQueryPlan);
         assertEquals(Integer.valueOf(55), queryResponse);
 
         for (int i = 0; i < num_datastores; i++) {
@@ -145,8 +145,8 @@ public class KVStoreTests {
         addRowReturnCode = broker.insertRow(Collections.singletonList(new KVRow(1, 2)));
         assertEquals(0, addRowReturnCode);
 
-        QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanBasicNested(0);
-        Integer queryResponse = broker.scheduleQuery(queryPlan);
+        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanNested(0);
+        Integer queryResponse = broker.scheduleQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
         dataStore.shutDown();
@@ -185,8 +185,8 @@ public class KVStoreTests {
             BrokerThread brokerThread = new BrokerThread() {
                 private Integer queryResponse = null;
                 public void run() {
-                    QueryPlan<KVShard, Integer, Integer> queryPlan = new KVQueryPlanSumGet(Collections.singletonList(finalI));
-                    this.queryResponse = broker.scheduleQuery(queryPlan);
+                    ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(finalI));
+                    this.queryResponse = broker.scheduleQuery(readQueryPlan);
                 }
                 public Integer getQueryResponse() {
                     return this.queryResponse;

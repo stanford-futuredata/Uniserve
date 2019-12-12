@@ -2,7 +2,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
@@ -19,7 +19,6 @@ import java.io.Serializable;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -263,15 +262,15 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             }
             if (shard != null) {
                 ByteString serializedQuery = readQuery.getSerializedQuery();
-                QueryPlan<S, Serializable, Object> queryPlan;
+                ReadQueryPlan<S, Serializable, Object> readQueryPlan;
                 try {
-                    queryPlan = (QueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
+                    readQueryPlan = (ReadQueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
                     return ReadQueryResponse.newBuilder().setReturnCode(1).build();
                 }
                 shardLockMap.get(shardNum).readLock().lock();
-                Serializable queryResult = queryPlan.queryShard(shard);
+                Serializable queryResult = readQueryPlan.queryShard(shard);
                 shardLockMap.get(shardNum).readLock().unlock();
                 ByteString queryResponse;
                 try {

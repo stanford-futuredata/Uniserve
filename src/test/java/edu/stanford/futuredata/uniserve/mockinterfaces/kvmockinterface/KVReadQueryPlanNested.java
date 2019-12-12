@@ -1,18 +1,18 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlanBasicNested implements QueryPlan<KVShard, Integer, Integer> {
+public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer, Integer> {
     // Return the value corresponding to the key corresponding to innerKey.
 
-    private final KVQueryPlanGet subQuery;
+    private final KVReadQueryPlanGet subQuery;
     private Integer innerKeyValue;
 
-    public KVQueryPlanBasicNested(Integer innerKey) {
-        this.subQuery = new KVQueryPlanGet(innerKey);
+    public KVReadQueryPlanNested(Integer innerKey) {
+        this.subQuery = new KVReadQueryPlanGet(innerKey);
     }
 
     @Override
@@ -31,7 +31,7 @@ public class KVQueryPlanBasicNested implements QueryPlan<KVShard, Integer, Integ
     }
 
     @Override
-    public List<QueryPlan> getSubQueries() {return Collections.singletonList(subQuery);}
+    public List<ReadQueryPlan> getSubQueries() {return Collections.singletonList(subQuery);}
 
     @Override
     public void setSubQueryResults(List<Object> subQueryResults) {

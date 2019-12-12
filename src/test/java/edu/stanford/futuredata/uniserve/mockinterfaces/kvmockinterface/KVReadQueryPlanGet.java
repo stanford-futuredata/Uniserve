@@ -1,16 +1,15 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
-import edu.stanford.futuredata.uniserve.interfaces.QueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 
 import java.util.Collections;
 import java.util.List;
 
-public class KVQueryPlanGet implements QueryPlan<KVShard, Integer, Integer> {
+public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer, Integer> {
 
     private final Integer key;
 
-    public KVQueryPlanGet(Integer key) {
+    public KVReadQueryPlanGet(Integer key) {
         this.key = key;
     }
 
@@ -30,7 +29,7 @@ public class KVQueryPlanGet implements QueryPlan<KVShard, Integer, Integer> {
     }
 
     @Override
-    public List<QueryPlan> getSubQueries() {return Collections.emptyList();}
+    public List<ReadQueryPlan> getSubQueries() {return Collections.emptyList();}
 
     @Override
     public void setSubQueryResults(List<Object> subQueryResults) {}
