@@ -98,15 +98,16 @@ public class Broker {
         }
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
-        List<WriteQueryShardThread<R, S>> writeQueryShardThreads = new ArrayList<>();
+        List<WriteQueryPreCommitShardThread<R, S>> writeQueryPreCommitShardThreads = new ArrayList<>();
+        long txID = ThreadLocalRandom.current().nextLong();
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
-            WriteQueryShardThread<R, S> t = new WriteQueryShardThread<>(shardNum, writeQueryPlan, rowArray);
+            WriteQueryPreCommitShardThread<R, S> t = new WriteQueryPreCommitShardThread<>(shardNum, writeQueryPlan, rowArray, txID);
             t.start();
-            writeQueryShardThreads.add(t);
+            writeQueryPreCommitShardThreads.add(t);
         }
-        boolean success = true;
-        for (WriteQueryShardThread<R, S> t: writeQueryShardThreads) {
+        boolean success = true; // Commit on true, abort on false.
+        for (WriteQueryPreCommitShardThread<R, S> t: writeQueryPreCommitShardThreads) {
             try {
                 t.join();
             } catch (InterruptedException e) {
@@ -114,6 +115,20 @@ public class Broker {
                 assert(false);
             }
             success = success && t.isSuccess();
+        }
+        List<WriteQueryCommitShardThread> writeQueryCommitShardThreads = new ArrayList<>();
+        for (Integer shardNum: shardRowArrayMap.keySet()) {
+            WriteQueryCommitShardThread t = new WriteQueryCommitShardThread(shardNum, success, txID);
+            t.start();
+            writeQueryCommitShardThreads.add(t);
+        }
+        for (WriteQueryCommitShardThread t: writeQueryCommitShardThreads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                logger.error("Write query interrupted: {}", e.getMessage());
+                assert(false);
+            }
         }
         return success;
     }
@@ -269,22 +284,24 @@ public class Broker {
         }
     }
 
-    private class WriteQueryShardThread<R extends Row, S extends Shard> extends Thread {
+    private class WriteQueryPreCommitShardThread<R extends Row, S extends Shard> extends Thread {
         private final int shardNum;
         private final WriteQueryPlan<R, S> writeQueryPlan;
         private final R[] rowArray;
+        private final long txID;
         private boolean success;
 
-        WriteQueryShardThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray) {
+        WriteQueryPreCommitShardThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID) {
             this.shardNum = shardNum;
             this.writeQueryPlan = writeQueryPlan;
             this.rowArray = rowArray;
+            this.txID = txID;
         }
 
         @Override
-        public void run() { this.success = writeQueryShard(); }
+        public void run() { this.success = writeQueryPreCommitShard(); }
 
-        private boolean writeQueryShard() {
+        private boolean writeQueryPreCommitShard() {
             Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
             if (stubOpt.isEmpty()) {
                 logger.error("Could not find DataStore for shard {}", shardNum);
@@ -302,11 +319,11 @@ public class Broker {
                 assert (false);
                 return false;
             }
-            WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder().setShard(shardNum).
-                    setSerializedQuery(serializedQuery).setRowData(rowData).build();
-            WriteQueryResponse writeQueryResponse;
+            WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
+                    setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
+            WriteQueryPreCommitResponse writeQueryResponse;
             try {
-                writeQueryResponse = stub.writeQuery(rowMessage);
+                writeQueryResponse = stub.writeQueryPreCommit(rowMessage);
             } catch (StatusRuntimeException e) {
                 logger.warn("RPC failed: {}", e.getStatus());
                 assert(false); // TODO:  Retry
@@ -317,6 +334,39 @@ public class Broker {
 
         public boolean isSuccess() {
             return success;
+        }
+    }
+
+    private class WriteQueryCommitShardThread extends Thread {
+        private final boolean commitOrAbort;  // Commit on true, abort on false.
+        private final int shardNum;
+        private final long txID;
+
+        WriteQueryCommitShardThread(int shardNum, boolean commitOrAbort, long txID) {
+            this.shardNum = shardNum;
+            this.commitOrAbort = commitOrAbort;
+            this.txID = txID;
+        }
+
+        @Override
+        public void run() { writeQueryCommitShard(); }
+
+        private void writeQueryCommitShard() {
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+            if (stubOpt.isEmpty()) {
+                logger.error("Could not find DataStore for shard {}", shardNum);
+                assert(false);  // TODO:  Retry
+                return;
+            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+            WriteQueryCommitMessage rowMessage = WriteQueryCommitMessage.newBuilder().
+                    setShard(shardNum).setCommitOrAbort(commitOrAbort).setTxID(txID).build();
+            try {
+                WriteQueryCommitResponse response = stub.writeQueryCommit(rowMessage);
+            } catch (StatusRuntimeException e) {
+                logger.warn("RPC failed: {}", e.getStatus());
+                assert(false); // TODO:  Retry
+            }
         }
     }
 

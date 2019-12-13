@@ -16,6 +16,7 @@ import java.io.Serializable;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -215,14 +216,57 @@ public class DataStore<R extends Row, S extends Shard> {
 
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
+        private Map<Integer, CommitLockerThread> activeCLTs = new HashMap<>();
+
+        private class CommitLockerThread extends Thread {
+            // Holds a shard's write lock in between precommit and commit.
+            public final Integer shardNum;
+            public final WriteQueryPlan<R, S> writeQueryPlan;
+            private final Lock lock;
+            private final long txID;
+
+            public CommitLockerThread(Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, Lock lock, long txID) {
+                this.shardNum = shardNum;
+                this.writeQueryPlan = writeQueryPlan;
+                this.lock = lock;
+                this.txID = txID;
+            }
+
+            public void run() {
+                lock.lock();
+                // Notify the precommit thread that the shard lock is held.
+                synchronized (writeQueryPlan) {
+                    assert (activeCLTs.get(shardNum) == null);
+                    activeCLTs.put(shardNum, this);
+                    writeQueryPlan.notify();
+                }
+                // Block until the commit thread is ready to release the shard lock.
+                // TODO:  Automatically abort and unlock if this isn't triggered for X seconds after a precommit.
+                try {
+                    synchronized (writeQueryPlan) {
+                        assert (activeCLTs.get(shardNum) != null);
+                        while(activeCLTs.get(shardNum) != null) {
+                            writeQueryPlan.wait();
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
+                    assert(false);
+                }
+                lock.unlock();
+            }
+
+        }
+
         @Override
-        public void writeQuery(WriteQueryMessage request, StreamObserver<WriteQueryResponse> responseObserver) {
-            responseObserver.onNext(writeQueryHandler(request));
+        public void writeQueryPreCommit(WriteQueryPreCommitMessage request, StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
+            responseObserver.onNext(writeQueryPreCommitHandler(request));
             responseObserver.onCompleted();
         }
 
-        private WriteQueryResponse writeQueryHandler(WriteQueryMessage rowMessage) {
+        private WriteQueryPreCommitResponse writeQueryPreCommitHandler(WriteQueryPreCommitMessage rowMessage) {
             int shardNum = rowMessage.getShard();
+            long txID = rowMessage.getTxID();
             if (primaryShardMap.containsKey(shardNum)) {
                 WriteQueryPlan<R, S> writeQueryPlan;
                 List<R> rows;
@@ -232,26 +276,66 @@ public class DataStore<R extends Row, S extends Shard> {
                 } catch (IOException | ClassNotFoundException e) {
                     logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
                     assert(false);
-                    return WriteQueryResponse.newBuilder().setReturnCode(1).build();
+                    return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
                 }
                 S shard = primaryShardMap.get(shardNum);
-                shardLockMap.get(shardNum).writeLock().lock();
+                // Block until the commitLockerThread has the shard's write lock.
+                CommitLockerThread commitLockerThread = new CommitLockerThread(shardNum, writeQueryPlan, shardLockMap.get(shardNum).writeLock(), txID);
+                commitLockerThread.start();
+                try {
+                    synchronized (writeQueryPlan) {
+                        while(!(activeCLTs.get(shardNum) == commitLockerThread)) {
+                            writeQueryPlan.wait();
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
+                    assert(false);
+                }
+                // The shard's write lock is now held.
                 boolean querySuccess = writeQueryPlan.preCommit(shard, rows);
                 int addRowReturnCode;
                 if (querySuccess) {
-                    writeQueryPlan.commit(shard);
-                    shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
                     addRowReturnCode = 0;
                 } else {
-                    writeQueryPlan.abort(shard);
                     addRowReturnCode = 1;
                 }
-                shardLockMap.get(shardNum).writeLock().unlock();
-                return WriteQueryResponse.newBuilder().setReturnCode(addRowReturnCode).build();
+                return WriteQueryPreCommitResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
                 logger.warn("DS{} Got write request for absent shard {}", dsID, shardNum);
-                return WriteQueryResponse.newBuilder().setReturnCode(1).build();
+                return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
             }
+        }
+
+        @Override
+        public void writeQueryCommit(WriteQueryCommitMessage request, StreamObserver<WriteQueryCommitResponse> responseObserver) {
+            responseObserver.onNext(writeQueryCommitHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private WriteQueryCommitResponse writeQueryCommitHandler(WriteQueryCommitMessage rowMessage) {
+            int shardNum = rowMessage.getShard();
+            assert(activeCLTs.get(shardNum) != null);  // The commit locker thread holds the shard's write lock.
+            assert(activeCLTs.get(shardNum).txID == rowMessage.getTxID());
+            if (primaryShardMap.containsKey(shardNum)) {
+                boolean commitOrAbort = rowMessage.getCommitOrAbort(); // Commit on true, abort on false.
+                S shard = primaryShardMap.get(shardNum);
+                if (commitOrAbort) {
+                    activeCLTs.get(shardNum).writeQueryPlan.commit(shard);
+                    shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                } else {
+                    activeCLTs.get(shardNum).writeQueryPlan.abort(shard);
+                }
+                // Have the commit locker thread release the shard's write lock.
+                synchronized (activeCLTs.get(shardNum).writeQueryPlan) {
+                    activeCLTs.get(shardNum).writeQueryPlan.notify();
+                    activeCLTs.put(shardNum, null);
+                }
+            } else {
+                logger.error("DS{} Got commit request on absent shard {} (!!!!!)", dsID, shardNum);
+                assert(false);
+            }
+            return WriteQueryCommitResponse.newBuilder().build();
         }
 
         @Override

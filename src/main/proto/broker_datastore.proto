@@ -8,20 +8,33 @@ package brokerdatastore;
 
 // Communication from brokers to datastores.
 service BrokerDataStore {
-    // Add a row to a DataStore server.  Return an acknowledgement.
-    rpc WriteQuery (WriteQueryMessage) returns (WriteQueryResponse) {}
+    // Pre-commit (2PC-style) a write query.
+    rpc WriteQueryPreCommit (WriteQueryPreCommitMessage) returns (WriteQueryPreCommitResponse) {}
+    // Commit (or abort) a write query.
+    rpc WriteQueryCommit (WriteQueryCommitMessage) returns (WriteQueryCommitResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
 }
 
-message WriteQueryMessage {
+message WriteQueryPreCommitMessage {
     int32 shard = 1;
     bytes serializedQuery = 2;
     bytes rowData = 3;
+    int64 txID = 4;
 }
 
-message WriteQueryResponse {
+message WriteQueryPreCommitResponse {
     int32 returnCode = 1;
+}
+
+message WriteQueryCommitMessage {
+    int32 shard = 1;
+    bool commitOrAbort = 2; // Commit on true, abort on false
+    int64 txID = 3;
+}
+
+message WriteQueryCommitResponse {
+
 }
 
 message ReadQueryMessage {
