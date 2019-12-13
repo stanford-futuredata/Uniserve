@@ -455,16 +455,18 @@ public class DataStore<R extends Row, S extends Shard> {
                 try {
                     r = primaryBlockingStub.bootstrapReplica(m);
                 } catch (StatusRuntimeException e) {
+                    channel.shutdown();
                     logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dsID, shardNum, primaryDSID, e.getMessage());
                     return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
                 }
                 assert (r.getReturnCode() == 0);
-                if (replicaVersion == m.getVersionNumber()) {
+                int primaryVersion = r.getVersionNumber();
+                if (replicaVersion == primaryVersion) {
                     // Loop until acknowledgement replica has caught up to primary.
                     break;
                 } else {
                     // If not caught up, replay the primary's log.
-                    List<WriteQueryPlan<R, S>> writeQueryPlans = (List<WriteQueryPlan<R, S>>) Utilities.byteStringToObject(r.getWriteQueries());
+                    List<WriteQueryPlan<R, S>> writeQueryPlans = Arrays.asList((WriteQueryPlan<R, S>[]) Utilities.byteStringToObject(r.getWriteQueries()));
                     List<R[]> rowsList = Arrays.asList((R[][]) Utilities.byteStringToObject(r.getWriteData()));
                     assert(writeQueryPlans.size() == rowsList.size());
                     for (int i = 0; i < writeQueryPlans.size(); i++) {
@@ -502,7 +504,6 @@ public class DataStore<R extends Row, S extends Shard> {
             Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
             if (replicaVersion.equals(primaryVersion)) {
                 // TODO:  Replica is ready.
-                logger.info("DS{} Shard {} Version {} Replica Ready", dsID, shardNum, primaryVersion);
             }
             shardLockMap.get(shardNum).readLock().unlock();
             List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
@@ -511,8 +512,8 @@ public class DataStore<R extends Row, S extends Shard> {
                 writeQueryPlans.add(shardWriteLog.get(v).getValue0());
                 rowListList.add((R[]) shardWriteLog.get(v).getValue1().toArray(new Row[0]));
             }
-            Object[] writeQueryPlansArray = writeQueryPlans.toArray();
-            Object[] rowArrayArray = rowListList.toArray();
+            WriteQueryPlan<R, S>[] writeQueryPlansArray = writeQueryPlans.toArray(new WriteQueryPlan[0]);
+            R[][] rowArrayArray = rowListList.toArray((R[][]) new Row[0][]);
             return BootstrapReplicaResponse.newBuilder().setReturnCode(0)
                     .setVersionNumber(primaryVersion)
                     .setWriteData(Utilities.objectToByteString(rowArrayArray))
