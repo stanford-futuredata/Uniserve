@@ -311,14 +311,8 @@ public class Broker {
             BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
             ByteString serializedQuery;
             ByteString rowData;
-            try {
-                serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                rowData = Utilities.objectToByteString(rowArray);
-            } catch (IOException e) {
-                logger.error("Write Query Serialization Failed: {}", e.getMessage());
-                assert (false);
-                return false;
-            }
+            serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+            rowData = Utilities.objectToByteString(rowArray);
             WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
                     setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
             WriteQueryPreCommitResponse writeQueryResponse;
@@ -443,12 +437,7 @@ public class Broker {
             }
             BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
             ByteString serializedQuery;
-            try {
-                serializedQuery = Utilities.objectToByteString(readQueryPlan);
-            } catch (IOException e) {
-                logger.warn("Query Serialization Failed: {}", e.getMessage());
-                return Optional.empty();
-            }
+            serializedQuery = Utilities.objectToByteString(readQueryPlan);
             ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
             ReadQueryResponse readQueryResponse;
             try {
@@ -460,12 +449,7 @@ public class Broker {
             }
             ByteString responseByteString = readQueryResponse.getResponse();
             T obj;
-            try {
-                obj = (T) Utilities.byteStringToObject(responseByteString);
-            } catch (IOException | ClassNotFoundException e) {
-                logger.error("Deserialization failed: {}", e.getMessage());
-                return Optional.empty();
-            }
+            obj = (T) Utilities.byteStringToObject(responseByteString);
             return Optional.of(obj);
         }
 

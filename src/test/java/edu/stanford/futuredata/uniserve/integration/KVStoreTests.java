@@ -190,7 +190,7 @@ public class KVStoreTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
 
-        Thread.sleep(2000);
+        Thread.sleep(3000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             int finalI = i;

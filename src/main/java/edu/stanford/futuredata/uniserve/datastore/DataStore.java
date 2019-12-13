@@ -9,6 +9,7 @@ import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.Util;
 
 import java.io.File;
 import java.io.IOException;
@@ -297,14 +298,8 @@ public class DataStore<R extends Row, S extends Shard> {
             if (primaryShardMap.containsKey(shardNum)) {
                 WriteQueryPlan<R, S> writeQueryPlan;
                 List<R> rows;
-                try {
-                    writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(rowMessage.getSerializedQuery());
-                    rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowMessage.getRowData()));
-                } catch (IOException | ClassNotFoundException e) {
-                    logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
-                    assert(false);
-                    return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
-                }
+                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(rowMessage.getSerializedQuery());
+                rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowMessage.getRowData()));
                 S shard = primaryShardMap.get(shardNum);
                 // Use the CommitLockerThread to acquire the shard's write lock.
                 CommitLockerThread commitLockerThread = new CommitLockerThread(shardNum, writeQueryPlan, rows, shardLockMap.get(shardNum).writeLock(), txID);
@@ -340,9 +335,10 @@ public class DataStore<R extends Row, S extends Shard> {
                 S shard = primaryShardMap.get(shardNum);
                 if (commitOrAbort) {
                     writeQueryPlan.commit(shard);
-                    int versionNumber = shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                    int newVersionNumber = shardVersionMap.get(shardNum) + 1;
                     Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
-                    shardWriteLog.put(versionNumber, new Pair<>(writeQueryPlan, commitCLT.rows));
+                    shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, commitCLT.rows));
+                    shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
                 } else {
                     writeQueryPlan.abort(shard);
                 }
@@ -370,22 +366,12 @@ public class DataStore<R extends Row, S extends Shard> {
             if (shard != null) {
                 ByteString serializedQuery = readQuery.getSerializedQuery();
                 ReadQueryPlan<S, Serializable, Object> readQueryPlan;
-                try {
-                    readQueryPlan = (ReadQueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
-                } catch (IOException | ClassNotFoundException e) {
-                    logger.error("DS{} Query Deserialization Failed: {}", dsID, e.getMessage());
-                    return ReadQueryResponse.newBuilder().setReturnCode(1).build();
-                }
+                readQueryPlan = (ReadQueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
                 shardLockMap.get(shardNum).readLock().lock();
                 Serializable queryResult = readQueryPlan.queryShard(shard);
                 shardLockMap.get(shardNum).readLock().unlock();
                 ByteString queryResponse;
-                try {
-                    queryResponse = Utilities.objectToByteString(queryResult);
-                } catch (IOException e) {
-                    logger.error("DS{} Result Serialization Failed: {}", dsID, e.getMessage());
-                    return ReadQueryResponse.newBuilder().setReturnCode(1).build();
-                }
+                queryResponse = Utilities.objectToByteString(queryResult);
                 return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
             } else {
                 logger.warn("DS{} Got read request for absent shard {}", dsID, shardNum);
@@ -439,32 +425,60 @@ public class DataStore<R extends Row, S extends Shard> {
             int shardNum = request.getShard();
             assert(!primaryShardMap.containsKey(shardNum));
             assert(!replicaShardMap.containsKey(shardNum));
+            // Get shard info from ZK.
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             String cloudName = zkShardDescription.cloudName;
-            int versionNumber = zkShardDescription.versionNumber;
+            int replicaVersion = zkShardDescription.versionNumber;
             int primaryDSID = zkShardDescription.primaryDSID;
-            Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, versionNumber);
+            // Download the shard.
+            Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, replicaVersion);
             if (loadedShard.isEmpty()) {
                 logger.error("DS{} Shard load failed {}", dsID, shardNum);
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
+            // Load but lock the replica until it has been bootstrapped.
+            S shard = loadedShard.get();
+            shardLockMap.put(shardNum, new ReentrantReadWriteLock());
+            shardLockMap.get(shardNum).writeLock().lock();
+            replicaShardMap.put(shardNum, loadedShard.get());
+
+            // Set up a connection to the primary.
             Pair<String, Integer> primaryConnectString = zkCurator.getConnectStringFromDSID(primaryDSID);
             ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryConnectString.getValue0(), primaryConnectString.getValue1()).usePlaintext().build();
             DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
-            BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder().setShard(shardNum).setVersionNumber(versionNumber).build();
-            BootstrapReplicaResponse r;
-            try {
-                r = primaryBlockingStub.bootstrapReplica(m);
-            } catch (StatusRuntimeException e) {
-                logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dsID, shardNum, primaryDSID, e.getMessage());
-                return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
+
+            // Bootstrap the replica, bringing it up to the same version as the primary.
+            while (true) {
+                BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder().setShard(shardNum).setVersionNumber(replicaVersion).build();
+                BootstrapReplicaResponse r;
+                try {
+                    r = primaryBlockingStub.bootstrapReplica(m);
+                } catch (StatusRuntimeException e) {
+                    logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dsID, shardNum, primaryDSID, e.getMessage());
+                    return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
+                }
+                assert (r.getReturnCode() == 0);
+                if (replicaVersion == m.getVersionNumber()) {
+                    // Loop until acknowledgement replica has caught up to primary.
+                    break;
+                } else {
+                    // If not caught up, replay the primary's log.
+                    List<WriteQueryPlan<R, S>> writeQueryPlans = (List<WriteQueryPlan<R, S>>) Utilities.byteStringToObject(r.getWriteQueries());
+                    List<R[]> rowsList = Arrays.asList((R[][]) Utilities.byteStringToObject(r.getWriteData()));
+                    assert(writeQueryPlans.size() == rowsList.size());
+                    for (int i = 0; i < writeQueryPlans.size(); i++) {
+                        WriteQueryPlan<R, S> query = writeQueryPlans.get(i);
+                        List<R> rows = Arrays.asList(rowsList.get(i));
+                        assert(query.preCommit(shard, rows));
+                        query.commit(shard);
+                    }
+                    replicaVersion = r.getVersionNumber();
+                }
             }
-            assert(r.getReturnCode() == 0);
             channel.shutdown();
-            shardLockMap.put(shardNum, new ReentrantReadWriteLock());
-            shardVersionMap.put(shardNum, versionNumber);
-            replicaShardMap.put(shardNum, loadedShard.get());
-            logger.info("DS{} Loaded new replica shard {}", dsID, shardNum);
+            shardVersionMap.put(shardNum, replicaVersion);
+            shardLockMap.get(shardNum).writeLock().unlock();
+            logger.info("DS{} Loaded new replica shard {} version {}", dsID, shardNum, replicaVersion);
             return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
         }
     }
@@ -478,7 +492,30 @@ public class DataStore<R extends Row, S extends Shard> {
         }
 
         private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
-            return BootstrapReplicaResponse.newBuilder().setReturnCode(0).build();
+            int shardNum = request.getShard();
+            shardLockMap.get(shardNum).readLock().lock();
+            Integer replicaVersion = request.getVersionNumber();
+            Integer primaryVersion = shardVersionMap.get(shardNum);
+            assert(primaryVersion != null);
+            assert(replicaVersion <= primaryVersion);
+            Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
+            if (replicaVersion.equals(primaryVersion)) {
+                // TODO:  Replica is ready.
+            }
+            shardLockMap.get(shardNum).readLock().unlock();
+            List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
+            List<R[]> rowListList = new ArrayList<>();
+            for (int v = replicaVersion + 1; v <= primaryVersion; v++) {
+                writeQueryPlans.add(shardWriteLog.get(v).getValue0());
+                rowListList.add((R[]) shardWriteLog.get(v).getValue1().toArray(new Row[0]));
+            }
+            Object[] writeQueryPlansArray = writeQueryPlans.toArray();
+            Object[] rowArrayArray = rowListList.toArray();
+            return BootstrapReplicaResponse.newBuilder().setReturnCode(0)
+                    .setVersionNumber(primaryVersion)
+                    .setWriteData(Utilities.objectToByteString(rowArrayArray))
+                    .setWriteQueries(Utilities.objectToByteString(writeQueryPlansArray))
+                    .build();
         }
     }
 }
