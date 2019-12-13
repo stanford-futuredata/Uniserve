@@ -21,11 +21,12 @@ public class AWSDataStoreCloud implements DataStoreCloud {
     }
 
     @Override
-    public Optional<String> uploadShardToCloud(Path shardDirectory, String shardName) {
+    public Optional<String> uploadShardToCloud(Path shardDirectory, String shardName, int versionNumber) {
         TransferManager tx = TransferManagerBuilder.standard().build();
         File dirFile = shardDirectory.toFile();
+        String shardCloudName = String.format("%s_%d", shardName, versionNumber);
         try {
-            MultipleFileUpload mfu = tx.uploadDirectory(bucket, shardName, dirFile, true);
+            MultipleFileUpload mfu = tx.uploadDirectory(bucket, shardCloudName, dirFile, true);
             for (Upload upload : mfu.getSubTransfers()) {
                 upload.waitForUploadResult();
             }
@@ -36,7 +37,7 @@ public class AWSDataStoreCloud implements DataStoreCloud {
             logger.warn("Shard upload interrupted");
             return Optional.empty();
         }
-        return Optional.of(shardName);
+        return Optional.of(shardCloudName);
     }
 
 

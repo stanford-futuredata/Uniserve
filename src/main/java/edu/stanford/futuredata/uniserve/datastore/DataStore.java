@@ -138,6 +138,7 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     public Optional<Pair<String, Integer>> uploadShardToCloud(int shardNum) {
+        // TODO:  Safely delete old versions.
         Shard shard = primaryShardMap.get(shardNum);
         shardLockMap.get(shardNum).readLock().lock();
         Integer versionNumber = shardVersionMap.get(shardNum);
@@ -147,7 +148,7 @@ public class DataStore<R extends Row, S extends Shard> {
             shardLockMap.get(shardNum).readLock().unlock();
             return Optional.empty();
         }
-        Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum));
+        Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum), versionNumber);
         shardLockMap.get(shardNum).readLock().unlock();  // TODO:  Might block writes for too long.
         if (cloudName.isEmpty()) {
             logger.warn("DS{} Shard {} upload failed", dsID, shardNum);
@@ -501,6 +502,7 @@ public class DataStore<R extends Row, S extends Shard> {
             Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
             if (replicaVersion.equals(primaryVersion)) {
                 // TODO:  Replica is ready.
+                logger.info("DS{} Shard {} Version {} Replica Ready", dsID, shardNum, primaryVersion);
             }
             shardLockMap.get(shardNum).readLock().unlock();
             List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
