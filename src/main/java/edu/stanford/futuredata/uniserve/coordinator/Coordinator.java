@@ -37,7 +37,7 @@ public class Coordinator {
 
     private boolean runReplicationDaemon = true;
     private final ReplicationDaemon replicationDaemon;
-    private final static int replicationDaemonSleepDurationMillis = 1000;
+    private final static int replicationDaemonSleepDurationMillis = 100;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;

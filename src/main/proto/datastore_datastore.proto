@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "edu.stanford.futuredata.uniserve";
+option java_outer_classname = "DatastoreDatastoreProto";
+
+package datastoredatastore;
+
+// Communication between datastores.
+service DataStoreDataStore {
+    rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
+}
+
+message BootstrapReplicaMessage {
+    int32 shard = 1;
+    int32 versionNumber = 2;
+}
+
+message BootstrapReplicaResponse {
+    int32 returnCode = 1;
+    int32 versionNumber = 2;
+    bytes writeQueries = 3;
+    bytes writeData = 4;
+}

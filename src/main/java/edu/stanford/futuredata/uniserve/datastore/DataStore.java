@@ -39,6 +39,8 @@ public class DataStore<R extends Row, S extends Shard> {
     private final Map<Integer, Integer> lastUploadedVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
     private final Map<Integer, ReadWriteLock> shardLockMap = new ConcurrentHashMap<>();
+    // Map from shard number to maps from version number to write query and data.
+    private final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
 
     private final Server server;
     private final DataStoreCurator zkCurator;
@@ -50,7 +52,7 @@ public class DataStore<R extends Row, S extends Shard> {
 
     private boolean runUploadShardDaemon = true;
     private final UploadShardDaemon uploadShardDaemon;
-    private final static int uploadThreadSleepDurationMillis = 1000;
+    private final static int uploadThreadSleepDurationMillis = 100;
 
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
@@ -59,8 +61,10 @@ public class DataStore<R extends Row, S extends Shard> {
         this.dsCloud = dsCloud;
         this.shardFactory = shardFactory;
         this.baseDirectory = baseDirectory;
-        this.server = ServerBuilder.forPort(dsPort).addService(new BrokerDataStoreService())
+        this.server = ServerBuilder.forPort(dsPort)
+                .addService(new BrokerDataStoreService())
                 .addService(new CoordinatorDataStoreService())
+                .addService(new DataStoreDataStoreService())
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
         uploadShardDaemon = new UploadShardDaemon();
@@ -222,12 +226,14 @@ public class DataStore<R extends Row, S extends Shard> {
             // Holds a shard's write lock in between precommit and commit.
             public final Integer shardNum;
             public final WriteQueryPlan<R, S> writeQueryPlan;
+            public final List<R> rows;
             private final Lock lock;
             private final long txID;
 
-            public CommitLockerThread(Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, Lock lock, long txID) {
+            public CommitLockerThread(Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, Lock lock, long txID) {
                 this.shardNum = shardNum;
                 this.writeQueryPlan = writeQueryPlan;
+                this.rows = rows;
                 this.lock = lock;
                 this.txID = txID;
             }
@@ -301,7 +307,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
                 S shard = primaryShardMap.get(shardNum);
                 // Use the CommitLockerThread to acquire the shard's write lock.
-                CommitLockerThread commitLockerThread = new CommitLockerThread(shardNum, writeQueryPlan, shardLockMap.get(shardNum).writeLock(), txID);
+                CommitLockerThread commitLockerThread = new CommitLockerThread(shardNum, writeQueryPlan, rows, shardLockMap.get(shardNum).writeLock(), txID);
                 commitLockerThread.acquireLock();
                 boolean querySuccess = writeQueryPlan.preCommit(shard, rows);
                 int addRowReturnCode;
@@ -334,7 +340,9 @@ public class DataStore<R extends Row, S extends Shard> {
                 S shard = primaryShardMap.get(shardNum);
                 if (commitOrAbort) {
                     writeQueryPlan.commit(shard);
-                    shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                    int versionNumber = shardVersionMap.merge(shardNum, 1, Integer::sum);  // Increment version number
+                    Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
+                    shardWriteLog.put(versionNumber, new Pair<>(writeQueryPlan, commitCLT.rows));
                 } else {
                     writeQueryPlan.abort(shard);
                 }
@@ -415,6 +423,7 @@ public class DataStore<R extends Row, S extends Shard> {
             shardLockMap.put(shardNum, new ReentrantReadWriteLock());
             shardVersionMap.put(shardNum, 0);
             lastUploadedVersionMap.put(shardNum, 0);
+            writeLog.put(shardNum, new ConcurrentHashMap<>());
             primaryShardMap.put(shardNum, shard.get());
             logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
@@ -430,23 +439,46 @@ public class DataStore<R extends Row, S extends Shard> {
             int shardNum = request.getShard();
             assert(!primaryShardMap.containsKey(shardNum));
             assert(!replicaShardMap.containsKey(shardNum));
-            Optional<Pair<String, Integer>> cloudNameVersion = zkCurator.getShardCloudNameVersion(shardNum);
-            if (cloudNameVersion.isEmpty()) {
-                logger.error("DS{} Loading shard not in ZK: {}", dsID, shardNum);
-                return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
-            }
-            String cloudName = cloudNameVersion.get().getValue0();
-            int versionNumber = cloudNameVersion.get().getValue1();
+            ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+            String cloudName = zkShardDescription.cloudName;
+            int versionNumber = zkShardDescription.versionNumber;
+            int primaryDSID = zkShardDescription.primaryDSID;
             Optional<S> loadedShard = downloadShardFromCloud(shardNum, cloudName, versionNumber);
             if (loadedShard.isEmpty()) {
                 logger.error("DS{} Shard load failed {}", dsID, shardNum);
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }
+            Pair<String, Integer> primaryConnectString = zkCurator.getConnectStringFromDSID(primaryDSID);
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryConnectString.getValue0(), primaryConnectString.getValue1()).usePlaintext().build();
+            DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
+            BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder().setShard(shardNum).setVersionNumber(versionNumber).build();
+            BootstrapReplicaResponse r;
+            try {
+                r = primaryBlockingStub.bootstrapReplica(m);
+            } catch (StatusRuntimeException e) {
+                logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dsID, shardNum, primaryDSID, e.getMessage());
+                return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
+            }
+            assert(r.getReturnCode() == 0);
+            channel.shutdown();
             shardLockMap.put(shardNum, new ReentrantReadWriteLock());
             shardVersionMap.put(shardNum, versionNumber);
             replicaShardMap.put(shardNum, loadedShard.get());
             logger.info("DS{} Loaded new replica shard {}", dsID, shardNum);
             return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
+        }
+    }
+
+    private class DataStoreDataStoreService extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
+
+        @Override
+        public void bootstrapReplica(BootstrapReplicaMessage request, StreamObserver<BootstrapReplicaResponse> responseObserver) {
+            responseObserver.onNext(bootstrapReplicaHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
+            return BootstrapReplicaResponse.newBuilder().setReturnCode(0).build();
         }
     }
 }

@@ -8,6 +8,7 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.Util;
 
 import java.util.Optional;
 
@@ -21,6 +22,18 @@ class DataStoreCurator {
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         this.cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
+    }
+
+    Pair<String, Integer> getConnectStringFromDSID(int dsID) {
+        try {
+            String path = String.format("/dsDescription/%d", dsID);
+            byte[] b = cf.getData().forPath(path);
+            return Utilities.parseConnectString(new String(b));
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
     }
 
     Optional<Pair<String, Integer>> getMasterLocation() {
@@ -40,18 +53,13 @@ class DataStoreCurator {
         }
     }
 
-    Optional<Pair<String, Integer>> getShardCloudNameVersion(int shard) {
+    ZKShardDescription getZKShardDescription(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
-            if (cf.checkExists().forPath(path) != null) {
-                byte[] b = cf.getData().forPath(path);
-                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                return Optional.of(new Pair<>(zkShardDescription.cloudName, zkShardDescription.versionNumber));
-            } else {
-                return Optional.empty();
-            }
+            byte[] b = cf.getData().forPath(path);
+            return new ZKShardDescription(new String(b));
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            logger.error("getZKShardDescription Shard {} ZK Error: {}", shard, e.getMessage());
             assert(false);
             return null;
         }

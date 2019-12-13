@@ -46,7 +46,7 @@ public class BrokerCurator {
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
                 ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                String connectString = getConnectStringFromDSID(zkShardDescription.dsID);
+                String connectString = getConnectStringFromDSID(zkShardDescription.primaryDSID);
                 return Optional.of(Utilities.parseConnectString(connectString));
             } else {
                 return Optional.empty();
