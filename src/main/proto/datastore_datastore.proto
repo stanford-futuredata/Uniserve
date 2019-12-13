@@ -9,11 +9,38 @@ package datastoredatastore;
 // Communication between datastores.
 service DataStoreDataStore {
     rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
+    // 2PC-style prepare commit on the replica.
+    rpc ReplicaPreCommit (ReplicaPreCommitMessage) returns (ReplicaPreCommitResponse) {}
+    // Commit or abort the write query.
+    rpc ReplicaCommit (ReplicaCommitMessage) returns (ReplicaCommitResponse) {}
+}
+
+message ReplicaPreCommitMessage {
+    int32 shard = 1;
+    bytes serializedQuery = 2;
+    bytes rowData = 3;
+    int64 txID = 4;
+    int32 versionNumber = 5;
+}
+
+message ReplicaPreCommitResponse {
+    int32 returnCode = 1;
+}
+
+message ReplicaCommitMessage {
+    int32 shard = 1;
+    bool commitOrAbort = 2; // Commit on true, abort on false
+    int64 txID = 3;
+}
+
+message ReplicaCommitResponse {
+
 }
 
 message BootstrapReplicaMessage {
     int32 shard = 1;
     int32 versionNumber = 2;
+    int32 dsID = 3;
 }
 
 message BootstrapReplicaResponse {

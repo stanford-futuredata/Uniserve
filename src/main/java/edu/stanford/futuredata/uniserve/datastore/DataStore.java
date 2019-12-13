@@ -17,6 +17,8 @@ import java.io.Serializable;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -30,18 +32,22 @@ public class DataStore<R extends Row, S extends Shard> {
     private final String dsHost;
     private final int dsPort;
 
-    // Map from shard number to shard data structure for primary shards.
+    // Map from primary shard number to shard data structure.
     private final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>();
-    // Map from shard number to shard data structure for replica shards.
+    // Map from replica shard number to shard data structure.
     private final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
     // Map from shard number to shard version number.
     private final Map<Integer, Integer> shardVersionMap = new ConcurrentHashMap<>();
-    // Map from shard number to last uploaded version number.
+    // Map from primary shard number to last uploaded version number.
     private final Map<Integer, Integer> lastUploadedVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
     private final Map<Integer, ReadWriteLock> shardLockMap = new ConcurrentHashMap<>();
     // Map from shard number to maps from version number to write query and data.
     private final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
+    // Map from primary shard number to list of replica stubs for that shard.
+    private final Map<Integer, List<DataStoreDataStoreGrpc.DataStoreDataStoreStub>> replicaStubsMap = new ConcurrentHashMap<>();
+    // Map from primary shard number to list of replica channels for that shard.
+    private final Map<Integer, List<ManagedChannel>> replicaChannelsMap = new ConcurrentHashMap<>();
 
     private final Server server;
     private final DataStoreCurator zkCurator;
@@ -130,6 +136,11 @@ public class DataStore<R extends Row, S extends Shard> {
             }
         }
         coordinatorChannel.shutdown();
+        for (List<ManagedChannel> channels: replicaChannelsMap.values()) {
+            for (ManagedChannel channel: channels) {
+                channel.shutdown();
+            }
+        }
         for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
@@ -220,72 +231,74 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
+    private class CommitLockerThread extends Thread {
+        // Holds a shard's write lock in between precommit and commit.
+        public final Integer shardNum;
+        public final WriteQueryPlan<R, S> writeQueryPlan;
+        public final List<R> rows;
+        private final Lock lock;
+        private final Map<Integer, CommitLockerThread> activeCLTs;
+        private final long txID;
+
+        public CommitLockerThread(Map<Integer, CommitLockerThread> activeCLTs, Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, Lock lock, long txID) {
+            this.activeCLTs = activeCLTs;
+            this.shardNum = shardNum;
+            this.writeQueryPlan = writeQueryPlan;
+            this.rows = rows;
+            this.lock = lock;
+            this.txID = txID;
+        }
+
+        public void run() {
+            lock.lock();
+            // Notify the precommit thread that the shard lock is held.
+            synchronized (writeQueryPlan) {
+                assert (activeCLTs.get(shardNum) == null);
+                activeCLTs.put(shardNum, this);
+                writeQueryPlan.notify();
+            }
+            // Block until the commit thread is ready to release the shard lock.
+            // TODO:  Automatically abort and unlock if this isn't triggered for X seconds after a precommit.
+            try {
+                synchronized (writeQueryPlan) {
+                    assert (activeCLTs.get(shardNum) != null);
+                    while(activeCLTs.get(shardNum) != null) {
+                        writeQueryPlan.wait();
+                    }
+                }
+            } catch (InterruptedException e) {
+                logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
+                assert(false);
+            }
+            lock.unlock();
+        }
+
+        public void acquireLock() {
+            this.start();
+            try {
+                synchronized (writeQueryPlan) {
+                    while(!(activeCLTs.get(shardNum) == this)) {
+                        writeQueryPlan.wait();
+                    }
+                }
+            } catch (InterruptedException e) {
+                logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
+                assert(false);
+            }
+        }
+
+        public void releaseLock() {
+            assert(this.isAlive());
+            synchronized (this.writeQueryPlan) {
+                activeCLTs.get(shardNum).writeQueryPlan.notify();
+                activeCLTs.put(shardNum, null);
+            }
+        }
+    }
+
     private class BrokerDataStoreService extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
         private Map<Integer, CommitLockerThread> activeCLTs = new HashMap<>();
-
-        private class CommitLockerThread extends Thread {
-            // Holds a shard's write lock in between precommit and commit.
-            public final Integer shardNum;
-            public final WriteQueryPlan<R, S> writeQueryPlan;
-            public final List<R> rows;
-            private final Lock lock;
-            private final long txID;
-
-            public CommitLockerThread(Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, Lock lock, long txID) {
-                this.shardNum = shardNum;
-                this.writeQueryPlan = writeQueryPlan;
-                this.rows = rows;
-                this.lock = lock;
-                this.txID = txID;
-            }
-
-            public void run() {
-                lock.lock();
-                // Notify the precommit thread that the shard lock is held.
-                synchronized (writeQueryPlan) {
-                    assert (activeCLTs.get(shardNum) == null);
-                    activeCLTs.put(shardNum, this);
-                    writeQueryPlan.notify();
-                }
-                // Block until the commit thread is ready to release the shard lock.
-                // TODO:  Automatically abort and unlock if this isn't triggered for X seconds after a precommit.
-                try {
-                    synchronized (writeQueryPlan) {
-                        assert (activeCLTs.get(shardNum) != null);
-                        while(activeCLTs.get(shardNum) != null) {
-                            writeQueryPlan.wait();
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
-                    assert(false);
-                }
-                lock.unlock();
-            }
-
-            public void acquireLock() {
-                this.start();
-                try {
-                    synchronized (writeQueryPlan) {
-                        while(!(activeCLTs.get(shardNum) == this)) {
-                            writeQueryPlan.wait();
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
-                    assert(false);
-                }
-            }
-
-            public void releaseLock() {
-                assert(this.isAlive());
-                synchronized (this.writeQueryPlan) {
-                    activeCLTs.get(shardNum).writeQueryPlan.notify();
-                    activeCLTs.put(shardNum, null);
-                }
-            }
-        }
 
         @Override
         public void writeQueryPreCommit(WriteQueryPreCommitMessage request, StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
@@ -303,18 +316,55 @@ public class DataStore<R extends Row, S extends Shard> {
                 rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowMessage.getRowData()));
                 S shard = primaryShardMap.get(shardNum);
                 // Use the CommitLockerThread to acquire the shard's write lock.
-                CommitLockerThread commitLockerThread = new CommitLockerThread(shardNum, writeQueryPlan, rows, shardLockMap.get(shardNum).writeLock(), txID);
+                CommitLockerThread commitLockerThread = new CommitLockerThread(activeCLTs, shardNum, writeQueryPlan, rows, shardLockMap.get(shardNum).writeLock(), txID);
                 commitLockerThread.acquireLock();
-                boolean querySuccess = writeQueryPlan.preCommit(shard, rows);
+                List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = replicaStubsMap.get(shardNum);
+                int numReplicas = replicaStubs.size();
+                ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()
+                        .setShard(shardNum)
+                        .setSerializedQuery(rowMessage.getSerializedQuery())
+                        .setRowData(rowMessage.getRowData())
+                        .setTxID(txID)
+                        .setVersionNumber(shardVersionMap.get(shardNum))
+                        .build();
+                AtomicInteger numReplicaSuccesses = new AtomicInteger(0);
+                Semaphore semaphore = new Semaphore(0);
+                for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
+                    StreamObserver<ReplicaPreCommitResponse> responseObserver = new StreamObserver<>() {
+                        @Override
+                        public void onNext(ReplicaPreCommitResponse replicaPreCommitResponse) {
+                            numReplicaSuccesses.incrementAndGet();
+                            semaphore.release();
+                        }
+
+                        @Override
+                        public void onError(Throwable throwable) {
+                            logger.error("DS{} Replica PreCommit Error: {}", dsID, throwable.getMessage());
+                            semaphore.release();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                        }
+                    };
+                    stub.replicaPreCommit(rm, responseObserver);
+                }
+                boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
+                try {
+                    semaphore.acquire(numReplicas);
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Write Query Interrupted Shard {}: {}", dsID, shardNum, e.getMessage());
+                    assert(false);
+                }
                 int addRowReturnCode;
-                if (querySuccess) {
+                if (primaryWriteSuccess && numReplicaSuccesses.get() == numReplicas) {
                     addRowReturnCode = 0;
                 } else {
                     addRowReturnCode = 1;
                 }
                 return WriteQueryPreCommitResponse.newBuilder().setReturnCode(addRowReturnCode).build();
             } else {
-                logger.warn("DS{} Got write request for absent shard {}", dsID, shardNum);
+                logger.warn("DS{} Primary got write request for absent shard {}", dsID, shardNum);
                 return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
             }
         }
@@ -334,6 +384,34 @@ public class DataStore<R extends Row, S extends Shard> {
             if (primaryShardMap.containsKey(shardNum)) {
                 boolean commitOrAbort = rowMessage.getCommitOrAbort(); // Commit on true, abort on false.
                 S shard = primaryShardMap.get(shardNum);
+
+                List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = replicaStubsMap.get(shardNum);
+                int numReplicas = replicaStubs.size();
+                ReplicaCommitMessage rm = ReplicaCommitMessage.newBuilder()
+                        .setShard(shardNum)
+                        .setCommitOrAbort(commitOrAbort)
+                        .setTxID(rowMessage.getTxID())
+                        .build();
+                Semaphore semaphore = new Semaphore(0);
+                for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
+                    StreamObserver<ReplicaCommitResponse> responseObserver = new StreamObserver<>() {
+                        @Override
+                        public void onNext(ReplicaCommitResponse replicaCommitResponse) {
+                            semaphore.release();
+                        }
+
+                        @Override
+                        public void onError(Throwable throwable) {
+                            logger.error("DS{} Replica Commit Error: {}", dsID, throwable.getMessage());
+                            semaphore.release();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                        }
+                    };
+                    stub.replicaCommit(rm, responseObserver);
+                }
                 if (commitOrAbort) {
                     writeQueryPlan.commit(shard);
                     int newVersionNumber = shardVersionMap.get(shardNum) + 1;
@@ -342,6 +420,12 @@ public class DataStore<R extends Row, S extends Shard> {
                     shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
                 } else {
                     writeQueryPlan.abort(shard);
+                }
+                try {
+                    semaphore.acquire(numReplicas);
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Write Query Interrupted Shard {}: {}", dsID, shardNum, e.getMessage());
+                    assert(false);
                 }
                 // Have the commit locker thread release the shard's write lock.
                 commitCLT.releaseLock();
@@ -411,6 +495,8 @@ public class DataStore<R extends Row, S extends Shard> {
             shardVersionMap.put(shardNum, 0);
             lastUploadedVersionMap.put(shardNum, 0);
             writeLog.put(shardNum, new ConcurrentHashMap<>());
+            replicaChannelsMap.put(shardNum, new ArrayList<>());
+            replicaStubsMap.put(shardNum, new ArrayList<>());
             primaryShardMap.put(shardNum, shard.get());
             logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
@@ -450,7 +536,11 @@ public class DataStore<R extends Row, S extends Shard> {
 
             // Bootstrap the replica, bringing it up to the same version as the primary.
             while (true) {
-                BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder().setShard(shardNum).setVersionNumber(replicaVersion).build();
+                BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder()
+                        .setShard(shardNum)
+                        .setVersionNumber(replicaVersion)
+                        .setDsID(dsID)
+                        .build();
                 BootstrapReplicaResponse r;
                 try {
                     r = primaryBlockingStub.bootstrapReplica(m);
@@ -479,6 +569,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
             }
             channel.shutdown();
+            writeLog.put(shardNum, new ConcurrentHashMap<>());
             shardVersionMap.put(shardNum, replicaVersion);
             shardLockMap.get(shardNum).writeLock().unlock();
             logger.info("DS{} Loaded new replica shard {} version {}", dsID, shardNum, replicaVersion);
@@ -503,7 +594,11 @@ public class DataStore<R extends Row, S extends Shard> {
             assert(replicaVersion <= primaryVersion);
             Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
             if (replicaVersion.equals(primaryVersion)) {
-                // TODO:  Replica is ready.
+                Pair<String, Integer> connectString = zkCurator.getConnectStringFromDSID(request.getDsID());
+                ManagedChannel channel = ManagedChannelBuilder.forAddress(connectString.getValue0(), connectString.getValue1()).usePlaintext().build();
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub asyncStub = DataStoreDataStoreGrpc.newStub(channel);
+                replicaChannelsMap.get(shardNum).add(channel);
+                replicaStubsMap.get(shardNum).add(asyncStub);
             }
             shardLockMap.get(shardNum).readLock().unlock();
             List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
@@ -519,6 +614,74 @@ public class DataStore<R extends Row, S extends Shard> {
                     .setWriteData(Utilities.objectToByteString(rowArrayArray))
                     .setWriteQueries(Utilities.objectToByteString(writeQueryPlansArray))
                     .build();
+        }
+
+        private Map<Integer, CommitLockerThread> activeCLTs = new HashMap<>();
+
+        @Override
+        public void replicaPreCommit(ReplicaPreCommitMessage request, StreamObserver<ReplicaPreCommitResponse> responseObserver) {
+            responseObserver.onNext(replicaPreCommitHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private ReplicaPreCommitResponse replicaPreCommitHandler(ReplicaPreCommitMessage request) {
+            int shardNum = request.getShard();
+            long txID = request.getTxID();
+            if (replicaShardMap.containsKey(shardNum)) {
+                WriteQueryPlan<R, S> writeQueryPlan;
+                List<R> rows;
+                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(request.getSerializedQuery());
+                rows = Arrays.asList((R[]) Utilities.byteStringToObject(request.getRowData()));
+                S shard = replicaShardMap.get(shardNum);
+                // Use the CommitLockerThread to acquire the shard's write lock.
+                CommitLockerThread commitLockerThread = new CommitLockerThread(activeCLTs, shardNum, writeQueryPlan, rows, shardLockMap.get(shardNum).writeLock(), txID);
+                commitLockerThread.acquireLock();
+                assert(request.getVersionNumber() == shardVersionMap.get(shardNum));
+                boolean replicaWriteSuccess = writeQueryPlan.preCommit(shard, rows);
+                int returnCode;
+                if (replicaWriteSuccess) {
+                    returnCode = 0;
+                } else {
+                    returnCode = 1;
+                }
+                return ReplicaPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
+            } else {
+                logger.warn("DS{} replica got write request for absent shard {}", dsID, shardNum);
+                return ReplicaPreCommitResponse.newBuilder().setReturnCode(1).build();
+            }
+        }
+
+        @Override
+        public void replicaCommit(ReplicaCommitMessage request, StreamObserver<ReplicaCommitResponse> responseObserver) {
+            responseObserver.onNext(replicaCommitHandler(request));
+            responseObserver.onCompleted();
+        }
+
+        private ReplicaCommitResponse replicaCommitHandler(ReplicaCommitMessage request) {
+            int shardNum = request.getShard();
+            CommitLockerThread commitCLT = activeCLTs.get(shardNum);
+            assert(commitCLT != null);  // The commit locker thread holds the shard's write lock.
+            assert(commitCLT.txID == request.getTxID());
+            WriteQueryPlan<R, S> writeQueryPlan = commitCLT.writeQueryPlan;
+            if (replicaShardMap.containsKey(shardNum)) {
+                boolean commitOrAbort = request.getCommitOrAbort(); // Commit on true, abort on false.
+                S shard = replicaShardMap.get(shardNum);
+                if (commitOrAbort) {
+                    writeQueryPlan.commit(shard);
+                    int newVersionNumber = shardVersionMap.get(shardNum) + 1;
+                    Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = writeLog.get(shardNum);
+                    shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, commitCLT.rows));
+                    shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+                } else {
+                    writeQueryPlan.abort(shard);
+                }
+                // Have the commit locker thread release the shard's write lock.
+                commitCLT.releaseLock();
+            } else {
+                logger.error("DS{} Got valid commit request on absent shard {} (!!!!!)", dsID, shardNum);
+                assert(false);
+            }
+            return ReplicaCommitResponse.newBuilder().build();
         }
     }
 }

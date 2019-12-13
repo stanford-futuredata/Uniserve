@@ -52,7 +52,10 @@ public class KVStoreTests {
         }
         // Clean up directories.
         try {
-            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve"));
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve0"));
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve1"));
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve2"));
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve3"));
         } catch (IOException e) {
             logger.info("FS cleanpu failed: {}", e.getMessage());
         }
@@ -166,7 +169,7 @@ public class KVStoreTests {
     @Test
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
-        int numShards = 10;
+        int numShards = 5;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -190,7 +193,7 @@ public class KVStoreTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
 
-        Thread.sleep(3000);
+        Thread.sleep(5000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             int finalI = i;
@@ -213,6 +216,51 @@ public class KVStoreTests {
             Integer queryResponse = brokerThread.getQueryResponse();
             assertEquals(Integer.valueOf(i), queryResponse);
         }
+        for (int i = 0; i < num_datastores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testReplication() throws InterruptedException {
+        logger.info("testReplication");
+        int numShards = 5;
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int num_datastores = 4;
+        for (int i = 0; i < num_datastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i);
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        long t0 = System.currentTimeMillis();
+        for (int i = 1; i < 100; i++) {
+            WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            assertTrue(writeSuccess);
+            ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            Integer queryResponse = broker.readQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(i), queryResponse);
+        }
+        Thread.sleep(3000);
+        for (int i = 1; i < 100; i++) {
+            WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, 2 * i)));
+            assertTrue(writeSuccess);
+            ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            Integer queryResponse = broker.readQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(2 * i), queryResponse);
+        }
+
+
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();
         }
