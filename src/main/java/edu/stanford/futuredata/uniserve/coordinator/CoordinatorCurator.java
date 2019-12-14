@@ -1,6 +1,6 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import edu.stanford.futuredata.uniserve.datastore.ZKShardDescription;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;

@@ -1,4 +1,4 @@
-package edu.stanford.futuredata.uniserve.datastore;
+package edu.stanford.futuredata.uniserve.utilities;
 
 public class ZKShardDescription {
     public final int primaryDSID;

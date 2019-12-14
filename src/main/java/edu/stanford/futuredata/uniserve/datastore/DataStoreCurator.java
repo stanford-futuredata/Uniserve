@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -8,7 +9,6 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.helpers.Util;
 
 import java.util.Optional;
 

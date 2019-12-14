@@ -241,7 +241,6 @@ public class KVStoreTests {
             dataStores.add(dataStore);
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
-        long t0 = System.currentTimeMillis();
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
