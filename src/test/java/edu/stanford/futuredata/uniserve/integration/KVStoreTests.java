@@ -166,6 +166,10 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
+    static abstract class BrokerThread extends Thread {
+        public abstract Integer getQueryResponse();
+    }
+
     @Test
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
@@ -297,8 +301,4 @@ public class KVStoreTests {
         coordinator.stopServing();
         broker.shutdown();
     }
-}
-
-abstract class BrokerThread extends Thread {
-    public abstract Integer getQueryResponse();
 }

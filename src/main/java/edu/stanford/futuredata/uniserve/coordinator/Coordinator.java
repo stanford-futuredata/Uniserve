@@ -1,10 +1,8 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
-import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,18 +20,18 @@ public class Coordinator {
     private final String coordinatorHost;
     private final int coordinatorPort;
     private final Server server;
-    private final CoordinatorCurator zkCurator;
+    final CoordinatorCurator zkCurator;
 
     // Used to assign each datastore a unique incremental ID.
-    private final AtomicInteger dataStoreNumber = new AtomicInteger(0);
+    final AtomicInteger dataStoreNumber = new AtomicInteger(0);
     // Map from datastore IDs to their descriptions.
-    private final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
+    final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
     // Map from shards to last uploaded versions.
-    private final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
+    final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
     // Map from shards to their primaries.
-    private final Map<Integer, Integer> shardToPrimaryDataStoreMap = new ConcurrentHashMap<>();
+    final Map<Integer, Integer> shardToPrimaryDataStoreMap = new ConcurrentHashMap<>();
     // Map from shards to their replicas.
-    private final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
+    final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
 
     private boolean runReplicationDaemon = true;
     private final ReplicationDaemon replicationDaemon;
@@ -43,8 +41,9 @@ public class Coordinator {
         this.coordinatorHost = coordinatorHost;
         this.coordinatorPort = coordinatorPort;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
-        this.server = ServerBuilder.forPort(coordinatorPort).addService(new DataStoreCoordinatorService())
-                .addService(new BrokerCoordinatorService())
+        this.server = ServerBuilder.forPort(coordinatorPort)
+                .addService(new ServiceDataStoreCoordinator(this))
+                .addService(new ServiceBrokerCoordinator(this))
                 .build();
         replicationDaemon = new ReplicationDaemon();
     }
@@ -128,91 +127,5 @@ public class Coordinator {
                 }
             }
         }
-
     }
-
-    private class DataStoreCoordinatorService extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
-
-        @Override
-        public void registerDataStore(RegisterDataStoreMessage request,
-                                      StreamObserver<RegisterDataStoreResponse> responseObserver) {
-            responseObserver.onNext(registerDataStoreHandler(request));
-            responseObserver.onCompleted();
-        }
-
-        private RegisterDataStoreResponse registerDataStoreHandler(RegisterDataStoreMessage m) {
-            String host = m.getHost();
-            int port = m.getPort();
-            int dsID = dataStoreNumber.getAndIncrement();
-            dataStoresMap.put(dsID, new DataStoreDescription(host, port));
-            zkCurator.setDSDescription(dsID, host, port);
-            logger.info("Registered DataStore ID: {} Host: {} Port: {}", dsID, host, port);
-            return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
-        }
-
-        @Override
-        public void shardUpdate(ShardUpdateMessage request, StreamObserver<ShardUpdateResponse> responseObserver) {
-            responseObserver.onNext(shardUpdateHandler(request));
-            responseObserver.onCompleted();
-        }
-
-        private ShardUpdateResponse shardUpdateHandler(ShardUpdateMessage m) {
-            int shardNum = m.getShardNum();
-            String cloudName = m.getShardCloudName();
-            int versionNumber = m.getVersionNumber();
-            int dsID = shardToPrimaryDataStoreMap.get(shardNum);
-            shardToVersionMap.put(shardNum, versionNumber);
-            zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber);
-            return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
-        }
-    }
-
-    private class BrokerCoordinatorService extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
-
-        @Override
-        public void shardLocation(ShardLocationMessage request,
-                                      StreamObserver<ShardLocationResponse> responseObserver) {
-            responseObserver.onNext(shardLocationHandler(request));
-            responseObserver.onCompleted();
-        }
-
-        private int assignShardToDataStore(int shardNum) {
-            // TODO:  Better DataStore choice.
-            return shardNum % dataStoresMap.size();
-        }
-
-        private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
-            int shardNum = m.getShard();
-            // Check if the shard's location is known.
-            Integer dsID = shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
-            if (dsID != null) {
-                DataStoreDescription dsDesc = dataStoresMap.get(dsID);
-                String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-                return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
-            }
-            // If not, assign it to a DataStore.
-            int newDSID = assignShardToDataStore(shardNum);
-            dsID = shardToPrimaryDataStoreMap.putIfAbsent(shardNum, newDSID);
-            if (dsID != null) {
-                DataStoreDescription dsDesc = dataStoresMap.get(dsID);
-                String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-                return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
-            }
-            shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
-            shardToVersionMap.put(shardNum, 0);
-            // Tell the DataStore to create the shard.
-            DataStoreDescription dsDesc = dataStoresMap.get(newDSID);
-            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
-            CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
-            CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
-            assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
-            // Once the shard is created, add it to the ZooKeeper map.
-            zkCurator.setZKShardDescription(m.getShard(), newDSID, Utilities.null_name, 0);
-            zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
-            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-            return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
-        }
-
-    }
-
 }
