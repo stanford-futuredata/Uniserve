@@ -57,7 +57,7 @@ public class KVStoreTests {
             FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve2"));
             FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve3"));
         } catch (IOException e) {
-            logger.info("FS cleanpu failed: {}", e.getMessage());
+            logger.info("FS cleanup failed: {}", e.getMessage());
         }
     }
 
@@ -183,6 +183,7 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i);
+            dataStore.runUploadShardDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -196,6 +197,12 @@ public class KVStoreTests {
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
+
+        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
+            for(int shardNum: dataStore.primaryShardMap.keySet()) {
+                dataStore.uploadShardToCloud(shardNum);
+            }
+        }
 
         Thread.sleep(5000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
@@ -240,6 +247,7 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i);
+            dataStore.runUploadShardDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -252,6 +260,11 @@ public class KVStoreTests {
             ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(i), queryResponse);
+        }
+        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
+            for(int shardNum: dataStore.primaryShardMap.keySet()) {
+                dataStore.uploadShardToCloud(shardNum);
+            }
         }
         Thread.sleep(3000);
         for (int i = 1; i < 100; i++) {
@@ -281,6 +294,7 @@ public class KVStoreTests {
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                 new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
                 zkHost, zkPort, "127.0.0.1", 8000);
+        dataStore.runUploadShardDaemon = false;
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
@@ -289,12 +303,8 @@ public class KVStoreTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertTrue(writeSuccess);
 
-        Optional<Pair<String, Integer>> uploadResult = dataStore.uploadShardToCloud(0);
-        assertTrue(uploadResult.isPresent());
-        String cloudName = uploadResult.get().getValue0();
-        Integer shardVersion = uploadResult.get().getValue1();
-        assertTrue(shardVersion >= 1);
-        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, cloudName, 1);
+        dataStore.uploadShardToCloud(0);
+        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1);
         assertTrue(shard.isPresent());
 
         dataStore.shutDown();

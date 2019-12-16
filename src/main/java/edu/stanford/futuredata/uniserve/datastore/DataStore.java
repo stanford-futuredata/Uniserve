@@ -24,7 +24,7 @@ public class DataStore<R extends Row, S extends Shard> {
     private final int dsPort;
 
     // Map from primary shard number to shard data structure.
-    final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>();
+    public final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>(); // Public for testing.
     // Map from replica shard number to shard data structure.
     final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
     // Map from shard number to shard version number.
@@ -48,9 +48,9 @@ public class DataStore<R extends Row, S extends Shard> {
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
 
-    private boolean runUploadShardDaemon = true;
+    public boolean runUploadShardDaemon = true; // Public for testing.
     private final UploadShardDaemon uploadShardDaemon;
-    private final static int uploadThreadSleepDurationMillis = 100;
+    private final static int uploadThreadSleepDurationMillis = 10000;
 
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
@@ -139,24 +139,35 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
-    public Optional<Pair<String, Integer>> uploadShardToCloud(int shardNum) {
+    public void uploadShardToCloud(int shardNum) {
         // TODO:  Safely delete old versions.
         Shard shard = primaryShardMap.get(shardNum);
         shardLockMap.get(shardNum).readLock().lock();
         Integer versionNumber = shardVersionMap.get(shardNum);
+        // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
             shardLockMap.get(shardNum).readLock().unlock();
-            return Optional.empty();
+            return;
         }
+        // Upload the shard's data.
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum), versionNumber);
         shardLockMap.get(shardNum).readLock().unlock();  // TODO:  Might block writes for too long.
         if (cloudName.isEmpty()) {
             logger.warn("DS{} Shard {} upload failed", dsID, shardNum);
-            return Optional.empty();
+            return;
         }
-        return Optional.of(new Pair<>(cloudName.get(), versionNumber));
+        // Notify the coordinator about the upload.
+        ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(cloudName.get())
+                .setVersionNumber(versionNumber).build();
+        try {
+            ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
+            assert (shardUpdateResponse.getReturnCode() == 0);
+        } catch (StatusRuntimeException e) {
+            logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
+        }
+        lastUploadedVersionMap.put(shardNum, versionNumber);
     }
 
     /** Synchronously download a shard from the cloud **/
@@ -189,19 +200,7 @@ public class DataStore<R extends Row, S extends Shard> {
                         continue;
                     }
                     Thread uploadThread = new Thread(() -> {
-                        Optional<Pair<String, Integer>> nameVersion = uploadShardToCloud(shardNum);
-                        if (nameVersion.isEmpty()) {
-                            return; // TODO:  Error handling.
-                        }
-                        ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(nameVersion.get().getValue0())
-                                .setVersionNumber(nameVersion.get().getValue1()).build();
-                        try {
-                            ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
-                            assert (shardUpdateResponse.getReturnCode() == 0);
-                        } catch (StatusRuntimeException e) {
-                            logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
-                        }
-                        lastUploadedVersionMap.put(shardNum, nameVersion.get().getValue1());
+                        uploadShardToCloud(shardNum);
                     });
                     uploadThread.start();
                     uploadThreadList.add(uploadThread);
