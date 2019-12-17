@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,5 +47,23 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.shardToVersionMap.put(shardNum, versionNumber);
         coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber);
         return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
+    }
+
+    @Override
+    public void potentialDSFailure(PotentialDSFailureMessage request, StreamObserver<PotentialDSFailureResponse> responseObserver) {
+        responseObserver.onNext(potentialDSFailureHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private PotentialDSFailureResponse potentialDSFailureHandler(PotentialDSFailureMessage request) {
+        int dsID = request.getDsID();
+        DataStoreDescription dsDescription = coordinator.dataStoresMap.get(dsID);
+        CoordinatorPingMessage m = CoordinatorPingMessage.newBuilder().build();
+        try {
+            CoordinatorPingResponse alwaysEmpty = dsDescription.stub.coordinatorPing(m);
+        } catch (StatusRuntimeException e) {
+            logger.warn("DS{} Failure Detected", dsID);
+        }
+        return PotentialDSFailureResponse.newBuilder().build();
     }
 }

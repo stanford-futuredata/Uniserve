@@ -8,8 +8,12 @@ package coordinatordatastore;
 
 // Communication from coordinator to the datastores.
 service CoordinatorDataStore {
+    // Create a new shard on a datastore.
     rpc createNewShard (CreateNewShardMessage) returns (CreateNewShardResponse) {}
+    // Load a replica shard on a datastore.
     rpc loadShardReplica (LoadShardReplicaMessage) returns (LoadShardReplicaResponse) {}
+    // Ping a datastore to see if it's alive.
+    rpc CoordinatorPing (CoordinatorPingMessage) returns (CoordinatorPingResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -27,3 +31,7 @@ message LoadShardReplicaMessage {
 message LoadShardReplicaResponse {
     int32 returnCode = 1;
 }
+
+message CoordinatorPingMessage {}
+
+message CoordinatorPingResponse {}

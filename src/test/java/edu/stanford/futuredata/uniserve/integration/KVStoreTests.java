@@ -104,6 +104,7 @@ public class KVStoreTests {
         for (int i = 0; i < num_datastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
                     Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
+            dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -184,6 +185,7 @@ public class KVStoreTests {
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i);
             dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);

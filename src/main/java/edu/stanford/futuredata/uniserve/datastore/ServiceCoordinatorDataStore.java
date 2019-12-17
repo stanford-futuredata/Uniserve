@@ -140,4 +140,10 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         logger.info("DS{} Loaded new replica shard {} version {}", dataStore.dsID, shardNum, replicaVersion);
         return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
     }
+
+    @Override
+    public void coordinatorPing(CoordinatorPingMessage request, StreamObserver<CoordinatorPingResponse> responseObserver) {
+        responseObserver.onNext(CoordinatorPingResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
 }

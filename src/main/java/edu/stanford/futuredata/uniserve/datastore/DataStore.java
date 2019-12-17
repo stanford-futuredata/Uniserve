@@ -4,6 +4,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import io.grpc.*;
 import org.javatuples.Pair;
+import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReadWriteLock;
 
 public class DataStore<R extends Row, S extends Shard> {
@@ -53,6 +55,12 @@ public class DataStore<R extends Row, S extends Shard> {
     private final static int uploadThreadSleepDurationMillis = 10000;
 
 
+    public boolean runPingDaemon = true; // Public for testing
+    private final PingDaemon pingDaemon;
+    private final static int pingDaemonSleepDurationMillis = 100;
+    private final static int pingDaemonRefreshInterval = 10;
+
+
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
@@ -66,6 +74,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
         uploadShardDaemon = new UploadShardDaemon();
+        pingDaemon = new PingDaemon();
     }
 
     /** Start serving requests. */
@@ -112,19 +121,23 @@ public class DataStore<R extends Row, S extends Shard> {
         if (dsCloud != null) {
             uploadShardDaemon.start();
         }
+        pingDaemon.start();
         return 0;
     }
 
     /** Stop serving requests and shutdown resources. */
     public void shutDown() {
         server.shutdown();
+        runPingDaemon = false;
+        runUploadShardDaemon = false;
+        try {
+            pingDaemon.join();
+        } catch (InterruptedException ignored) {}
         if (dsCloud != null) {
-            runUploadShardDaemon = false;
             try {
                 uploadShardDaemon.interrupt();
                 uploadShardDaemon.join();
-            } catch (InterruptedException ignored) {
-            }
+            } catch (InterruptedException ignored) {}
         }
         coordinatorChannel.shutdown();
         for (List<ManagedChannel> channels: replicaChannelsMap.values()) {
@@ -214,6 +227,41 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
                 try {
                     Thread.sleep(uploadThreadSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private class PingDaemon extends Thread {
+        @Override
+        public void run() {
+            List<Triplet<Integer, String, Integer>> dsConnectInfo = new ArrayList<>();
+            int runCount = 0;
+            while (runPingDaemon) {
+                if (runCount % pingDaemonRefreshInterval == 0) {
+                    dsConnectInfo = zkCurator.getOtherDSConnectInfo(dsID);
+                }
+                if (dsConnectInfo.size() > 0) {
+                    Triplet<Integer, String, Integer> dsToPing =
+                            dsConnectInfo.get(ThreadLocalRandom.current().nextInt(dsConnectInfo.size()));
+                    int pingedDSID = dsToPing.getValue0();
+                    ManagedChannel dsChannel =
+                            ManagedChannelBuilder.forAddress(dsToPing.getValue1(), dsToPing.getValue2()).usePlaintext().build();
+                    DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(dsChannel);
+                    DataStorePingMessage pm = DataStorePingMessage.newBuilder().build();
+                    try {
+                        DataStorePingResponse alwaysEmpty = stub.dataStorePing(pm);
+                    } catch (StatusRuntimeException e) {
+                        PotentialDSFailureMessage fm = PotentialDSFailureMessage.newBuilder().setDsID(pingedDSID).build();
+                        PotentialDSFailureResponse alwaysEmpty = coordinatorStub.potentialDSFailure(fm);
+                    }
+                    dsChannel.shutdown();
+                }
+                runCount++;
+                try {
+                    Thread.sleep(pingDaemonSleepDurationMillis);
                 } catch (InterruptedException e) {
                     return;
                 }

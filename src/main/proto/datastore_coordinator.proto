@@ -8,8 +8,12 @@ package datastorecoordinator;
 
 // Communication from datastores to the coordinator.
 service DataStoreCoordinator {
+    // Register a newly started datastore with the coordinator.
     rpc RegisterDataStore (RegisterDataStoreMessage) returns (RegisterDataStoreResponse) {}
+    // Tell the coordinator about a newly uploaded shard version.
     rpc ShardUpdate (ShardUpdateMessage) returns (ShardUpdateResponse) {}
+    // Warn the coordinator that a datastore may be down.
+    rpc PotentialDSFailure (PotentialDSFailureMessage) returns (PotentialDSFailureResponse) {}
 }
 
 message RegisterDataStoreMessage {
@@ -31,3 +35,9 @@ message ShardUpdateMessage {
 message ShardUpdateResponse {
     int32 returnCode = 1;
 }
+
+message PotentialDSFailureMessage {
+    int32 dsID = 1;
+}
+
+message PotentialDSFailureResponse {}

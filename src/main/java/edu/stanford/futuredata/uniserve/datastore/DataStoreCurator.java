@@ -7,9 +7,12 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
+import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 class DataStoreCurator {
@@ -63,6 +66,32 @@ class DataStoreCurator {
             assert(false);
             return null;
         }
+    }
+
+    List<Triplet<Integer, String, Integer>> getOtherDSConnectInfo(int dsID) {
+        int i = 0;
+        List<Triplet<Integer, String, Integer>> connectInfoList = new ArrayList<>();
+        try {
+            while(true) {
+                String path = String.format("/dsDescription/%d", i);
+                if (cf.checkExists().forPath(path) != null) {
+                    byte[] b = cf.getData().forPath(path);
+                    String connectString = new String(b);
+                    Pair<String, Integer> connectInfo = Utilities.parseConnectString(connectString);
+                    if (i != dsID) {
+                        connectInfoList.add(new Triplet<>(i, connectInfo.getValue0(), connectInfo.getValue1()));
+                    }
+                } else {
+                    break;
+                }
+                i++;
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+        return connectInfoList;
     }
 
 }

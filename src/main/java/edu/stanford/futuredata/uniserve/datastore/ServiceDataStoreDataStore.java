@@ -128,4 +128,10 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         }
         return ReplicaCommitResponse.newBuilder().build();
     }
+
+    @Override
+    public void dataStorePing(DataStorePingMessage request, StreamObserver<DataStorePingResponse> responseObserver) {
+        responseObserver.onNext(DataStorePingResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
 }
