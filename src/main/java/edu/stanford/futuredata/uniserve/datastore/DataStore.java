@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import io.grpc.*;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
@@ -237,18 +238,18 @@ public class DataStore<R extends Row, S extends Shard> {
     private class PingDaemon extends Thread {
         @Override
         public void run() {
-            List<Triplet<Integer, String, Integer>> dsConnectInfo = new ArrayList<>();
+            List<DataStoreDescription> dsDescriptions = new ArrayList<>();
             int runCount = 0;
             while (runPingDaemon) {
                 if (runCount % pingDaemonRefreshInterval == 0) {
-                    dsConnectInfo = zkCurator.getOtherDSConnectInfo(dsID);
+                    dsDescriptions = zkCurator.getOtherDSDescriptions(dsID);
                 }
-                if (dsConnectInfo.size() > 0) {
-                    Triplet<Integer, String, Integer> dsToPing =
-                            dsConnectInfo.get(ThreadLocalRandom.current().nextInt(dsConnectInfo.size()));
-                    int pingedDSID = dsToPing.getValue0();
+                if (dsDescriptions.size() > 0) {
+                    DataStoreDescription dsToPing =
+                            dsDescriptions.get(ThreadLocalRandom.current().nextInt(dsDescriptions.size()));
+                    int pingedDSID = dsToPing.dsID;
                     ManagedChannel dsChannel =
-                            ManagedChannelBuilder.forAddress(dsToPing.getValue1(), dsToPing.getValue2()).usePlaintext().build();
+                            ManagedChannelBuilder.forAddress(dsToPing.host, dsToPing.port).usePlaintext().build();
                     DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(dsChannel);
                     DataStorePingMessage pm = DataStorePingMessage.newBuilder().build();
                     try {

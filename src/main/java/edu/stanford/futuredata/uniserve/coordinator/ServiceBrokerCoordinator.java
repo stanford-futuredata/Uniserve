@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
@@ -36,30 +37,28 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         Integer dsID = coordinator.shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
         if (dsID != null) {
             DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
-            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-            return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
+            return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
         }
         // If not, assign it to a DataStore.
         int newDSID = assignShardToDataStore(shardNum);
         dsID = coordinator.shardToPrimaryDataStoreMap.putIfAbsent(shardNum, newDSID);
         if (dsID != null) {
             DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
-            String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-            return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
+            return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
         }
+        dsID = newDSID;
         coordinator.shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
         coordinator.shardToVersionMap.put(shardNum, 0);
         // Tell the DataStore to create the shard.
-        DataStoreDescription dsDesc = coordinator.dataStoresMap.get(newDSID);
-        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
+        DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
+        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = coordinator.dataStoreStubsMap.get(dsID);
         CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
         CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
         assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
         // Once the shard is created, add it to the ZooKeeper map.
-        coordinator.zkCurator.setZKShardDescription(m.getShard(), newDSID, Utilities.null_name, 0);
+        coordinator.zkCurator.setZKShardDescription(m.getShard(), dsID, Utilities.null_name, 0);
         coordinator.zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
-        String connectString = String.format("%s:%d", dsDesc.host, dsDesc.port);
-        return ShardLocationResponse.newBuilder().setReturnCode(0).setConnectString(connectString).build();
+        return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
     }
 
 }

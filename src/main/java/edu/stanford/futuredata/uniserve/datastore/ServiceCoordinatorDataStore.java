@@ -4,6 +4,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
@@ -95,8 +96,8 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.replicaShardMap.put(shardNum, loadedShard.get());
 
         // Set up a connection to the primary.
-        Pair<String, Integer> primaryConnectString = dataStore.zkCurator.getConnectStringFromDSID(primaryDSID);
-        ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryConnectString.getValue0(), primaryConnectString.getValue1()).usePlaintext().build();
+        DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(primaryDSID);
+        ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryDSDescription.host, primaryDSDescription.port).usePlaintext().build();
         DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
 
         // Bootstrap the replica, bringing it up to the same version as the primary.

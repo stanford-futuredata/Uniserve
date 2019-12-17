@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -58,10 +59,10 @@ class CoordinatorCurator {
         }
     }
 
-    void setDSDescription(int dsID, String host, int port) {
+    void setDSDescription(DataStoreDescription dsDescription) {
         try {
-            String path = String.format("/dsDescription/%d", dsID);
-            byte[] data = String.format("%s:%d", host, port).getBytes();
+            String path = String.format("/dsDescription/%d", dsDescription.dsID);
+            byte[] data = dsDescription.summaryString.getBytes();
             if (cf.checkExists().forPath(path) != null) {
                 cf.setData().forPath(path, data);
             } else {

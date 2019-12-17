@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
@@ -27,11 +28,11 @@ class DataStoreCurator {
         cf.start();
     }
 
-    Pair<String, Integer> getConnectStringFromDSID(int dsID) {
+    DataStoreDescription getDSDescription(int dsID) {
         try {
             String path = String.format("/dsDescription/%d", dsID);
             byte[] b = cf.getData().forPath(path);
-            return Utilities.parseConnectString(new String(b));
+            return new DataStoreDescription(new String(b));
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
@@ -68,18 +69,16 @@ class DataStoreCurator {
         }
     }
 
-    List<Triplet<Integer, String, Integer>> getOtherDSConnectInfo(int dsID) {
+    List<DataStoreDescription> getOtherDSDescriptions(int dsID) {
         int i = 0;
-        List<Triplet<Integer, String, Integer>> connectInfoList = new ArrayList<>();
+        List<DataStoreDescription> connectInfoList = new ArrayList<>();
         try {
             while(true) {
                 String path = String.format("/dsDescription/%d", i);
                 if (cf.checkExists().forPath(path) != null) {
-                    byte[] b = cf.getData().forPath(path);
-                    String connectString = new String(b);
-                    Pair<String, Integer> connectInfo = Utilities.parseConnectString(connectString);
+                    DataStoreDescription dsDescription = getDSDescription(i);
                     if (i != dsID) {
-                        connectInfoList.add(new Triplet<>(i, connectInfo.getValue0(), connectInfo.getValue1()));
+                        connectInfoList.add(dsDescription);
                     }
                 } else {
                     break;

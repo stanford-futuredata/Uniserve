@@ -1,6 +1,9 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
@@ -27,8 +30,13 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         String host = m.getHost();
         int port = m.getPort();
         int dsID = coordinator.dataStoreNumber.getAndIncrement();
-        coordinator.dataStoresMap.put(dsID, new DataStoreDescription(host, port));
-        coordinator.zkCurator.setDSDescription(dsID, host, port);
+        DataStoreDescription dsDescription = new DataStoreDescription(dsID, DataStoreDescription.ALIVE, host, port);
+        ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        coordinator.dataStoreChannelsMap.put(dsID, channel);
+        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
+        coordinator.dataStoreStubsMap.put(dsID, stub);
+        coordinator.zkCurator.setDSDescription(dsDescription);
+        coordinator.dataStoresMap.put(dsID, dsDescription);
         logger.info("Registered DataStore ID: {} Host: {} Port: {}", dsID, host, port);
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
     }
@@ -57,10 +65,9 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
 
     private PotentialDSFailureResponse potentialDSFailureHandler(PotentialDSFailureMessage request) {
         int dsID = request.getDsID();
-        DataStoreDescription dsDescription = coordinator.dataStoresMap.get(dsID);
         CoordinatorPingMessage m = CoordinatorPingMessage.newBuilder().build();
         try {
-            CoordinatorPingResponse alwaysEmpty = dsDescription.stub.coordinatorPing(m);
+            CoordinatorPingResponse alwaysEmpty = coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
         } catch (StatusRuntimeException e) {
             logger.warn("DS{} Failure Detected", dsID);
         }

@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.broker;
 
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.curator.RetryPolicy;
@@ -28,11 +29,11 @@ public class BrokerCurator {
         cf.start();
     }
 
-    String getConnectStringFromDSID(int dsID) {
+    DataStoreDescription getDSDescriptionFromDSID(int dsID) {
         try {
             String path = String.format("/dsDescription/%d", dsID);
             byte[] b = cf.getData().forPath(path);
-            return new String(b);
+            return new DataStoreDescription(new String(b));
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
@@ -40,14 +41,13 @@ public class BrokerCurator {
         }
     }
 
-    Optional<Pair<String, Integer>> getShardPrimaryConnectString(int shard) {
+    Optional<DataStoreDescription> getShardPrimaryDSDescription(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 byte[] b = cf.getData().forPath(path);
                 ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                String connectString = getConnectStringFromDSID(zkShardDescription.primaryDSID);
-                return Optional.of(Utilities.parseConnectString(connectString));
+                return Optional.of(getDSDescriptionFromDSID(zkShardDescription.primaryDSID));
             } else {
                 return Optional.empty();
             }
@@ -58,15 +58,15 @@ public class BrokerCurator {
         }
     }
 
-    Optional<List<Pair<String, Integer>>> getShardReplicaConnectStrings(int shard) {
+    Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
         try {
             String path = String.format("/shardReplicaMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
                 String replicaDataString = new String(cf.getData().forPath(path));
                 if (replicaDataString.length() > 0) {
                     List<String> replicaStringDSIDs = Arrays.asList(replicaDataString.split("\n"));
-                    List<Pair<String, Integer>> replicaHostPorts =
-                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getConnectStringFromDSID).map(Utilities::parseConnectString).collect(Collectors.toList());
+                    List<DataStoreDescription> replicaHostPorts =
+                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getDSDescriptionFromDSID).collect(Collectors.toList());
                     return Optional.of(replicaHostPorts);
                 } else {
                     return Optional.of(new ArrayList<>());

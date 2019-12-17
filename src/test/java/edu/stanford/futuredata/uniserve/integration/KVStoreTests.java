@@ -5,7 +5,6 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.apache.commons.io.FileUtils;
@@ -13,8 +12,8 @@ import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
-import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,8 +60,13 @@ public class KVStoreTests {
         }
     }
 
+    @BeforeAll
+    static void startUpCleanUp() {
+        cleanUp(zkHost, zkPort);
+    }
+
     @AfterEach
-    private void unitTestCleanUp() throws Exception {
+    private void unitTestCleanUp() {
         cleanUp(zkHost, zkPort);
     }
 

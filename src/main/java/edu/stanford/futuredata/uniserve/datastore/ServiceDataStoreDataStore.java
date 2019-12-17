@@ -4,6 +4,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -38,8 +39,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         assert(replicaVersion <= primaryVersion);
         Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
         if (replicaVersion.equals(primaryVersion)) {
-            Pair<String, Integer> connectString = dataStore.zkCurator.getConnectStringFromDSID(request.getDsID());
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(connectString.getValue0(), connectString.getValue1()).usePlaintext().build();
+            DataStoreDescription dsDescription = dataStore.zkCurator.getDSDescription(request.getDsID());
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
             DataStoreDataStoreGrpc.DataStoreDataStoreStub asyncStub = DataStoreDataStoreGrpc.newStub(channel);
             dataStore.replicaChannelsMap.get(shardNum).add(channel);
             dataStore.replicaStubsMap.get(shardNum).add(asyncStub);

@@ -17,5 +17,7 @@ message ShardLocationMessage {
 
 message ShardLocationResponse {
     int32 returnCode = 1;
-    string connectString = 2;
+    int32 dsID = 2;
+    string host = 3;
+    int32 port = 4;
 }

@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,9 +25,14 @@ public class FailureTests {
     private static String zkHost = "127.0.0.1";
     private static Integer zkPort = 2181;
 
+    @BeforeAll
+    static void startUpCleanUp() {
+        cleanUp(zkHost, zkPort);
+    }
+
     @AfterEach
-    private void unitTestCleanUp() throws Exception {
-        KVStoreTests.cleanUp(zkHost, zkPort);
+    private void unitTestCleanUp() {
+        cleanUp(zkHost, zkPort);
     }
 
     @Test

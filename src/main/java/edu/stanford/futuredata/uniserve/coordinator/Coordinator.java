@@ -1,8 +1,11 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +29,10 @@ public class Coordinator {
     final AtomicInteger dataStoreNumber = new AtomicInteger(0);
     // Map from datastore IDs to their descriptions.
     final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
+    // Map from datastore IDs to their channels.
+    final Map<Integer, ManagedChannel> dataStoreChannelsMap = new ConcurrentHashMap<>();
+    // Map from datastore IDs to their stubs.
+    final Map<Integer, CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub> dataStoreStubsMap = new ConcurrentHashMap<>();
     // Map from shards to last uploaded versions.
     final Map<Integer, Integer> shardToVersionMap = new ConcurrentHashMap<>();
     // Map from shards to their primaries.
@@ -74,6 +81,9 @@ public class Coordinator {
         if (server != null) {
             server.shutdown();
         }
+        for(ManagedChannel channel: dataStoreChannelsMap.values()) {
+            channel.shutdown();
+        }
         runReplicationDaemon = false;
         try {
             replicationDaemon.interrupt();
@@ -97,16 +107,19 @@ public class Coordinator {
                             if (dataStoresMap.size() > 1 && replicaDataStores.size() == 0) {
                                 int replicaID = (primaryDataStore + 1) % dataStoresMap.size();
                                 assert (replicaID != primaryDataStore);
-                                DataStoreDescription dsDesc = dataStoresMap.get(replicaID);
-                                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dsDesc.stub;
+                                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(replicaID);
                                 LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
-                                LoadShardReplicaResponse r = stub.loadShardReplica(m);
-                                if (r.getReturnCode() != 0) {
-                                    logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
-                                    return;
+                                try {
+                                    LoadShardReplicaResponse r = stub.loadShardReplica(m);
+                                    if (r.getReturnCode() != 0) {
+                                        logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
+                                        return;
+                                    }
+                                } catch (StatusRuntimeException e) {
+                                    logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
                                 }
-                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
                                 zkCurator.setShardReplicas(shardNum, Collections.singletonList(replicaID));
+                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
                             }
                         }
                     });

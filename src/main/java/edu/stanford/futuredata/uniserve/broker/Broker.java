@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.broker;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -11,7 +12,6 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,8 +25,8 @@ public class Broker {
     private final BrokerCurator zkCurator;
 
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
-    // Map from host/port pairs (used to uniquely identify a DataStore) to stubs.
-    private final Map<Pair<String, Integer>, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> connStringToStubMap = new ConcurrentHashMap<>();
+    // Map from dsIDs to stubs.
+    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> dsIDToStubMap = new ConcurrentHashMap<>();
     // Map from shards to the primary's DataStoreBlockingStubs.
     private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToPrimaryStubMap = new ConcurrentHashMap<>();
     // Map from shards to the replicas' DataStoreBlockingStubs.
@@ -199,13 +199,13 @@ public class Broker {
         return partitionKey % Broker.numShards;
     }
 
-    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubFromHostPort(Pair<String, Integer> hostPort) {
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = connStringToStubMap.getOrDefault(hostPort, null);
+    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub createDataStoreStub(DataStoreDescription dsDescription) {
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = dsIDToStubMap.getOrDefault(dsDescription.dsID, null);
         if (stub == null) {
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(hostPort.getValue0(), hostPort.getValue1()).usePlaintext().build();
-            stub = connStringToStubMap.putIfAbsent(hostPort, BrokerDataStoreGrpc.newBlockingStub(channel));
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
+            stub = dsIDToStubMap.putIfAbsent(dsDescription.dsID, BrokerDataStoreGrpc.newBlockingStub(channel));
             if (stub == null) {
-                stub = connStringToStubMap.get(hostPort); // No entry exists.
+                stub = dsIDToStubMap.get(dsDescription.dsID); // No entry exists.
             } else {
                 channel.shutdown(); // Stub already exists.
             }
@@ -218,11 +218,11 @@ public class Broker {
         BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToPrimaryStubMap.getOrDefault(shard, null);
         if (stub == null) {
             // TODO:  This is thread-safe, but might make many redundant requests.
-            Pair<String, Integer> hostPort;
+            DataStoreDescription dsDescription;
             // Then, try to pull it from ZooKeeper.
-            Optional<Pair<String, Integer>> hostPortOpt = zkCurator.getShardPrimaryConnectString(shard);
-            if (hostPortOpt.isPresent()) {
-                hostPort = hostPortOpt.get();
+            Optional<DataStoreDescription> dsDescriptionOpt = zkCurator.getShardPrimaryDSDescription(shard);
+            if (dsDescriptionOpt.isPresent()) {
+                dsDescription = dsDescriptionOpt.get();
             } else {
                 // Otherwise, ask the coordinator.
                 ShardLocationMessage m = ShardLocationMessage.newBuilder().setShard(shard).build();
@@ -233,9 +233,9 @@ public class Broker {
                     logger.warn("RPC failed: {}", e.getStatus());
                     return Optional.empty();
                 }
-                hostPort = Utilities.parseConnectString(r.getConnectString());
+                dsDescription = new DataStoreDescription(r.getDsID(), DataStoreDescription.ALIVE, r.getHost(), r.getPort());
             }
-            stub = getStubFromHostPort(hostPort);
+            stub = createDataStoreStub(dsDescription);
             shardToPrimaryStubMap.putIfAbsent(shard, stub);
             stub = shardToPrimaryStubMap.get(shard);
         }
@@ -257,20 +257,21 @@ public class Broker {
         public void run() {
             while (runShardMapUpdateDaemon) {
                 for (Integer shardNum : shardToPrimaryStubMap.keySet()) {
-                    Optional<Pair<String, Integer>> primaryHostPortOpt =
-                            zkCurator.getShardPrimaryConnectString(shardNum);
-                    Optional<List<Pair<String, Integer>>> replicaHostPortsOpt =
-                            zkCurator.getShardReplicaConnectStrings(shardNum);
-                    if (primaryHostPortOpt.isEmpty() || replicaHostPortsOpt.isEmpty()) {
+                    Optional<DataStoreDescription> primaryDSDescriptionsOpt =
+                            zkCurator.getShardPrimaryDSDescription(shardNum);
+                    Optional<List<DataStoreDescription>> replicaDSDescriptionsOpt =
+                            zkCurator.getShardReplicaDSDescriptions(shardNum);
+                    if (primaryDSDescriptionsOpt.isEmpty() || replicaDSDescriptionsOpt.isEmpty()) {
                         logger.error("ZK has lost information on Shard {}", shardNum);
                         continue;
                     }
-                    Pair<String, Integer> primaryHostPort = primaryHostPortOpt.get();
-                    BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub = getStubFromHostPort(primaryHostPort);
-                    List<Pair<String, Integer>> replicaHostPorts = replicaHostPortsOpt.get();
+                    DataStoreDescription primaryDSDescription = primaryDSDescriptionsOpt.get();
+                    List<DataStoreDescription> replicaDSDescriptions = replicaDSDescriptionsOpt.get();
+                    BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub =
+                            createDataStoreStub(primaryDSDescription);
                     List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> replicaStubs = new ArrayList<>();
-                    for (Pair<String, Integer> replicaHostPort: replicaHostPorts) {
-                        replicaStubs.add(getStubFromHostPort(replicaHostPort));
+                    for (DataStoreDescription replicaDSDescription: replicaDSDescriptions) {
+                        replicaStubs.add(createDataStoreStub(replicaDSDescription));
                     }
                     shardToPrimaryStubMap.put(shardNum, primaryStub);
                     shardToReplicaStubMap.put(shardNum, replicaStubs);
@@ -356,7 +357,7 @@ public class Broker {
             WriteQueryCommitMessage rowMessage = WriteQueryCommitMessage.newBuilder().
                     setShard(shardNum).setCommitOrAbort(commitOrAbort).setTxID(txID).build();
             try {
-                WriteQueryCommitResponse response = stub.writeQueryCommit(rowMessage);
+                WriteQueryCommitResponse alwaysEmpty = stub.writeQueryCommit(rowMessage);
             } catch (StatusRuntimeException e) {
                 logger.warn("RPC failed: {}", e.getStatus());
                 assert(false); // TODO:  Retry
