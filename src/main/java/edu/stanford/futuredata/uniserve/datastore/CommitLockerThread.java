@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 
 class CommitLockerThread<R extends Row, S extends Shard> extends Thread {
@@ -21,6 +22,8 @@ class CommitLockerThread<R extends Row, S extends Shard> extends Thread {
     private final Map<Integer, CommitLockerThread<R, S>> activeCLTs;
     public final long txID;
     private final long dsID;
+    private Semaphore acquireLockSemaphore = new Semaphore(0);
+    private Semaphore releaseLockSemaphore = new Semaphore(0);
 
     public CommitLockerThread(Map<Integer, CommitLockerThread<R, S>> activeCLTs, Integer shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, Lock lock, long txID, int dsID) {
         this.activeCLTs = activeCLTs;
@@ -34,21 +37,14 @@ class CommitLockerThread<R extends Row, S extends Shard> extends Thread {
 
     public void run() {
         lock.lock();
+        assert (activeCLTs.get(shardNum) == null);
+        activeCLTs.put(shardNum, this);
         // Notify the precommit thread that the shard lock is held.
-        synchronized (writeQueryPlan) {
-            assert (activeCLTs.get(shardNum) == null);
-            activeCLTs.put(shardNum, this);
-            writeQueryPlan.notify();
-        }
+        acquireLockSemaphore.release();
         // Block until the commit thread is ready to release the shard lock.
         // TODO:  Automatically abort and unlock if this isn't triggered for X seconds after a precommit.
         try {
-            synchronized (writeQueryPlan) {
-                assert (activeCLTs.get(shardNum) != null);
-                while(activeCLTs.get(shardNum) != null) {
-                    writeQueryPlan.wait();
-                }
-            }
+            releaseLockSemaphore.acquire();
         } catch (InterruptedException e) {
             logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
             assert(false);
@@ -59,11 +55,7 @@ class CommitLockerThread<R extends Row, S extends Shard> extends Thread {
     public void acquireLock() {
         this.start();
         try {
-            synchronized (writeQueryPlan) {
-                while(!(activeCLTs.get(shardNum) == this)) {
-                    writeQueryPlan.wait();
-                }
-            }
+            acquireLockSemaphore.acquire();
         } catch (InterruptedException e) {
             logger.error("DS{} Interrupted while getting lock: {}", dsID, e.getMessage());
             assert(false);
@@ -72,9 +64,11 @@ class CommitLockerThread<R extends Row, S extends Shard> extends Thread {
 
     public void releaseLock() {
         assert(this.isAlive());
-        synchronized (this.writeQueryPlan) {
-            activeCLTs.get(shardNum).writeQueryPlan.notify();
-            activeCLTs.put(shardNum, null);
-        }
+        assert(activeCLTs.get(shardNum) == this);
+        activeCLTs.put(shardNum, null);
+        releaseLockSemaphore.release();
+        try {
+            this.join();
+        } catch (InterruptedException ignored) {}
     }
 }
