@@ -69,7 +69,11 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         try {
             CoordinatorPingResponse alwaysEmpty = coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
         } catch (StatusRuntimeException e) {
-            logger.warn("DS{} Failure Detected", dsID);
+            DataStoreDescription dsDescription = coordinator.dataStoresMap.get(dsID);
+            if (dsDescription.status.compareAndSet(DataStoreDescription.ALIVE, DataStoreDescription.DEAD)) {
+                logger.warn("DS{} Failure Detected", dsID);
+                coordinator.zkCurator.setDSDescription(dsDescription);
+            }
         }
         return PotentialDSFailureResponse.newBuilder().build();
     }
