@@ -77,7 +77,7 @@ class DataStoreCurator {
                 String path = String.format("/dsDescription/%d", i);
                 if (cf.checkExists().forPath(path) != null) {
                     DataStoreDescription dsDescription = getDSDescription(i);
-                    if (i != dsID) {
+                    if (i != dsID  && dsDescription.status.get() == DataStoreDescription.ALIVE) {
                         connectInfoList.add(dsDescription);
                     }
                 } else {
