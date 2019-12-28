@@ -101,7 +101,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
 
         // Bootstrap the replica, bringing it up to the same version as the primary.
-        while (true) {
+        while (true) {  // TODO:  Stream the writes.
             BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder()
                     .setShard(shardNum)
                     .setVersionNumber(replicaVersion)

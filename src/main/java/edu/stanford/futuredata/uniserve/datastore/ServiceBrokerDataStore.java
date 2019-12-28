@@ -13,12 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
@@ -32,29 +30,50 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     private Map<Integer, CommitLockerThread<R, S>> activeCLTs = new HashMap<>();
 
     @Override
-    public void writeQueryPreCommit(WriteQueryPreCommitMessage request, StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
-        responseObserver.onNext(writeQueryPreCommitHandler(request));
-        responseObserver.onCompleted();
+    public StreamObserver<WriteQueryPreCommitMessage> writeQueryPreCommit(StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
+        return new StreamObserver<WriteQueryPreCommitMessage>() {
+            int shardNum;
+            long txID;
+            WriteQueryPlan<R, S> writeQueryPlan;
+            List<R[]> rowArrayList = new ArrayList<>();
+
+            @Override
+            public void onNext(WriteQueryPreCommitMessage writeQueryPreCommitMessage) {
+                shardNum = writeQueryPreCommitMessage.getShard();
+                txID = writeQueryPreCommitMessage.getTxID();
+                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryPreCommitMessage.getSerializedQuery()); // TODO:  Only send this once.
+                R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryPreCommitMessage.getRowData());
+                rowArrayList.add(rowChunk);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                assert(false);
+            }
+
+            @Override
+            public void onCompleted() {
+                List<R> rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                responseObserver.onNext(writeQueryPreCommitHandler(shardNum, txID, writeQueryPlan, rowList));
+                responseObserver.onCompleted();
+            }
+        };
     }
 
-    private WriteQueryPreCommitResponse writeQueryPreCommitHandler(WriteQueryPreCommitMessage rowMessage) {
-        int shardNum = rowMessage.getShard();
-        long txID = rowMessage.getTxID();
+    private WriteQueryPreCommitResponse writeQueryPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         if (dataStore.primaryShardMap.containsKey(shardNum)) {
-            WriteQueryPlan<R, S> writeQueryPlan;
-            List<R> rows;
-            writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(rowMessage.getSerializedQuery());
-            rows = Arrays.asList((R[]) Utilities.byteStringToObject(rowMessage.getRowData()));
             S shard = dataStore.primaryShardMap.get(shardNum);
             // Use the CommitLockerThread to acquire the shard's write lock.
-            CommitLockerThread<R, S> commitLockerThread = new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan, rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
+            CommitLockerThread<R, S> commitLockerThread = new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan,
+                    rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
             commitLockerThread.acquireLock();
             List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
             int numReplicas = replicaStubs.size();
-            ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()
+            R[] rowArray = (R[]) rows.toArray(new Row[0]);
+            ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()  // TODO:  Stream replica writes.
                     .setShard(shardNum)
-                    .setSerializedQuery(rowMessage.getSerializedQuery())
-                    .setRowData(rowMessage.getRowData())
+                    .setSerializedQuery(Utilities.objectToByteString(writeQueryPlan))
+                    .setRowData(Utilities.objectToByteString(rowArray))
                     .setTxID(txID)
                     .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
                     .build();

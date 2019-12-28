@@ -8,6 +8,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,9 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -309,22 +312,46 @@ public class Broker {
                 assert(false);  // TODO:  Retry
                 return false;
             }
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-            ByteString serializedQuery;
-            ByteString rowData;
-            serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-            rowData = Utilities.objectToByteString(rowArray);
-            WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
-                    setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
-            WriteQueryPreCommitResponse writeQueryResponse;
-            try {
-                writeQueryResponse = stub.writeQueryPreCommit(rowMessage);
-            } catch (StatusRuntimeException e) {
-                logger.warn("RPC failed: {}", e.getStatus());
-                assert(false); // TODO:  Retry
-                return false;
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
+            AtomicBoolean success = new AtomicBoolean(true);
+            final CountDownLatch finishLatch = new CountDownLatch(1);
+                StreamObserver<WriteQueryPreCommitMessage> observer =
+                        stub.writeQueryPreCommit(new StreamObserver<>() {
+                            @Override
+                            public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
+                                if (writeQueryPreCommitResponse.getReturnCode() != 0) {
+                                    logger.warn("PreCommit Failed");
+                                    success.set(false);  // TODO:  Retry.
+                                }
+                            }
+
+                            @Override
+                            public void onError(Throwable th) {
+                                assert(false);
+                            }
+
+                            @Override
+                            public void onCompleted() {
+                                finishLatch.countDown();
+                            }
+                        });
+            final int STEPSIZE = 10000;
+            for(int i = 0; i < rowArray.length; i += STEPSIZE) {
+                ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                ByteString rowData = Utilities.objectToByteString(rowSlice);
+                WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
+                        setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
+                observer.onNext(rowMessage);
             }
-            return writeQueryResponse.getReturnCode() == 0;
+            observer.onCompleted();
+            try {
+                finishLatch.await();
+            } catch (InterruptedException e) {
+                logger.error("Write PreCommit Interrupted: {}", e.getMessage());
+                assert(false);
+            }
+            return success.get();
         }
 
         public boolean isSuccess() {

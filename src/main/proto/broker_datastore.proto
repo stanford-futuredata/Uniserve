@@ -9,7 +9,7 @@ package brokerdatastore;
 // Communication from brokers to datastores.
 service BrokerDataStore {
     // Pre-commit (2PC-style) a write query.
-    rpc WriteQueryPreCommit (WriteQueryPreCommitMessage) returns (WriteQueryPreCommitResponse) {}
+    rpc WriteQueryPreCommit (stream WriteQueryPreCommitMessage) returns (WriteQueryPreCommitResponse) {}
     // Commit (or abort) a write query.
     rpc WriteQueryCommit (WriteQueryCommitMessage) returns (WriteQueryCommitResponse) {}
     // Make a read query to a DataStore server.  Return a response.
