@@ -69,7 +69,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             commitLockerThread.acquireLock();
             List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
             int numReplicas = replicaStubs.size();
-            R[] rowArray = (R[]) rows.toArray(new Row[0]);
+            R[] rowArray;
+            if (numReplicas > 0) {
+                rowArray = (R[]) rows.toArray(new Row[0]);
+            } else {
+                rowArray = (R[]) new Row[0]; // TODO:  Hack.
+            }
             ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()  // TODO:  Stream replica writes.
                     .setShard(shardNum)
                     .setSerializedQuery(Utilities.objectToByteString(writeQueryPlan))
