@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
@@ -31,7 +31,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     @Override
     public StreamObserver<WriteQueryPreCommitMessage> writeQueryPreCommit(StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
-        return new StreamObserver<WriteQueryPreCommitMessage>() {
+        return new StreamObserver<>() {
             int shardNum;
             long txID;
             WriteQueryPlan<R, S> writeQueryPlan;
@@ -48,7 +48,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             @Override
             public void onError(Throwable throwable) {
-                assert(false);
+                assert (false);
             }
 
             @Override
@@ -70,39 +70,44 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
             int numReplicas = replicaStubs.size();
             R[] rowArray;
-            if (numReplicas > 0) {
-                rowArray = (R[]) rows.toArray(new Row[0]);
-            } else {
-                rowArray = (R[]) new Row[0]; // TODO:  Hack.
-            }
-            ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()  // TODO:  Stream replica writes.
-                    .setShard(shardNum)
-                    .setSerializedQuery(Utilities.objectToByteString(writeQueryPlan))
-                    .setRowData(Utilities.objectToByteString(rowArray))
-                    .setTxID(txID)
-                    .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
-                    .build();
-            AtomicInteger numReplicaSuccesses = new AtomicInteger(0);
+            rowArray = (R[]) rows.toArray(new Row[0]);
+            AtomicBoolean success = new AtomicBoolean(true);
             Semaphore semaphore = new Semaphore(0);
             for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
-                StreamObserver<ReplicaPreCommitResponse> responseObserver = new StreamObserver<>() {
+                StreamObserver<ReplicaPreCommitMessage> observer = stub.replicaPreCommit(new StreamObserver<>() {
                     @Override
                     public void onNext(ReplicaPreCommitResponse replicaPreCommitResponse) {
-                        numReplicaSuccesses.incrementAndGet();
-                        semaphore.release();
+                        if (replicaPreCommitResponse.getReturnCode() != 0) {
+                            logger.warn("Replica PreCommit Failed");
+                            success.set(false);
+                        }
                     }
 
                     @Override
                     public void onError(Throwable throwable) {
-                        logger.error("DS{} Replica PreCommit Error: {}", dataStore.dsID, throwable.getMessage());
-                        semaphore.release();
+                        assert(false);
                     }
 
                     @Override
                     public void onCompleted() {
+                        semaphore.release();
                     }
-                };
-                stub.replicaPreCommit(rm, responseObserver);
+                });
+                final int STEPSIZE = 10000;
+                for(int i = 0; i < rowArray.length; i += STEPSIZE) {
+                    ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                    R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                    ByteString rowData = Utilities.objectToByteString(rowSlice);
+                    ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()
+                            .setShard(shardNum)
+                            .setSerializedQuery(serializedQuery)
+                            .setRowData(rowData)
+                            .setTxID(txID)
+                            .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
+                            .build();
+                    observer.onNext(rm);
+                }
+                observer.onCompleted();
             }
             boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
             try {
@@ -112,7 +117,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 assert(false);
             }
             int addRowReturnCode;
-            if (primaryWriteSuccess && numReplicaSuccesses.get() == numReplicas) {
+            if (primaryWriteSuccess && success.get()) {
                 addRowReturnCode = 0;
             } else {
                 addRowReturnCode = 1;

@@ -315,26 +315,26 @@ public class Broker {
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
             AtomicBoolean success = new AtomicBoolean(true);
             final CountDownLatch finishLatch = new CountDownLatch(1);
-                StreamObserver<WriteQueryPreCommitMessage> observer =
-                        stub.writeQueryPreCommit(new StreamObserver<>() {
-                            @Override
-                            public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
-                                if (writeQueryPreCommitResponse.getReturnCode() != 0) {
-                                    logger.warn("PreCommit Failed");
-                                    success.set(false);  // TODO:  Retry.
-                                }
+            StreamObserver<WriteQueryPreCommitMessage> observer =
+                    stub.writeQueryPreCommit(new StreamObserver<>() {
+                        @Override
+                        public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
+                            if (writeQueryPreCommitResponse.getReturnCode() != 0) {
+                                logger.warn("PreCommit Failed");
+                                success.set(false);  // TODO:  Retry.
                             }
+                        }
 
-                            @Override
-                            public void onError(Throwable th) {
-                                assert(false);
-                            }
+                        @Override
+                        public void onError(Throwable th) {
+                            assert(false);
+                        }
 
-                            @Override
-                            public void onCompleted() {
-                                finishLatch.countDown();
-                            }
-                        });
+                        @Override
+                        public void onCompleted() {
+                            finishLatch.countDown();
+                        }
+                    });
             final int STEPSIZE = 10000;
             for(int i = 0; i < rowArray.length; i += STEPSIZE) {
                 ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);

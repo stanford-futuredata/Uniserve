@@ -10,7 +10,7 @@ package datastoredatastore;
 service DataStoreDataStore {
     rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
     // 2PC-style prepare commit on the replica.
-    rpc ReplicaPreCommit (ReplicaPreCommitMessage) returns (ReplicaPreCommitResponse) {}
+    rpc ReplicaPreCommit (stream ReplicaPreCommitMessage) returns (ReplicaPreCommitResponse) {}
     // Commit or abort the write query.
     rpc ReplicaCommit (ReplicaCommitMessage) returns (ReplicaCommitResponse) {}
     // DataStorePing a datastore to see if it's alive.

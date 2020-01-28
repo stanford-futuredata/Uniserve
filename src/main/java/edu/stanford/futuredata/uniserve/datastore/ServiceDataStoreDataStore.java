@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
 
@@ -64,25 +65,46 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     private Map<Integer, CommitLockerThread<R, S>> activeCLTs = new HashMap<>();
 
     @Override
-    public void replicaPreCommit(ReplicaPreCommitMessage request, StreamObserver<ReplicaPreCommitResponse> responseObserver) {
-        responseObserver.onNext(replicaPreCommitHandler(request));
-        responseObserver.onCompleted();
+    public StreamObserver<ReplicaPreCommitMessage> replicaPreCommit(StreamObserver<ReplicaPreCommitResponse> responseObserver) {
+        return new StreamObserver<>() {
+            int shardNum;
+            long txID;
+            int versionNumber;
+            WriteQueryPlan<R, S> writeQueryPlan;
+            List<R[]> rowArrayList = new ArrayList<>();
+
+            @Override
+            public void onNext(ReplicaPreCommitMessage replicaPreCommitMessage) {
+                versionNumber = replicaPreCommitMessage.getVersionNumber();
+                shardNum = replicaPreCommitMessage.getShard();
+                txID = replicaPreCommitMessage.getTxID();
+                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaPreCommitMessage.getSerializedQuery()); // TODO:  Only send this once.
+                R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaPreCommitMessage.getRowData());
+                rowArrayList.add(rowChunk);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                assert (false);
+            }
+
+            @Override
+            public void onCompleted() {
+                List<R> rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                responseObserver.onNext(replicaPreCommitHandler(shardNum, txID, writeQueryPlan, rowList, versionNumber));
+                responseObserver.onCompleted();
+            }
+        };
     }
 
-    private ReplicaPreCommitResponse replicaPreCommitHandler(ReplicaPreCommitMessage request) {
-        int shardNum = request.getShard();
-        long txID = request.getTxID();
+    private ReplicaPreCommitResponse replicaPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
         if (dataStore.replicaShardMap.containsKey(shardNum)) {
-            WriteQueryPlan<R, S> writeQueryPlan;
-            List<R> rows;
-            writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(request.getSerializedQuery());
-            rows = Arrays.asList((R[]) Utilities.byteStringToObject(request.getRowData()));
             S shard = dataStore.replicaShardMap.get(shardNum);
             // Use the CommitLockerThread to acquire the shard's write lock.
             CommitLockerThread<R, S> commitLockerThread =
                     new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan, rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
             commitLockerThread.acquireLock();
-            assert(request.getVersionNumber() == dataStore.shardVersionMap.get(shardNum));
+            assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
             boolean replicaWriteSuccess = writeQueryPlan.preCommit(shard, rows);
             int returnCode;
             if (replicaWriteSuccess) {

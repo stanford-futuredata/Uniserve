@@ -276,11 +276,18 @@ public class KVStoreTests {
         Thread.sleep(3000);
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, 2 * i)));
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
+                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
             assertTrue(writeSuccess);
             ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(2 * i), queryResponse);
+            readQueryPlan = new KVReadQueryPlanGet(2 * i);
+            queryResponse = broker.readQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(4 * i), queryResponse);
+            readQueryPlan = new KVReadQueryPlanGet(4 *  i);
+            queryResponse = broker.readQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(8 * i), queryResponse);
         }
 
 
