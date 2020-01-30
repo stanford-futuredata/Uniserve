@@ -91,44 +91,52 @@ public class Coordinator {
         } catch (InterruptedException ignored) {}
     }
 
+    private boolean addReplica(int shardNum, int replicaID) {
+        int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
+        List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+        assert (replicaID != primaryDataStore);
+        assert (!replicaDataStores.contains(replicaID));
+        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(replicaID);
+        LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
+        try {
+            LoadShardReplicaResponse r = stub.loadShardReplica(m);
+            if (r.getReturnCode() != 0) {
+                logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
+                return false;
+            }
+        } catch (StatusRuntimeException e) {
+            logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
+            return false;
+        }
+        replicaDataStores.add(replicaID);
+        shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
+        return true;
+    }
+
     private class ReplicationDaemon extends Thread {
         @Override
         public void run() {
             // TODO:  Make sane and robust.
             while (runReplicationDaemon) {
-                List<Thread> replicationThreadList = new ArrayList<>();
+                List<Thread> replicationThreads = new ArrayList<>();
                 for (Map.Entry<Integer, Integer> shardVersionEntry : shardToVersionMap.entrySet()) {
                     Thread replicationThread = new Thread(() -> {
                         int shardNum = shardVersionEntry.getKey();
                         int shardVersion = shardVersionEntry.getValue();
                         if (shardVersion > 0) {
                             int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
-                            List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
-                            if (dataStoresMap.size() > 1 && replicaDataStores.size() == 0) {
+                            if (dataStoresMap.size() > 1 && shardToReplicaDataStoreMap.get(shardNum).size() == 0) {
                                 int replicaID = (primaryDataStore + 1) % dataStoresMap.size();
-                                assert (replicaID != primaryDataStore);
-                                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(replicaID);
-                                LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
-                                try {
-                                    LoadShardReplicaResponse r = stub.loadShardReplica(m);
-                                    if (r.getReturnCode() != 0) {
-                                        logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
-                                        return;
-                                    }
-                                } catch (StatusRuntimeException e) {
-                                    logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
-                                }
-                                zkCurator.setShardReplicas(shardNum, Collections.singletonList(replicaID));
-                                shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
+                                addReplica(shardNum, replicaID);
                             }
                         }
                     });
                     replicationThread.start();
-                    replicationThreadList.add(replicationThread);
+                    replicationThreads.add(replicationThread);
                 }
-                for (int i = 0; i < replicationThreadList.size(); i++) {
+                for (int i = 0; i < replicationThreads.size(); i++) {
                     try {
-                        replicationThreadList.get(i).join();
+                        replicationThreads.get(i).join();
                     } catch (InterruptedException e) {
                         i--;
                     }
