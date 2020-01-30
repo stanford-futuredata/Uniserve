@@ -9,7 +9,6 @@ import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -40,9 +39,9 @@ public class Coordinator {
     // Map from shards to their replicas.
     final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
 
-    private boolean runReplicationDaemon = true;
-    private final ReplicationDaemon replicationDaemon;
-    private final static int replicationDaemonSleepDurationMillis = 100;
+    private boolean runLoadBalancerDaemon = true;
+    private final LoadBalancerDaemon loadBalancer;
+    private final static int loadBalancerSleepDurationMillis = 100;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -52,7 +51,7 @@ public class Coordinator {
                 .addService(new ServiceDataStoreCoordinator(this))
                 .addService(new ServiceBrokerCoordinator(this))
                 .build();
-        replicationDaemon = new ReplicationDaemon();
+        loadBalancer = new LoadBalancerDaemon();
     }
 
     /** Start serving requests. */
@@ -72,7 +71,7 @@ public class Coordinator {
                 Coordinator.this.stopServing();
             }
         });
-        replicationDaemon.start();
+        loadBalancer.start();
         return 0;
     }
 
@@ -84,14 +83,14 @@ public class Coordinator {
         for(ManagedChannel channel: dataStoreChannelsMap.values()) {
             channel.shutdown();
         }
-        runReplicationDaemon = false;
+        runLoadBalancerDaemon = false;
         try {
-            replicationDaemon.interrupt();
-            replicationDaemon.join();
+            loadBalancer.interrupt();
+            loadBalancer.join();
         } catch (InterruptedException ignored) {}
     }
 
-    private boolean addReplica(int shardNum, int replicaID) {
+    public boolean addReplica(int shardNum, int replicaID) {
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         assert (replicaID != primaryDataStore);
@@ -113,36 +112,13 @@ public class Coordinator {
         return true;
     }
 
-    private class ReplicationDaemon extends Thread {
+    private class LoadBalancerDaemon extends Thread {
         @Override
         public void run() {
-            // TODO:  Make sane and robust.
-            while (runReplicationDaemon) {
-                List<Thread> replicationThreads = new ArrayList<>();
-                for (Map.Entry<Integer, Integer> shardVersionEntry : shardToVersionMap.entrySet()) {
-                    Thread replicationThread = new Thread(() -> {
-                        int shardNum = shardVersionEntry.getKey();
-                        int shardVersion = shardVersionEntry.getValue();
-                        if (shardVersion > 0) {
-                            int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
-                            if (dataStoresMap.size() > 1 && shardToReplicaDataStoreMap.get(shardNum).size() == 0) {
-                                int replicaID = (primaryDataStore + 1) % dataStoresMap.size();
-                                addReplica(shardNum, replicaID);
-                            }
-                        }
-                    });
-                    replicationThread.start();
-                    replicationThreads.add(replicationThread);
-                }
-                for (int i = 0; i < replicationThreads.size(); i++) {
-                    try {
-                        replicationThreads.get(i).join();
-                    } catch (InterruptedException e) {
-                        i--;
-                    }
-                }
+            while (runLoadBalancerDaemon) {
+                // TODO:  Do something.
                 try {
-                    Thread.sleep(replicationDaemonSleepDurationMillis);
+                    Thread.sleep(loadBalancerSleepDurationMillis);
                 } catch (InterruptedException e) {
                     return;
                 }

@@ -62,7 +62,7 @@ public class FailureTests {
 
         dataStores.get(0).shutDown();
 
-        Thread.sleep(10000);
+        Thread.sleep(1000);
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).runPingDaemon = false;

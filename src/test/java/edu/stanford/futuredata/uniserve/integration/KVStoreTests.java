@@ -209,8 +209,12 @@ public class KVStoreTests {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }
+        assertTrue(coordinator.addReplica(0, 1));
+        assertTrue(coordinator.addReplica(1, 3));
+        assertTrue(coordinator.addReplica(2, 3));
+        assertTrue(coordinator.addReplica(3, 0));
+        assertTrue(coordinator.addReplica(4, 1));
 
-        Thread.sleep(5000);
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             int finalI = i;
@@ -273,7 +277,10 @@ public class KVStoreTests {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }
-        Thread.sleep(3000);
+        assertTrue(coordinator.addReplica(0, 1));
+        assertTrue(coordinator.addReplica(1, 2));
+        assertTrue(coordinator.addReplica(2, 3));
+        assertTrue(coordinator.addReplica(3, 2));
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
