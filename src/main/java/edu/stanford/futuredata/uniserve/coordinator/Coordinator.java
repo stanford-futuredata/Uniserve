@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -13,6 +14,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Coordinator {
@@ -108,8 +110,42 @@ public class Coordinator {
             return false;
         }
         replicaDataStores.add(replicaID);
-        shardToReplicaDataStoreMap.put(shardNum, Collections.singletonList(replicaID));
+        zkCurator.setShardReplicas(shardNum, replicaDataStores);
         return true;
+    }
+
+    public void removeShard(int shardNum, int targetID) {
+        int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
+        List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+        if (primaryDataStore == targetID) {
+            assert(replicaDataStores.size() > 0);
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub primaryStub = dataStoreStubsMap.get(targetID);
+            RemoveShardMessage removeShardMessage = RemoveShardMessage.newBuilder().setShard(shardNum).build();
+            RemoveShardResponse removeShardResponse = primaryStub.removeShard(removeShardMessage);
+            Integer newPrimary = replicaDataStores.get(ThreadLocalRandom.current().nextInt(0, replicaDataStores.size()));
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub newPrimaryStub = dataStoreStubsMap.get(newPrimary);
+            PromoteReplicaShardMessage promoteReplicaShardMessage =
+                    PromoteReplicaShardMessage.newBuilder().setShard(shardNum).build();
+            PromoteReplicaShardResponse promoteReplicaShardResponse =
+                    newPrimaryStub.promoteReplicaShard(promoteReplicaShardMessage);
+            replicaDataStores.remove(newPrimary);
+            shardToPrimaryDataStoreMap.put(shardNum, newPrimary);
+            zkCurator.setShardReplicas(shardNum, replicaDataStores);
+            ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+            zkCurator.setZKShardDescription(shardNum, newPrimary, zkShardDescription.cloudName, zkShardDescription.versionNumber);
+        } else {
+            assert(replicaDataStores.contains(targetID));
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(targetID);
+            RemoveShardMessage m = RemoveShardMessage.newBuilder().setShard(shardNum).build();
+            try {
+                RemoveShardResponse r = stub.removeShard(m);
+            } catch (StatusRuntimeException e) {
+                logger.warn("Shard {} remove RPC failed on DataStore {}", shardNum, targetID);
+                assert(false);
+            }
+            replicaDataStores.remove(Integer.valueOf(targetID));
+            zkCurator.setShardReplicas(shardNum, replicaDataStores);
+        }
     }
 
     private class LoadBalancerDaemon extends Thread {

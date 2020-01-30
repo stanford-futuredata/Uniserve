@@ -74,6 +74,18 @@ class CoordinatorCurator {
         }
     }
 
+    ZKShardDescription getZKShardDescription(int shard) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            byte[] b = cf.getData().forPath(path);
+            return new ZKShardDescription(new String(b));
+        } catch (Exception e) {
+            logger.error("getZKShardDescription Shard {} ZK Error: {}", shard, e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
     void setZKShardDescription(int shard, int dsID, String cloudName, int versionNumber) {
         try {
             String path = String.format("/shardMapping/%d", shard);

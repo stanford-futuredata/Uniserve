@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
 
@@ -61,8 +62,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.shardVersionMap.put(shardNum, 0);
         dataStore.lastUploadedVersionMap.put(shardNum, 0);
         dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
-        dataStore.replicaChannelsMap.put(shardNum, new ArrayList<>());
-        dataStore.replicaStubsMap.put(shardNum, new ArrayList<>());
+        dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
         dataStore.primaryShardMap.put(shardNum, shard.get());
         logger.info("DS{} Created new primary shard {}", dataStore.dsID, shardNum);
         return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
@@ -150,5 +150,78 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     public void coordinatorPing(CoordinatorPingMessage request, StreamObserver<CoordinatorPingResponse> responseObserver) {
         responseObserver.onNext(CoordinatorPingResponse.newBuilder().build());
         responseObserver.onCompleted();
+    }
+
+    @Override
+    public void promoteReplicaShard(PromoteReplicaShardMessage request, StreamObserver<PromoteReplicaShardResponse> responseObserver) {
+        responseObserver.onNext(promoteReplicaShardHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private PromoteReplicaShardResponse promoteReplicaShardHandler(PromoteReplicaShardMessage message) {
+        Integer shardNum = message.getShard();
+        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        assert(dataStore.replicaShardMap.containsKey(shardNum));
+        assert(!dataStore.primaryShardMap.containsKey(shardNum));
+        ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
+        dataStore.lastUploadedVersionMap.put(shardNum, zkShardDescription.versionNumber);
+        assert(!dataStore.replicaDescriptionsMap.containsKey(shardNum));
+        dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
+        Optional<List<DataStoreDescription>> replicaDescriptions = dataStore.zkCurator.getShardReplicaDSDescriptions(shardNum);
+        if (replicaDescriptions.isPresent()) {
+            for (DataStoreDescription dsDescription: replicaDescriptions.get()) {
+                if (dsDescription.dsID != dataStore.dsID) {
+                    ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
+                    DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                    ReplicaDescription rd = new ReplicaDescription(dsDescription.dsID, channel, stub);
+                    dataStore.replicaDescriptionsMap.get(shardNum).add(rd);
+                }
+            }
+        }
+        S shard = dataStore.replicaShardMap.get(shardNum);
+        dataStore.replicaShardMap.remove(shardNum);
+        dataStore.primaryShardMap.put(shardNum, shard);
+        dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+        logger.info("DS{} promoted shard {} to primary", dataStore.dsID, shardNum);
+        return PromoteReplicaShardResponse.newBuilder().build();
+    }
+
+    @Override
+    public void removeShard(RemoveShardMessage request, StreamObserver<RemoveShardResponse> responseObserver) {
+        responseObserver.onNext(removeShardHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private RemoveShardResponse removeShardHandler(RemoveShardMessage message) {
+        Integer shardNum = message.getShard();
+        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        assert(dataStore.replicaShardMap.containsKey(shardNum) || dataStore.primaryShardMap.containsKey(shardNum));
+        S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
+        if (shard == null) {
+            // Is primary.
+            shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
+            for (ManagedChannel channel: dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.channel).collect(Collectors.toList())) {
+                channel.shutdown();
+            }
+        } else {
+            // Is replica.
+            ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
+            DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(zkShardDescription.primaryDSID);
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryDSDescription.host, primaryDSDescription.port).usePlaintext().build();
+            DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
+            NotifyReplicaRemovedMessage m = NotifyReplicaRemovedMessage.newBuilder().setShard(shardNum).setDsID(dataStore.dsID).build();
+            NotifyReplicaRemovedResponse r = stub.notifyReplicaRemoved(m);
+            channel.shutdown();
+        }
+        shard.destroy();
+        dataStore.primaryShardMap.remove(shardNum);
+        dataStore.replicaShardMap.remove(shardNum);
+        dataStore.writeLog.remove(shardNum);
+        dataStore.replicaDescriptionsMap.remove(shardNum);
+        dataStore.lastUploadedVersionMap.remove(shardNum);
+        dataStore.shardVersionMap.remove(shardNum);
+        dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+        logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
+        return RemoveShardResponse.newBuilder().build();
     }
 }

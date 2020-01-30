@@ -13,8 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 class DataStoreCurator {
     // TODO:  Figure out what to actually do when ZK fails.
@@ -91,6 +93,30 @@ class DataStoreCurator {
             return null;
         }
         return connectInfoList;
+    }
+
+
+    Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
+        try {
+            String path = String.format("/shardReplicaMapping/%d", shard);
+            if (cf.checkExists().forPath(path) != null) {
+                String replicaDataString = new String(cf.getData().forPath(path));
+                if (replicaDataString.length() > 0) {
+                    List<String> replicaStringDSIDs = Arrays.asList(replicaDataString.split("\n"));
+                    List<DataStoreDescription> replicaHostPorts =
+                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getDSDescription).collect(Collectors.toList());
+                    return Optional.of(replicaHostPorts);
+                } else {
+                    return Optional.of(new ArrayList<>());
+                }
+            } else {
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
     }
 
 }

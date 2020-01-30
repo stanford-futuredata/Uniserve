@@ -67,7 +67,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         commitLockerThread.acquireLock();
         if (dataStore.primaryShardMap.containsKey(shardNum)) {
             S shard = dataStore.primaryShardMap.get(shardNum);
-            List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
+            List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
             int numReplicas = replicaStubs.size();
             R[] rowArray;
             rowArray = (R[]) rows.toArray(new Row[0]);
@@ -146,7 +146,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             boolean commitOrAbort = rowMessage.getCommitOrAbort(); // Commit on true, abort on false.
             S shard = dataStore.primaryShardMap.get(shardNum);
 
-            List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
+            List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
             int numReplicas = replicaStubs.size();
             ReplicaCommitMessage rm = ReplicaCommitMessage.newBuilder()
                     .setShard(shardNum)

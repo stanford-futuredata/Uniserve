@@ -38,10 +38,8 @@ public class DataStore<R extends Row, S extends Shard> {
     final Map<Integer, ReadWriteLock> shardLockMap = new ConcurrentHashMap<>();
     // Map from shard number to maps from version number to write query and data.
     final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
-    // Map from primary shard number to list of replica stubs for that shard.
-    final Map<Integer, List<DataStoreDataStoreGrpc.DataStoreDataStoreStub>> replicaStubsMap = new ConcurrentHashMap<>();
-    // Map from primary shard number to list of replica channels for that shard.
-    final Map<Integer, List<ManagedChannel>> replicaChannelsMap = new ConcurrentHashMap<>();
+    // Map from primary shard number to list of replica descriptions for that shard.
+    final Map<Integer, List<ReplicaDescription>> replicaDescriptionsMap = new ConcurrentHashMap<>();
 
     private final Server server;
     final DataStoreCurator zkCurator;
@@ -140,12 +138,12 @@ public class DataStore<R extends Row, S extends Shard> {
                 uploadShardDaemon.join();
             } catch (InterruptedException ignored) {}
         }
-        coordinatorChannel.shutdown();
-        for (List<ManagedChannel> channels: replicaChannelsMap.values()) {
-            for (ManagedChannel channel: channels) {
-                channel.shutdown();
+        for (List<ReplicaDescription> replicaDescriptions: replicaDescriptionsMap.values()) {
+            for (ReplicaDescription rd: replicaDescriptions) {
+                rd.channel.shutdown();
             }
         }
+        coordinatorChannel.shutdown();
         for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
