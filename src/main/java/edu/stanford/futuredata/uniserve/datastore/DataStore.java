@@ -153,21 +153,19 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
+    /** Assumes read lock is held **/
     public void uploadShardToCloud(int shardNum) {
         // TODO:  Safely delete old versions.
         Shard shard = primaryShardMap.get(shardNum);
-        shardLockMap.get(shardNum).readLock().lock();
         Integer versionNumber = shardVersionMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
-            shardLockMap.get(shardNum).readLock().unlock();
             return;
         }
         // Upload the shard's data.
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum), versionNumber);
-        shardLockMap.get(shardNum).readLock().unlock();  // TODO:  Might block writes for too long.
         if (cloudName.isEmpty()) {
             logger.warn("DS{} Shard {} upload failed", dsID, shardNum);
             return;
@@ -214,7 +212,11 @@ public class DataStore<R extends Row, S extends Shard> {
                         continue;
                     }
                     Thread uploadThread = new Thread(() -> {
-                        uploadShardToCloud(shardNum);
+                        shardLockMap.get(shardNum).readLock().lock();  // TODO:  Might block writes for too long.
+                        if (primaryShardMap.containsKey(shardNum)) {
+                            uploadShardToCloud(shardNum);
+                        }
+                        shardLockMap.get(shardNum).readLock().unlock();
                     });
                     uploadThread.start();
                     uploadThreadList.add(uploadThread);

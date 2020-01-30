@@ -38,6 +38,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
         assert(primaryVersion != null);
         assert(replicaVersion <= primaryVersion);
+        assert(dataStore.primaryShardMap.containsKey(shardNum));  // TODO: Could fail during shard transfers?
         Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
         if (replicaVersion.equals(primaryVersion)) {
             DataStoreDescription dsDescription = dataStore.zkCurator.getDSDescription(request.getDsID());
@@ -98,12 +99,12 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
 
     private ReplicaPreCommitResponse replicaPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
+        // Use the CommitLockerThread to acquire the shard's write lock.
+        CommitLockerThread<R, S> commitLockerThread =
+                new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan, rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
+        commitLockerThread.acquireLock();
         if (dataStore.replicaShardMap.containsKey(shardNum)) {
             S shard = dataStore.replicaShardMap.get(shardNum);
-            // Use the CommitLockerThread to acquire the shard's write lock.
-            CommitLockerThread<R, S> commitLockerThread =
-                    new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan, rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
-            commitLockerThread.acquireLock();
             assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
             boolean replicaWriteSuccess = writeQueryPlan.preCommit(shard, rows);
             int returnCode;
@@ -114,6 +115,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
             return ReplicaPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
         } else {
+            commitLockerThread.releaseLock();
             logger.warn("DS{} replica got write request for absent shard {}", dataStore.dsID, shardNum);
             return ReplicaPreCommitResponse.newBuilder().setReturnCode(1).build();
         }

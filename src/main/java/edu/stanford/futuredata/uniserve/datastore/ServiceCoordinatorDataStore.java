@@ -112,6 +112,10 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                 r = primaryBlockingStub.bootstrapReplica(m);
             } catch (StatusRuntimeException e) {
                 channel.shutdown();
+                shard.destroy();
+                dataStore.replicaShardMap.remove(shardNum);
+                dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+                dataStore.shardLockMap.remove(shardNum);
                 logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dataStore.dsID, shardNum, primaryDSID, e.getMessage());
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
             }

@@ -61,12 +61,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
 
     private WriteQueryPreCommitResponse writeQueryPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+        // Use the CommitLockerThread to acquire the shard's write lock.
+        CommitLockerThread<R, S> commitLockerThread = new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan,
+                rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
+        commitLockerThread.acquireLock();
         if (dataStore.primaryShardMap.containsKey(shardNum)) {
             S shard = dataStore.primaryShardMap.get(shardNum);
-            // Use the CommitLockerThread to acquire the shard's write lock.
-            CommitLockerThread<R, S> commitLockerThread = new CommitLockerThread<>(activeCLTs, shardNum, writeQueryPlan,
-                    rows, dataStore.shardLockMap.get(shardNum).writeLock(), txID, dataStore.dsID);
-            commitLockerThread.acquireLock();
             List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaStubsMap.get(shardNum);
             int numReplicas = replicaStubs.size();
             R[] rowArray;
@@ -124,6 +124,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
             return WriteQueryPreCommitResponse.newBuilder().setReturnCode(addRowReturnCode).build();
         } else {
+            commitLockerThread.releaseLock();
             logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
             return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
         }
@@ -204,6 +205,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         int shardNum = readQuery.getShard();
+        dataStore.shardLockMap.get(shardNum).readLock().lock();
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {
             shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
@@ -212,13 +214,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ByteString serializedQuery = readQuery.getSerializedQuery();
             ReadQueryPlan<S, Serializable, Object> readQueryPlan;
             readQueryPlan = (ReadQueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
-            dataStore.shardLockMap.get(shardNum).readLock().lock();
             Serializable queryResult = readQueryPlan.queryShard(shard);
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             ByteString queryResponse;
             queryResponse = Utilities.objectToByteString(queryResult);
             return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
         } else {
+            dataStore.shardLockMap.get(shardNum).readLock().unlock();
             logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
             return ReadQueryResponse.newBuilder().setReturnCode(1).build();
         }
