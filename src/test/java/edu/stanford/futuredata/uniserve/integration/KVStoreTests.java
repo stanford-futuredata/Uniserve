@@ -371,8 +371,6 @@ public class KVStoreTests {
         coordinator.removeShard(3, 1);
         coordinator.addReplica(3, 3);
 
-        Thread.sleep(2000);
-
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i + 1),
@@ -388,6 +386,11 @@ public class KVStoreTests {
             queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(8 * i + 1), queryResponse);
         }
+        coordinator.removeShard(2, 3);
+        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
+        Integer queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(2 * 2 + 1), queryResponse);
+
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();

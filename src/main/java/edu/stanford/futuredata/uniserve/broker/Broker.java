@@ -45,6 +45,10 @@ public class Broker {
     // How long should the daemon wait between runs?
     private static final int shardMapDaemonSleepDurationMillis = 1000;
 
+    public static final int QUERY_SUCCESS = 0;
+    public static final int QUERY_FAILURE = 1;
+    public static final int QUERY_RETRY = 2;
+
 
     /*
      * CONSTRUCTOR/TEARDOWN
@@ -306,52 +310,56 @@ public class Broker {
         public void run() { this.success = writeQueryPreCommitShard(); }
 
         private boolean writeQueryPreCommitShard() {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
-            if (stubOpt.isEmpty()) {
-                logger.error("Could not find DataStore for shard {}", shardNum);
-                assert(false);  // TODO:  Retry
-                return false;
-            }
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
-            AtomicBoolean success = new AtomicBoolean(true);
-            final CountDownLatch finishLatch = new CountDownLatch(1);
-            StreamObserver<WriteQueryPreCommitMessage> observer =
-                    stub.writeQueryPreCommit(new StreamObserver<>() {
-                        @Override
-                        public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
-                            if (writeQueryPreCommitResponse.getReturnCode() != 0) {
-                                logger.warn("PreCommit Failed");
-                                success.set(false);  // TODO:  Retry.
+            final int[] queryStatus = {QUERY_RETRY};
+            while (queryStatus[0] == QUERY_RETRY) {
+                Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+                if (stubOpt.isEmpty()) {
+                    logger.error("Could not find DataStore for shard {}", shardNum);
+                    assert (false);  // TODO:  Retry
+                    return false;
+                }
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
+                final CountDownLatch finishLatch = new CountDownLatch(1);
+                StreamObserver<WriteQueryPreCommitMessage> observer =
+                        stub.writeQueryPreCommit(new StreamObserver<>() {
+                            @Override
+                            public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
+                                queryStatus[0] = writeQueryPreCommitResponse.getReturnCode();
                             }
-                        }
 
-                        @Override
-                        public void onError(Throwable th) {
-                            assert(false);
-                        }
+                            @Override
+                            public void onError(Throwable th) {
+                                assert (false);
+                            }
 
-                        @Override
-                        public void onCompleted() {
-                            finishLatch.countDown();
-                        }
-                    });
-            final int STEPSIZE = 10000;
-            for(int i = 0; i < rowArray.length; i += STEPSIZE) {
-                ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
-                ByteString rowData = Utilities.objectToByteString(rowSlice);
-                WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
-                        setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
-                observer.onNext(rowMessage);
+                            @Override
+                            public void onCompleted() {
+                                finishLatch.countDown();
+                            }
+                        });
+                final int STEPSIZE = 10000;
+                for (int i = 0; i < rowArray.length; i += STEPSIZE) {
+                    ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                    R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                    ByteString rowData = Utilities.objectToByteString(rowSlice);
+                    WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
+                            setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
+                    observer.onNext(rowMessage);
+                }
+                observer.onCompleted();
+                try {
+                    finishLatch.await();
+                } catch (InterruptedException e) {
+                    logger.error("Write PreCommit Interrupted: {}", e.getMessage());
+                    assert (false);
+                }
+                if (queryStatus[0] == QUERY_RETRY) {
+                    try {
+                        Thread.sleep(shardMapDaemonSleepDurationMillis);
+                    } catch (Throwable ignored) {}
+                }
             }
-            observer.onCompleted();
-            try {
-                finishLatch.await();
-            } catch (InterruptedException e) {
-                logger.error("Write PreCommit Interrupted: {}", e.getMessage());
-                assert(false);
-            }
-            return success.get();
+            return queryStatus[0] == 0;
         }
 
         public boolean isSuccess() {
@@ -458,22 +466,31 @@ public class Broker {
         }
 
         private Optional<T> queryShard(int shard) {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shard);
-            if (stubOpt.isEmpty()) {
-                logger.warn("Could not find DataStore for shard {}", shard);
-                return Optional.empty();
-            }
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-            ByteString serializedQuery;
-            serializedQuery = Utilities.objectToByteString(readQueryPlan);
-            ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
-            ReadQueryResponse readQueryResponse;
-            try {
-                readQueryResponse = stub.readQuery(readQuery);
-                assert readQueryResponse.getReturnCode() == 0;
-            } catch (StatusRuntimeException e) {
-                logger.warn("RPC failed: {}", e.getStatus());
-                return Optional.empty();
+            int queryStatus = QUERY_RETRY;
+            ReadQueryResponse readQueryResponse = null;
+            while (queryStatus == QUERY_RETRY) {
+                Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shard);
+                if (stubOpt.isEmpty()) {
+                    logger.warn("Could not find DataStore for shard {}", shard);
+                    return Optional.empty();
+                }
+                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+                ByteString serializedQuery;
+                serializedQuery = Utilities.objectToByteString(readQueryPlan);
+                ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
+                try {
+                    readQueryResponse = stub.readQuery(readQuery);
+                    queryStatus = readQueryResponse.getReturnCode();
+                    assert queryStatus != QUERY_FAILURE;
+                } catch (StatusRuntimeException e) {
+                    logger.warn("RPC failed: {}", e.getStatus());
+                    assert (false); // TODO:  Retry?
+                }
+                if (queryStatus == QUERY_RETRY) {
+                    try {
+                        Thread.sleep(shardMapDaemonSleepDurationMillis);
+                    } catch (Throwable ignored) {}
+                }
             }
             ByteString responseByteString = readQueryResponse.getResponse();
             T obj;

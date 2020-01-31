@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
@@ -118,15 +119,15 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
             int addRowReturnCode;
             if (primaryWriteSuccess && success.get()) {
-                addRowReturnCode = 0;
+                addRowReturnCode = Broker.QUERY_SUCCESS;
             } else {
-                addRowReturnCode = 1;
+                addRowReturnCode = Broker.QUERY_FAILURE;
             }
             return WriteQueryPreCommitResponse.newBuilder().setReturnCode(addRowReturnCode).build();
         } else {
             commitLockerThread.releaseLock();
             logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
-            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(1).build();
+            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
     }
 
@@ -218,11 +219,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             ByteString queryResponse;
             queryResponse = Utilities.objectToByteString(queryResult);
-            return ReadQueryResponse.newBuilder().setReturnCode(0).setResponse(queryResponse).build();
+            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
         } else {
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
-            return ReadQueryResponse.newBuilder().setReturnCode(1).build();
+            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
     }
 }
