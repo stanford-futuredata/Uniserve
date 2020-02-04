@@ -45,7 +45,7 @@ public class Coordinator {
 
     private boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
-    private final static int loadBalancerSleepDurationMillis = 10000;
+    private final static int loadBalancerSleepDurationMillis = 15000;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -171,8 +171,8 @@ public class Coordinator {
         return memoryMap;
     }
 
-    /** Take in maps from shards to loads, return a map from DSID to shards assigned to that datastore. **/
-    public Map<Integer, Map<Integer, Double>> getLoadAssignments(Map<Integer, Integer> qpsLoad, Map<Integer, Integer> memoryLoad) {
+    /** Take in maps from shards to loads, return a map from DSIDs to shards assigned to that datastore and their ratios. **/
+    public Map<Integer, Map<Integer, Double>> getShardAssignments(Map<Integer, Integer> qpsLoad, Map<Integer, Integer> memoryLoad) {
         int numShards = shardToPrimaryDataStoreMap.size();
         int numServers = dataStoresMap.size();
         Map<Integer, Integer> indexToDSIDMap = new HashMap<>();
@@ -229,6 +229,28 @@ public class Coordinator {
             assignmentMap.put(dsID, datastoreAssignmentMap);
         }
         return assignmentMap;
+    }
+
+    public void assignShards(Map<Integer, Map<Integer, Double>> assignmentMap) {
+        for(Map.Entry<Integer, Map<Integer, Double>> entry: assignmentMap.entrySet()) {
+            int dsID = entry.getKey();
+            for(Map.Entry<Integer, Double> assignment: entry.getValue().entrySet()) {
+                int shardNum = assignment.getKey();
+                double shardRatio = assignment.getValue();
+                if (shardRatio == 0.0) {
+                    if (shardToPrimaryDataStoreMap.get(shardNum) == dsID) {
+                        removeShard(shardNum, dsID);
+                    }
+                    if (shardToReplicaDataStoreMap.get(shardNum).contains(dsID)) {
+                        removeShard(shardNum, dsID);
+                    }
+                } else {
+                    if (shardToPrimaryDataStoreMap.get(shardNum) != dsID && !shardToReplicaDataStoreMap.get(shardNum).contains(dsID)) {
+                        addReplica(shardNum, dsID);
+                    }
+                }
+            }
+        }
     }
 
     private class LoadBalancerDaemon extends Thread {

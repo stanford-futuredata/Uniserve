@@ -57,7 +57,6 @@ public class DataStore<R extends Row, S extends Shard> {
 
     final static int qpsReportTimeInterval = 10;
 
-
     public boolean runPingDaemon = true; // Public for testing
     private final PingDaemon pingDaemon;
     private final static int pingDaemonSleepDurationMillis = 100;

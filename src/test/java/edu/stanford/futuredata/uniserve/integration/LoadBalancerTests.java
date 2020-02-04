@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.integration;
 
+import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
@@ -8,7 +9,6 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import ilog.concert.IloException;
-import org.javatuples.Pair;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -58,7 +58,7 @@ public class LoadBalancerTests {
         List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
                     Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
@@ -86,15 +86,32 @@ public class LoadBalancerTests {
         queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(55), queryResponse);
 
+        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
+            for(int shardNum: dataStore.primaryShardMap.keySet()) {
+                dataStore.uploadShardToCloud(shardNum);
+            }
+        }
+
         Map<Integer, Integer> qpsLoad = coordinator.collectQPSLoad();
         Map<Integer, Integer> memoryLoad = coordinator.collectMemoryUsages();
         assertEquals(2, qpsLoad.get(0));
         assertEquals(3, qpsLoad.get(1));
 
-        Map<Integer, Map<Integer, Double>> serverShardRatios = coordinator.getLoadAssignments(qpsLoad, memoryLoad);
-        for(Map<Integer, Double> shardRatios: serverShardRatios.values()) {
+        Map<Integer, Map<Integer, Double>> assignmentMap = coordinator.getShardAssignments(qpsLoad, memoryLoad);
+        for(Map<Integer, Double> shardRatios: assignmentMap.values()) {
             assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum()/4) * 1.2);
         }
+        coordinator.assignShards(assignmentMap);
+
+        readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
+        queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(1), queryResponse);
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 4));
+        queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(5), queryResponse);
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(55), queryResponse);
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();
