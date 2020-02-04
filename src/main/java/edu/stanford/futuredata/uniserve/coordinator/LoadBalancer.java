@@ -15,8 +15,8 @@ public class LoadBalancer {
 
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
 
-    public static void balanceLoad(Integer numShards, Integer numServers,
-                                   double[] shardLoads, double[] shardMemoryUsages, int[][] currentLocations,
+    public static List<double[]> balanceLoad(Integer numShards, Integer numServers,
+                                   int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
                                    Integer maxMemory) throws IloException {
         assert(shardLoads.length == numShards);
         assert(shardMemoryUsages.length == numShards);
@@ -44,11 +44,12 @@ public class LoadBalancer {
         }
         cplex.addMinimize(cplex.sum(transferCostList));
 
-        double averageLoad = Arrays.stream(shardLoads).sum() / numServers;
+        double averageLoad = (double) Arrays.stream(shardLoads).sum() / numServers;
         double epsilon = averageLoad / 5;
 
         for (int i = 0; i < numServers; i++) {
             cplex.addLe(cplex.scalProd(shardLoads, r.get(i)), averageLoad + epsilon); // Max load constraint
+            // cplex.addGe(cplex.scalProd(shardLoads, r.get(i)), averageLoad - epsilon); // Min load constraint
         }
 
         for (int i = 0; i < numServers; i++) {
@@ -70,10 +71,10 @@ public class LoadBalancer {
 
         cplex.solve();
 
+        List<double[]> returnR = new ArrayList<>();
         for (int i = 0; i < numServers; i++) {
-            logger.info("Server {}: x: {} r: {}", i, cplex.getValues(x.get(i)), cplex.getValues(r.get(i)));
+            returnR.add(cplex.getValues(r.get(i)));
         }
-
-
+        return returnR;
     }
 }

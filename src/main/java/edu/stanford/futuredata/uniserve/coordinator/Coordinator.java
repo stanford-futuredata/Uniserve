@@ -3,10 +3,12 @@ package edu.stanford.futuredata.uniserve.coordinator;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
+import ilog.concert.IloException;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
+import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,7 +150,8 @@ public class Coordinator {
         }
     }
 
-    public Map<Integer, Integer> collectLoadStatistics() {
+    /** Construct a map from shard number to the shard's QPS. **/
+    public Map<Integer, Integer> collectQPSLoad() {
         Map<Integer, Integer> qpsMap = new HashMap<>();
         for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
             ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
@@ -157,6 +160,75 @@ public class Coordinator {
             dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
         }
         return qpsMap;
+    }
+
+    /** Construct a map from shard number to the shard's memory usage. **/
+    public Map<Integer, Integer> collectMemoryUsages() {
+        Map<Integer, Integer> memoryMap = new HashMap<>();
+        for (int shardNum: shardToPrimaryDataStoreMap.keySet()) {
+            memoryMap.put(shardNum, 1);  // TODO:  Actually get memory usages.
+        }
+        return memoryMap;
+    }
+
+    /** Take in maps from shards to loads, return a map from DSID to shards assigned to that datastore. **/
+    public Map<Integer, Map<Integer, Double>> getLoadAssignments(Map<Integer, Integer> qpsLoad, Map<Integer, Integer> memoryLoad) {
+        int numShards = shardToPrimaryDataStoreMap.size();
+        int numServers = dataStoresMap.size();
+        Map<Integer, Integer> indexToDSIDMap = new HashMap<>();
+        Map<Integer, Integer> dsIDToIndexMap = new HashMap<>();
+        Map<Integer, Integer> indexToShardNumMap = new HashMap<>();
+        Map<Integer, Integer> shardNumToIndexMap = new HashMap<>();
+        int[] shardLoads = new int[numShards];
+        int[] shardMemoryUsages = new int[numShards];
+        int[][] currentLocations = new int[numServers][];
+
+        int shardIndex = 0;
+        for(int shardNum: qpsLoad.keySet()) {
+            indexToShardNumMap.put(shardIndex, shardNum);
+            shardNumToIndexMap.put(shardNum, shardIndex);
+            shardLoads[shardIndex] = qpsLoad.get(shardNum);
+            shardMemoryUsages[shardIndex] = memoryLoad.get(shardNum);
+            shardIndex++;
+        }
+        int serverIndex = 0;
+        for(int dsID: dataStoresMap.keySet()) {
+            indexToDSIDMap.put(serverIndex, dsID);
+            dsIDToIndexMap.put(dsID, serverIndex);
+            currentLocations[serverIndex] = new int[numShards];
+            serverIndex++;
+        }
+        for(Map.Entry<Integer, Integer> entry: shardToPrimaryDataStoreMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int dsID = entry.getValue();
+            currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+        }
+        for(Map.Entry<Integer, List<Integer>> entry: shardToReplicaDataStoreMap.entrySet()) {
+            int shardNum = entry.getKey();
+            for(int dsID: entry.getValue()) {
+                currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+            }
+        }
+        List<double[]> serverShardRatios = null;
+        try {
+            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, 100);
+        } catch (IloException e) {
+            assert (false);
+        }
+        assert(serverShardRatios.size() == numServers);
+        Map<Integer, Map<Integer, Double>> assignmentMap = new HashMap<>();
+        for(int i = 0; i < numServers; i++) {
+            int dsID = indexToDSIDMap.get(i);
+            Map<Integer, Double> datastoreAssignmentMap = new HashMap<>();
+            double[] shardRatios = serverShardRatios.get(i);
+            assert(shardRatios.length == numShards);
+            for(int j = 0; j < numShards; j++) {
+                int shardNum = indexToShardNumMap.get(j);
+                datastoreAssignmentMap.put(shardNum, shardRatios[j]);
+            }
+            assignmentMap.put(dsID, datastoreAssignmentMap);
+        }
+        return assignmentMap;
     }
 
     private class LoadBalancerDaemon extends Thread {

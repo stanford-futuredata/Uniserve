@@ -8,6 +8,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import ilog.concert.IloException;
+import org.javatuples.Pair;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -17,8 +18,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class LoadBalancerTests {
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancerTests.class);
@@ -37,12 +37,14 @@ public class LoadBalancerTests {
 
         int numShards = 4;
         int numServers = 2;
-        double[] shardLoads = new double[]{1., 2., 3., 20.};
-        double[] memoryUsages = new double[]{9., 1., 1., 1.};
+        int[] shardLoads = new int[]{1, 2, 3, 20};
+        int[] memoryUsages = new int[]{9, 1, 1, 1};
         int[][] currentLocations = new int[][]{new int[]{1, 1, 1, 1}, new int[]{0, 0, 0, 0}};
         int maxMemory = 10;
 
-        LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, maxMemory);
+        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, maxMemory);
+        assertArrayEquals(new double[]{0.0, 1.0, 1.0, 0.27}, returnR.get(0));
+        assertArrayEquals(new double[]{1.0, 0.0, 0.0, 0.73}, returnR.get(1));
 
     }
 
@@ -84,9 +86,15 @@ public class LoadBalancerTests {
         queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(55), queryResponse);
 
-        Map<Integer, Integer> collectedLoad = coordinator.collectLoadStatistics();
-        assertEquals(2, collectedLoad.get(0));
-        assertEquals(3, collectedLoad.get(1));
+        Map<Integer, Integer> qpsLoad = coordinator.collectQPSLoad();
+        Map<Integer, Integer> memoryLoad = coordinator.collectMemoryUsages();
+        assertEquals(2, qpsLoad.get(0));
+        assertEquals(3, qpsLoad.get(1));
+
+        Map<Integer, Map<Integer, Double>> serverShardRatios = coordinator.getLoadAssignments(qpsLoad, memoryLoad);
+        for(Map<Integer, Double> shardRatios: serverShardRatios.values()) {
+            assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum()/4) * 1.2);
+        }
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();
