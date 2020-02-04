@@ -18,6 +18,8 @@ service CoordinatorDataStore {
     rpc PromoteReplicaShard (PromoteReplicaShardMessage) returns (PromoteReplicaShardResponse) {}
     // Remove a shard from a datastore.
     rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
+    // Ask a datastore for shard usage information.
+    rpc shardUsage (ShardUsageMessage) returns (ShardUsageResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -51,3 +53,9 @@ message RemoveShardMessage {
 }
 
 message RemoveShardResponse {}
+
+message ShardUsageMessage {}
+
+message ShardUsageResponse {
+    map<int32, int32> shardQPS = 1;
+}

@@ -40,6 +40,8 @@ public class DataStore<R extends Row, S extends Shard> {
     final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
     // Map from primary shard number to list of replica descriptions for that shard.
     final Map<Integer, List<ReplicaDescription>> replicaDescriptionsMap = new ConcurrentHashMap<>();
+    // Map from Unix second timestamp to number of read queries made during that timestamp, per shard.
+    final Map<Integer, Map<Long, Integer>> QPSMap = new ConcurrentHashMap<>();
 
     private final Server server;
     final DataStoreCurator zkCurator;
@@ -52,6 +54,8 @@ public class DataStore<R extends Row, S extends Shard> {
     public boolean runUploadShardDaemon = true; // Public for testing.
     private final UploadShardDaemon uploadShardDaemon;
     private final static int uploadThreadSleepDurationMillis = 10000;
+
+    final static int qpsReportTimeInterval = 10;
 
 
     public boolean runPingDaemon = true; // Public for testing

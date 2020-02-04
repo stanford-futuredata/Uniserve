@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -206,6 +207,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         int shardNum = readQuery.getShard();
+        long unixTime = Instant.now().getEpochSecond();
+        dataStore.QPSMap.get(shardNum).compute(unixTime, (k, v) -> v == null ? 1 : v + 1);
         dataStore.shardLockMap.get(shardNum).readLock().lock();
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {

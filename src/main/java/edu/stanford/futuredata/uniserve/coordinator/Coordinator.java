@@ -10,6 +10,7 @@ import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,7 +43,7 @@ public class Coordinator {
 
     private boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
-    private final static int loadBalancerSleepDurationMillis = 100;
+    private final static int loadBalancerSleepDurationMillis = 10000;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -145,6 +146,17 @@ public class Coordinator {
             replicaDataStores.remove(Integer.valueOf(targetID));
             zkCurator.setShardReplicas(shardNum, replicaDataStores);
         }
+    }
+
+    public Map<Integer, Integer> collectLoadStatistics() {
+        Map<Integer, Integer> qpsMap = new HashMap<>();
+        for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
+            ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
+            ShardUsageResponse r = stub.shardUsage(m);
+            Map<Integer, Integer> dataStoreQPSMap = r.getShardQPSMap();
+            dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
+        }
+        return qpsMap;
     }
 
     private class LoadBalancerDaemon extends Thread {

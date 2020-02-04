@@ -17,10 +17,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.time.Instant;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -59,6 +57,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
         }
         dataStore.shardLockMap.put(shardNum, new ReentrantReadWriteLock());
+        dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, 0);
         dataStore.lastUploadedVersionMap.put(shardNum, 0);
         dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
@@ -93,6 +92,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         S shard = loadedShard.get();
         dataStore.shardLockMap.put(shardNum, new ReentrantReadWriteLock());
         dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
         dataStore.replicaShardMap.put(shardNum, loadedShard.get());
 
         // Set up a connection to the primary.
@@ -223,5 +223,24 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.shardLockMap.get(shardNum).writeLock().unlock();
         logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
         return RemoveShardResponse.newBuilder().build();
+    }
+
+    @Override
+    public void shardUsage(ShardUsageMessage request, StreamObserver<ShardUsageResponse> responseObserver) {
+        responseObserver.onNext(shardUsageHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ShardUsageResponse shardUsageHandler(ShardUsageMessage message) {
+        Map<Integer, Integer> shardQPS = new HashMap<>();
+        long currentTime = Instant.now().getEpochSecond();
+        for(Map.Entry<Integer, Map<Long, Integer>> entry: dataStore.QPSMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int recentQPS = entry.getValue().entrySet().stream()
+                    .filter(i -> i.getKey() > currentTime - DataStore.qpsReportTimeInterval)
+                    .map(Map.Entry::getValue).mapToInt(i -> i).sum();
+            shardQPS.put(shardNum, recentQPS);
+        }
+        return ShardUsageResponse.newBuilder().putAllShardQPS(shardQPS).build();
     }
 }
