@@ -1,8 +1,8 @@
 package edu.stanford.futuredata.uniserve.broker;
 
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
-import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -11,8 +11,6 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -60,17 +58,13 @@ public class BrokerCurator {
 
     Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
         try {
-            String path = String.format("/shardReplicaMapping/%d", shard);
+            String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
-                String replicaDataString = new String(cf.getData().forPath(path));
-                if (replicaDataString.length() > 0) {
-                    List<String> replicaStringDSIDs = Arrays.asList(replicaDataString.split("\n"));
-                    List<DataStoreDescription> replicaHostPorts =
-                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getDSDescriptionFromDSID).collect(Collectors.toList());
-                    return Optional.of(replicaHostPorts);
-                } else {
-                    return Optional.of(new ArrayList<>());
-                }
+                byte[] b = cf.getData().forPath(path);
+                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
+                List<DataStoreDescription> replicaDecriptions =
+                        zkShardDescription.replicaDSIDs.stream().map(this::getDSDescriptionFromDSID).collect(Collectors.toList());
+                return Optional.of(replicaDecriptions);
             } else {
                 return Optional.empty();
             }

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 
 class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
 
@@ -56,8 +57,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
         assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
         // Once the shard is created, add it to the ZooKeeper map.
-        coordinator.zkCurator.setZKShardDescription(m.getShard(), dsID, Utilities.null_name, 0);
-        coordinator.zkCurator.setShardReplicas(m.getShard(), new ArrayList<>());
+        coordinator.zkCurator.setZKShardDescription(m.getShard(), dsID, Utilities.null_name, 0, Collections.emptyList(), Collections.emptyList());
         return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
     }
 

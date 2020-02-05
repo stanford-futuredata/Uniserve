@@ -27,7 +27,7 @@ public class Broker {
     private final QueryEngine queryEngine;
     private final BrokerCurator zkCurator;
 
-    private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
+    private static final Logger logger = LoggerFactory.getLogger(Broker.class);
     // Map from dsIDs to stubs.
     private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> dsIDToStubMap = new ConcurrentHashMap<>();
     // Map from shards to the primary's DataStoreBlockingStubs.

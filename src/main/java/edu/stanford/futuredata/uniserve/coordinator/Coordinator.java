@@ -8,10 +8,10 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +112,8 @@ public class Coordinator {
             return false;
         }
         replicaDataStores.add(replicaID);
-        zkCurator.setShardReplicas(shardNum, replicaDataStores);
+        ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+        zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, Collections.emptyList());
         return true;
     }
 
@@ -132,9 +133,8 @@ public class Coordinator {
                     newPrimaryStub.promoteReplicaShard(promoteReplicaShardMessage);
             replicaDataStores.remove(newPrimary);
             shardToPrimaryDataStoreMap.put(shardNum, newPrimary);
-            zkCurator.setShardReplicas(shardNum, replicaDataStores);
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
-            zkCurator.setZKShardDescription(shardNum, newPrimary, zkShardDescription.cloudName, zkShardDescription.versionNumber);
+            zkCurator.setZKShardDescription(shardNum, newPrimary, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, Collections.emptyList());
         } else {
             assert(replicaDataStores.contains(targetID));
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(targetID);
@@ -146,7 +146,8 @@ public class Coordinator {
                 assert(false);
             }
             replicaDataStores.remove(Integer.valueOf(targetID));
-            zkCurator.setShardReplicas(shardNum, replicaDataStores);
+            ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+            zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, Collections.emptyList());
         }
     }
 

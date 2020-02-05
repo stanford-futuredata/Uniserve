@@ -98,17 +98,13 @@ class DataStoreCurator {
 
     Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
         try {
-            String path = String.format("/shardReplicaMapping/%d", shard);
+            String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
-                String replicaDataString = new String(cf.getData().forPath(path));
-                if (replicaDataString.length() > 0) {
-                    List<String> replicaStringDSIDs = Arrays.asList(replicaDataString.split("\n"));
-                    List<DataStoreDescription> replicaHostPorts =
-                            replicaStringDSIDs.stream().map(Integer::parseInt).map(this::getDSDescription).collect(Collectors.toList());
-                    return Optional.of(replicaHostPorts);
-                } else {
-                    return Optional.of(new ArrayList<>());
-                }
+                byte[] b = cf.getData().forPath(path);
+                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
+                List<DataStoreDescription> replicaDecriptions =
+                        zkShardDescription.replicaDSIDs.stream().map(this::getDSDescription).collect(Collectors.toList());
+                return Optional.of(replicaDecriptions);
             } else {
                 return Optional.empty();
             }

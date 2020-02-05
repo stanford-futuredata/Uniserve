@@ -9,6 +9,9 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.List;
+
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceDataStoreCoordinator.class);
@@ -52,8 +55,9 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         String cloudName = m.getShardCloudName();
         int versionNumber = m.getVersionNumber();
         int dsID = coordinator.shardToPrimaryDataStoreMap.get(shardNum);
+        List<Integer> replicaDSIDs = coordinator.shardToReplicaDataStoreMap.get(shardNum);
         coordinator.shardToVersionMap.put(shardNum, versionNumber);
-        coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber);
+        coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber, replicaDSIDs, Collections.emptyList());
         return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
     }
 
