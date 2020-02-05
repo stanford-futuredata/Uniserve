@@ -14,6 +14,7 @@ public class ZKShardDescription {
     public final List<Double> replicaRatios;
 
     public ZKShardDescription(int primaryDSID, String cloudName, int versionNumber, List<Integer> replicaDSIDs, List<Double> replicaRatios) {
+        assert(replicaDSIDs.size() == replicaRatios.size());
         this.cloudName = cloudName;
         this.versionNumber = versionNumber;
         this.primaryDSID = primaryDSID;
@@ -34,11 +35,11 @@ public class ZKShardDescription {
         versionNumber = Integer.parseInt(ccv[2]);
         if (ccv.length > 3) {
             replicaDSIDs = Arrays.stream(ccv[3].split(";")).map(Integer::parseInt).collect(Collectors.toList());
-            // replicaRatios = Arrays.stream(ccv[4].split(";")).map(Double::parseDouble).collect(Collectors.toList());
-            replicaRatios = Collections.emptyList();
+            replicaRatios = Arrays.stream(ccv[4].split(";")).map(Double::parseDouble).collect(Collectors.toList());
         } else {
             replicaDSIDs = Collections.emptyList();
             replicaRatios = Collections.emptyList();
         }
+        assert(replicaDSIDs.size() == replicaRatios.size());
     }
 }

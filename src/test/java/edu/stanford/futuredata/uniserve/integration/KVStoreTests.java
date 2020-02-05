@@ -213,11 +213,11 @@ public class KVStoreTests {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }
-        assertTrue(coordinator.addReplica(0, 1));
-        assertTrue(coordinator.addReplica(1, 3));
-        assertTrue(coordinator.addReplica(2, 3));
-        assertTrue(coordinator.addReplica(3, 0));
-        assertTrue(coordinator.addReplica(4, 1));
+        assertTrue(coordinator.addReplica(0, 1, 0.1));
+        assertTrue(coordinator.addReplica(1, 3, 0.1));
+        assertTrue(coordinator.addReplica(2, 3, 0.1));
+        assertTrue(coordinator.addReplica(3, 0, 0.1));
+        assertTrue(coordinator.addReplica(4, 1, 0.1));
 
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
@@ -282,12 +282,12 @@ public class KVStoreTests {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }
-        assertTrue(coordinator.addReplica(0, 1));
-        assertTrue(coordinator.addReplica(1, 2));
-        assertTrue(coordinator.addReplica(2, 3));
-        assertTrue(coordinator.addReplica(3, 2));
-        assertTrue(coordinator.addReplica(3, 0));
-        assertTrue(coordinator.addReplica(3, 1));
+        assertTrue(coordinator.addReplica(0, 1, 0.1));
+        assertTrue(coordinator.addReplica(1, 2, 0.1));
+        assertTrue(coordinator.addReplica(2, 3, 0.1));
+        assertTrue(coordinator.addReplica(3, 2, 0.1));
+        assertTrue(coordinator.addReplica(3, 0, 0.1));
+        assertTrue(coordinator.addReplica(3, 1, 0.1));
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
@@ -346,12 +346,13 @@ public class KVStoreTests {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }
-        assertTrue(coordinator.addReplica(0, 1));
-        assertTrue(coordinator.addReplica(1, 2));
-        assertTrue(coordinator.addReplica(2, 3));
-        assertTrue(coordinator.addReplica(3, 2));
-        assertTrue(coordinator.addReplica(3, 0));
-        assertTrue(coordinator.addReplica(3, 1));
+        assertTrue(coordinator.addReplica(0, 1, 0.1));
+        assertTrue(coordinator.addReplica(1, 2, 0.1));
+        assertTrue(coordinator.addReplica(2, 3, 0.1));
+        assertTrue(coordinator.addReplica(3, 2, 0.1));
+        assertTrue(coordinator.addReplica(3, 0, 0.1));
+        assertTrue(coordinator.addReplica(3, 1, 0.1));
+        assertTrue(coordinator.addReplica(3, 1, 0.2));
 
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -370,12 +371,13 @@ public class KVStoreTests {
         }
 
         coordinator.removeShard(0, 1);
-        coordinator.addReplica(0, 2);
+        coordinator.addReplica(0, 2, 0.1);
         coordinator.removeShard(1, 1);
         coordinator.removeShard(3, 0);
         coordinator.removeShard(3, 3);
         coordinator.removeShard(3, 1);
-        coordinator.addReplica(3, 3);
+        coordinator.addReplica(3, 3, 0.1);
+        coordinator.addReplica(0, 2, 0.2);
 
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();

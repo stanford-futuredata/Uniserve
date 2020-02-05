@@ -49,6 +49,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         }
         dsID = newDSID;
         coordinator.shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
+        coordinator.shardToReplicaRatioMap.put(shardNum, new ArrayList<>());
         coordinator.shardToVersionMap.put(shardNum, 0);
         // Tell the DataStore to create the shard.
         DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
