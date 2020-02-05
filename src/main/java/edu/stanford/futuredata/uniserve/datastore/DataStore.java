@@ -251,6 +251,7 @@ public class DataStore<R extends Row, S extends Shard> {
                     DataStoreDescription dsToPing =
                             dsDescriptions.get(ThreadLocalRandom.current().nextInt(dsDescriptions.size()));
                     int pingedDSID = dsToPing.dsID;
+                    assert(pingedDSID != dsID);
                     ManagedChannel dsChannel =
                             ManagedChannelBuilder.forAddress(dsToPing.host, dsToPing.port).usePlaintext().build();
                     DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(dsChannel);

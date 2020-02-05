@@ -75,6 +75,7 @@ public class KVStoreTests {
         logger.info("testSingleKey");
         int numShards = 1;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
@@ -101,6 +102,7 @@ public class KVStoreTests {
         logger.info("testMultiKey");
         int numShards = 2;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -146,6 +148,7 @@ public class KVStoreTests {
         logger.info("testBasicNestedQuery");
         int numShards = 1;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         DataStore<KVRow, KVShard> dataStore =
@@ -180,6 +183,7 @@ public class KVStoreTests {
         logger.info("testSimultaneousReadQuery");
         int numShards = 5;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -249,6 +253,7 @@ public class KVStoreTests {
         logger.info("testReplication");
         int numShards = 5;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -312,6 +317,7 @@ public class KVStoreTests {
         logger.info("testAddRemoveReplicas");
         int numShards = 5;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -404,6 +410,7 @@ public class KVStoreTests {
         logger.info("testShardUpload");
         int numShards = 1;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),

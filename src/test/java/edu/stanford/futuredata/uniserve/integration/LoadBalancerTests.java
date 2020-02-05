@@ -9,6 +9,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import ilog.concert.IloException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,6 +29,11 @@ public class LoadBalancerTests {
 
     @BeforeAll
     static void startUpCleanUp() {
+        cleanUp(zkHost, zkPort);
+    }
+    
+    @AfterEach
+    private void unitTestCleanUp() {
         cleanUp(zkHost, zkPort);
     }
 
@@ -53,6 +59,7 @@ public class LoadBalancerTests {
         logger.info("testLoadBalancer");
         int numShards = 2;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();

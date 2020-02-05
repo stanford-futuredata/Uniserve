@@ -43,9 +43,9 @@ public class Coordinator {
     // Map from shards to their replicas.
     final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
 
-    private boolean runLoadBalancerDaemon = true;
+    public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
-    private final static int loadBalancerSleepDurationMillis = 15000;
+    private final static int loadBalancerSleepDurationMillis = 60000;
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -231,6 +231,7 @@ public class Coordinator {
         return assignmentMap;
     }
 
+    /** Use an assignmentMap to assign shards to datastores **/
     public void assignShards(Map<Integer, Map<Integer, Double>> assignmentMap) {
         for(Map.Entry<Integer, Map<Integer, Double>> entry: assignmentMap.entrySet()) {
             int dsID = entry.getKey();
@@ -257,12 +258,18 @@ public class Coordinator {
         @Override
         public void run() {
             while (runLoadBalancerDaemon) {
-                // TODO:  Do something.
                 try {
                     Thread.sleep(loadBalancerSleepDurationMillis);
                 } catch (InterruptedException e) {
                     return;
                 }
+                Map<Integer, Integer> qpsLoad = collectQPSLoad();
+                logger.info("Collected QPS Load: {}", qpsLoad);
+                Map<Integer, Integer> memoryUsages = collectMemoryUsages();
+                logger.info("Collected memory usages: {}", memoryUsages);
+                Map<Integer, Map<Integer, Double>> assignmentMap = getShardAssignments(qpsLoad, memoryUsages);
+                logger.info("Generated assignment map: {}", assignmentMap);
+                assignShards(assignmentMap);
             }
         }
     }

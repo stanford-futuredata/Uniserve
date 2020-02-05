@@ -40,6 +40,7 @@ public class FailureTests {
         logger.info("testFailureDetection");
         int numShards = 4;
         Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
