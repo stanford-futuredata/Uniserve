@@ -11,13 +11,12 @@ import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Coordinator {
 
@@ -48,6 +47,9 @@ public class Coordinator {
     public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
     private final static int loadBalancerSleepDurationMillis = 60000;
+
+    // Protects the shard maps and ensures their local and ZK versions are kept in sync between functions.
+    public final Lock shardMapLock = new ReentrantLock();
 
     public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
@@ -97,6 +99,7 @@ public class Coordinator {
     }
 
     public boolean addReplica(int shardNum, int replicaID, double ratio) {
+        shardMapLock.lock();
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
@@ -116,10 +119,12 @@ public class Coordinator {
                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
                 if (r.getReturnCode() != 0) {
                     logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
+                    shardMapLock.unlock();
                     return false;
                 }
             } catch (StatusRuntimeException e) {
                 logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
+                shardMapLock.unlock();
                 return false;
             }
             replicaDataStores.add(replicaID);
@@ -127,10 +132,12 @@ public class Coordinator {
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
         }
+        shardMapLock.unlock();
         return true;
     }
 
     public void removeShard(int shardNum, int targetID) {
+        shardMapLock.lock();
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
@@ -159,6 +166,7 @@ public class Coordinator {
                 RemoveShardResponse r = stub.removeShard(m);
             } catch (StatusRuntimeException e) {
                 logger.warn("Shard {} remove RPC failed on DataStore {}", shardNum, targetID);
+                shardMapLock.unlock();
                 assert(false);
             }
             int targetIndex = replicaDataStores.indexOf(targetID);
@@ -167,16 +175,28 @@ public class Coordinator {
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
         }
+        shardMapLock.unlock();
     }
 
     /** Construct a map from shard number to the shard's QPS. **/
     public Map<Integer, Integer> collectQPSLoad() {
-        Map<Integer, Integer> qpsMap = new HashMap<>();
+        Map<Integer, Integer> qpsMap = new ConcurrentHashMap<>();
+        List<Thread> threads = new ArrayList<>();
         for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
-            ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
-            ShardUsageResponse r = stub.shardUsage(m);
-            Map<Integer, Integer> dataStoreQPSMap = r.getShardQPSMap();
-            dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
+            Runnable r = () -> {
+                ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
+                ShardUsageResponse response = stub.shardUsage(m);
+                Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
+                dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
+            };
+            Thread t = new Thread(r);
+            t.start();
+            threads.add(t);
+        }
+        for (Thread thread: threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException ignored) {}
         }
         return qpsMap;
     }
@@ -282,10 +302,12 @@ public class Coordinator {
                 } catch (InterruptedException e) {
                     return;
                 }
+                shardMapLock.lock();
                 Map<Integer, Integer> qpsLoad = collectQPSLoad();
                 logger.info("Collected QPS Load: {}", qpsLoad);
                 Map<Integer, Integer> memoryUsages = collectMemoryUsages();
                 logger.info("Collected memory usages: {}", memoryUsages);
+                shardMapLock.unlock();
                 Map<Integer, Map<Integer, Double>> assignmentMap = getShardAssignments(qpsLoad, memoryUsages);
                 logger.info("Generated assignment map: {}", assignmentMap);
                 assignShards(assignmentMap);

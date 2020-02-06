@@ -41,10 +41,12 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
         }
         // If not, assign it to a DataStore.
+        coordinator.shardMapLock.lock();
         int newDSID = assignShardToDataStore(shardNum);
         dsID = coordinator.shardToPrimaryDataStoreMap.putIfAbsent(shardNum, newDSID);
         if (dsID != null) {
             DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
+            coordinator.shardMapLock.unlock();
             return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
         }
         dsID = newDSID;
@@ -59,6 +61,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         assert cnsResponse.getReturnCode() == 0; //TODO:  Error handling.
         // Once the shard is created, add it to the ZooKeeper map.
         coordinator.zkCurator.setZKShardDescription(m.getShard(), dsID, Utilities.null_name, 0, Collections.emptyList(), Collections.emptyList());
+        coordinator.shardMapLock.unlock();
         return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
     }
 

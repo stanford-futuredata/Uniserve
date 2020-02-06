@@ -54,11 +54,13 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         int shardNum = m.getShardNum();
         String cloudName = m.getShardCloudName();
         int versionNumber = m.getVersionNumber();
+        coordinator.shardMapLock.lock();
         int dsID = coordinator.shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDSIDs = coordinator.shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = coordinator.shardToReplicaRatioMap.get(shardNum);
         coordinator.shardToVersionMap.put(shardNum, versionNumber);
         coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber, replicaDSIDs, replicaRatios);
+        coordinator.shardMapLock.unlock();
         return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
     }
 
