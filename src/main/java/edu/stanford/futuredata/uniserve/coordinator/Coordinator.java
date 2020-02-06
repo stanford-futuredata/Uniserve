@@ -203,11 +203,28 @@ public class Coordinator {
 
     /** Construct a map from shard number to the shard's memory usage. **/
     public Map<Integer, Integer> collectMemoryUsages() {
-        Map<Integer, Integer> memoryMap = new HashMap<>();
-        for (int shardNum: shardToPrimaryDataStoreMap.keySet()) {
-            memoryMap.put(shardNum, 1);  // TODO:  Actually get memory usages.
+        Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
+        Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
+        List<Thread> threads = new ArrayList<>();
+        for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
+            Runnable r = () -> {
+                ShardMemoryUsageMessage m = ShardMemoryUsageMessage.newBuilder().build();
+                ShardMemoryUsageResponse response = stub.shardMemoryUsage(m);
+                Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
+                dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
+                dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
+            };
+            Thread t = new Thread(r);
+            t.start();
+            threads.add(t);
         }
-        return memoryMap;
+        for (Thread thread: threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException ignored) {}
+        }
+        memoryUsagesMap.replaceAll((k, v) -> v / shardCountMap.get(k));
+        return memoryUsagesMap;
     }
 
     /** Take in maps from shards to loads, return a map from DSIDs to shards assigned to that datastore and their ratios. **/
@@ -250,7 +267,8 @@ public class Coordinator {
         }
         List<double[]> serverShardRatios = null;
         try {
-            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, 100);
+            int maxMemory = 1000000;  // TODO:  Actually set this.
+            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, maxMemory);
         } catch (IloException e) {
             assert (false);
         }

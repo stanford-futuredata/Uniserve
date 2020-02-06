@@ -11,7 +11,6 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -242,5 +241,26 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             shardQPS.put(shardNum, recentQPS);
         }
         return ShardUsageResponse.newBuilder().putAllShardQPS(shardQPS).build();
+    }
+
+    @Override
+    public void shardMemoryUsage(ShardMemoryUsageMessage request, StreamObserver<ShardMemoryUsageResponse> responseObserver) {
+        responseObserver.onNext(shardMemoryUsageHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ShardMemoryUsageResponse shardMemoryUsageHandler(ShardMemoryUsageMessage message) {
+        Map<Integer, Integer> shardMemoryUsages = new HashMap<>();
+        for(Map.Entry<Integer, S> entry: dataStore.primaryShardMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int shardMemoryUsage = entry.getValue().getMemoryUsage();
+            shardMemoryUsages.put(shardNum, shardMemoryUsage);
+        }
+        for(Map.Entry<Integer, S> entry: dataStore.replicaShardMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int shardMemoryUsage = entry.getValue().getMemoryUsage();
+            shardMemoryUsages.put(shardNum, shardMemoryUsage);
+        }
+        return ShardMemoryUsageResponse.newBuilder().putAllShardMemoryUsage(shardMemoryUsages).build();
     }
 }

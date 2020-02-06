@@ -4,7 +4,9 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.io.*;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,6 +34,11 @@ public class KVShard implements Shard {
 
     @Override
     public void destroy() {}
+
+    @Override
+    public int getMemoryUsage() {
+        return KVMap.size();  // TODO:  Return the actual size in memory.
+    }
 
     public Optional<Integer> queryKey(Integer key) {
         if (KVMap.containsKey(key)) {

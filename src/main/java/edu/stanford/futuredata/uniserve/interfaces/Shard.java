@@ -12,6 +12,8 @@ public interface Shard {
      Reads (including shardToData) run concurrently with other reads, but never with writes.
      */
 
+    // Return the amount of memory this shard uses in kilobytes.
+    int getMemoryUsage();
     // Destroy shard data and processes.  After destruction, shard is no longer usable.
     void destroy();
     // Return directory containing shard files.
