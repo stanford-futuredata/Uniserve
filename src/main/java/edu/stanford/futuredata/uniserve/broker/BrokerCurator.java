@@ -56,7 +56,7 @@ public class BrokerCurator {
         }
     }
 
-    Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
+    Optional<Pair<List<DataStoreDescription>, List<Double>>> getShardReplicaDSDescriptions(int shard) {
         try {
             String path = String.format("/shardMapping/%d", shard);
             if (cf.checkExists().forPath(path) != null) {
@@ -64,7 +64,8 @@ public class BrokerCurator {
                 ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
                 List<DataStoreDescription> replicaDecriptions =
                         zkShardDescription.replicaDSIDs.stream().map(this::getDSDescriptionFromDSID).collect(Collectors.toList());
-                return Optional.of(replicaDecriptions);
+                List<Double> replicaRatios = zkShardDescription.replicaRatios;
+                return Optional.of(new Pair<>(replicaDecriptions, replicaRatios));
             } else {
                 return Optional.empty();
             }

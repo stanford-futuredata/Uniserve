@@ -34,6 +34,8 @@ public class Broker {
     private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToPrimaryStubMap = new ConcurrentHashMap<>();
     // Map from shards to the replicas' DataStoreBlockingStubs.
     private final Map<Integer, List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub>> shardToReplicaStubMap = new ConcurrentHashMap<>();
+    // Map from shards to the replicas' ratios.
+    private final Map<Integer, List<Double>> replicaShardToRatioMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Maximum number of shards.
@@ -253,7 +255,19 @@ public class Broker {
         // If replicas are known, return a random replica.
         List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs = shardToReplicaStubMap.getOrDefault(shard, null);
         if (stubs != null && stubs.size() > 0) {
-            return Optional.of(stubs.get(ThreadLocalRandom.current().nextInt(stubs.size())));
+            // If replicas exist, randomly choose a replica with probability equal to its ratio.
+            List<Double> ratios = replicaShardToRatioMap.get(shard);
+            assert(ratios.size() == stubs.size());
+            // Sum of ratios is <= 1.0, if no replica is chosen then read from the primary.
+            assert(ratios.stream().mapToDouble(i -> i).sum() <= 1.0);
+            double r = ThreadLocalRandom.current().nextDouble(0.0, 1.0);
+            double countWeight = 0.0;
+            for (int i = 0; i < ratios.size(); i++) {
+                countWeight += ratios.get(i);
+                if (countWeight >= r) {
+                    return Optional.of(stubs.get(i));
+                }
+            }
         }
         // Otherwise, return the primary if it is known.
         return getPrimaryStubForShard(shard);
@@ -266,14 +280,15 @@ public class Broker {
                 for (Integer shardNum : shardToPrimaryStubMap.keySet()) {
                     Optional<DataStoreDescription> primaryDSDescriptionsOpt =
                             zkCurator.getShardPrimaryDSDescription(shardNum);
-                    Optional<List<DataStoreDescription>> replicaDSDescriptionsOpt =
+                    Optional<Pair<List<DataStoreDescription>, List<Double>>> replicaDSDescriptionsOpt =
                             zkCurator.getShardReplicaDSDescriptions(shardNum);
                     if (primaryDSDescriptionsOpt.isEmpty() || replicaDSDescriptionsOpt.isEmpty()) {
                         logger.error("ZK has lost information on Shard {}", shardNum);
                         continue;
                     }
                     DataStoreDescription primaryDSDescription = primaryDSDescriptionsOpt.get();
-                    List<DataStoreDescription> replicaDSDescriptions = replicaDSDescriptionsOpt.get();
+                    List<DataStoreDescription> replicaDSDescriptions = replicaDSDescriptionsOpt.get().getValue0();
+                    List<Double> replicaRatios = replicaDSDescriptionsOpt.get().getValue1();
                     BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub =
                             createDataStoreStub(primaryDSDescription);
                     List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> replicaStubs = new ArrayList<>();
@@ -282,6 +297,7 @@ public class Broker {
                     }
                     shardToPrimaryStubMap.put(shardNum, primaryStub);
                     shardToReplicaStubMap.put(shardNum, replicaStubs);
+                    replicaShardToRatioMap.put(shardNum, replicaRatios);
                 }
                 try {
                     Thread.sleep(shardMapDaemonSleepDurationMillis);
