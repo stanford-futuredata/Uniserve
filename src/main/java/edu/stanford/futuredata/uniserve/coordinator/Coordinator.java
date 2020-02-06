@@ -8,6 +8,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
+import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -178,39 +179,19 @@ public class Coordinator {
         shardMapLock.unlock();
     }
 
-    /** Construct a map from shard number to the shard's QPS. **/
-    public Map<Integer, Integer> collectQPSLoad() {
+    /** Construct a map from shard number to the shard's QPS and memory usage **/
+    public Pair<Map<Integer, Integer>, Map<Integer, Integer>> collectLoad() {
         Map<Integer, Integer> qpsMap = new ConcurrentHashMap<>();
+        Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
+        Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
         List<Thread> threads = new ArrayList<>();
         for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
             Runnable r = () -> {
                 ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
                 ShardUsageResponse response = stub.shardUsage(m);
                 Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
-                dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
-            };
-            Thread t = new Thread(r);
-            t.start();
-            threads.add(t);
-        }
-        for (Thread thread: threads) {
-            try {
-                thread.join();
-            } catch (InterruptedException ignored) {}
-        }
-        return qpsMap;
-    }
-
-    /** Construct a map from shard number to the shard's memory usage. **/
-    public Map<Integer, Integer> collectMemoryUsages() {
-        Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
-        Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
-        List<Thread> threads = new ArrayList<>();
-        for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
-            Runnable r = () -> {
-                ShardMemoryUsageMessage m = ShardMemoryUsageMessage.newBuilder().build();
-                ShardMemoryUsageResponse response = stub.shardMemoryUsage(m);
                 Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
+                dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
                 dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
                 dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
             };
@@ -224,7 +205,7 @@ public class Coordinator {
             } catch (InterruptedException ignored) {}
         }
         memoryUsagesMap.replaceAll((k, v) -> v / shardCountMap.get(k));
-        return memoryUsagesMap;
+        return new Pair<>(qpsMap, memoryUsagesMap);
     }
 
     /** Take in maps from shards to loads, return a map from DSIDs to shards assigned to that datastore and their ratios. **/
@@ -320,12 +301,11 @@ public class Coordinator {
                 } catch (InterruptedException e) {
                     return;
                 }
-                shardMapLock.lock();
-                Map<Integer, Integer> qpsLoad = collectQPSLoad();
+                Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = collectLoad();
+                Map<Integer, Integer> qpsLoad = load.getValue0();
+                Map<Integer, Integer> memoryUsages = load.getValue1();
                 logger.info("Collected QPS Load: {}", qpsLoad);
-                Map<Integer, Integer> memoryUsages = collectMemoryUsages();
                 logger.info("Collected memory usages: {}", memoryUsages);
-                shardMapLock.unlock();
                 Map<Integer, Map<Integer, Double>> assignmentMap = getShardAssignments(qpsLoad, memoryUsages);
                 logger.info("Generated assignment map: {}", assignmentMap);
                 assignShards(assignmentMap);

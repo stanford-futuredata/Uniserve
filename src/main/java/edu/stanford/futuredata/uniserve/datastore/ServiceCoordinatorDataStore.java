@@ -240,16 +240,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                     .map(Map.Entry::getValue).mapToInt(i -> i).sum();
             shardQPS.put(shardNum, recentQPS);
         }
-        return ShardUsageResponse.newBuilder().putAllShardQPS(shardQPS).build();
-    }
-
-    @Override
-    public void shardMemoryUsage(ShardMemoryUsageMessage request, StreamObserver<ShardMemoryUsageResponse> responseObserver) {
-        responseObserver.onNext(shardMemoryUsageHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private ShardMemoryUsageResponse shardMemoryUsageHandler(ShardMemoryUsageMessage message) {
         Map<Integer, Integer> shardMemoryUsages = new HashMap<>();
         for(Map.Entry<Integer, S> entry: dataStore.primaryShardMap.entrySet()) {
             int shardNum = entry.getKey();
@@ -261,6 +251,9 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             int shardMemoryUsage = entry.getValue().getMemoryUsage();
             shardMemoryUsages.put(shardNum, shardMemoryUsage);
         }
-        return ShardMemoryUsageResponse.newBuilder().putAllShardMemoryUsage(shardMemoryUsages).build();
+        return ShardUsageResponse.newBuilder()
+                .putAllShardQPS(shardQPS)
+                .putAllShardMemoryUsage(shardMemoryUsages)
+                .build();
     }
 }

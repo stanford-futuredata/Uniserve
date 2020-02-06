@@ -9,6 +9,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import ilog.concert.IloException;
+import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -99,8 +100,9 @@ public class LoadBalancerTests {
             }
         }
 
-        Map<Integer, Integer> qpsLoad = coordinator.collectQPSLoad();
-        Map<Integer, Integer> memoryLoad = coordinator.collectMemoryUsages();
+        Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
+        Map<Integer, Integer> qpsLoad = load.getValue0();
+        Map<Integer, Integer> memoryLoad = load.getValue1();
         assertEquals(2, qpsLoad.get(0));
         assertEquals(3, qpsLoad.get(1));
 

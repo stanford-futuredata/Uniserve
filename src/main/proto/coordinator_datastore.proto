@@ -20,8 +20,6 @@ service CoordinatorDataStore {
     rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
     // Ask a datastore for shard usage information.
     rpc shardUsage (ShardUsageMessage) returns (ShardUsageResponse) {}
-    // Ask a datastore for shard memory usage information.
-    rpc shardMemoryUsage (ShardMemoryUsageMessage) returns (ShardMemoryUsageResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -60,10 +58,5 @@ message ShardUsageMessage {}
 
 message ShardUsageResponse {
     map<int32, int32> shardQPS = 1;
-}
-
-message ShardMemoryUsageMessage {}
-
-message ShardMemoryUsageResponse {
-    map<int32, int32> shardMemoryUsage = 1;
+    map<int32, int32> shardMemoryUsage = 2;
 }
