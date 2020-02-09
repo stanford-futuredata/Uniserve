@@ -1,18 +1,23 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
-import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
+import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import io.grpc.*;
 import org.javatuples.Pair;
-import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -124,6 +129,12 @@ public class DataStore<R extends Row, S extends Shard> {
             uploadShardDaemon.start();
         }
         pingDaemon.start();
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                DataStore.this.shutDown();
+            }
+        });
         return 0;
     }
 
