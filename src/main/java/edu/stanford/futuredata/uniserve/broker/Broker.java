@@ -45,7 +45,7 @@ public class Broker {
     // Should the daemon run?
     public boolean runShardMapUpdateDaemon = true;
     // How long should the daemon wait between runs?
-    public static final int shardMapDaemonSleepDurationMillis = 1000;
+    public static int shardMapDaemonSleepDurationMillis = 1000;
 
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;

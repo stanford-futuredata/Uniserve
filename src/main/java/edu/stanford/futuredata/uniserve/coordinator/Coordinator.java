@@ -47,7 +47,7 @@ public class Coordinator {
 
     public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
-    public final static int loadBalancerSleepDurationMillis = 60000;
+    public static int loadBalancerSleepDurationMillis = 60000;
 
     // Protects the shard maps and ensures their local and ZK versions are kept in sync between functions.
     public final Lock shardMapLock = new ReentrantLock();
