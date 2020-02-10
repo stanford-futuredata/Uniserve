@@ -108,6 +108,11 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             int returnCode;
             if (replicaWriteSuccess) {
                 returnCode = 0;
+                writeQueryPlan.commit(shard);
+                int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+                Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+                shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+                dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
             } else {
                 returnCode = 1;
             }
