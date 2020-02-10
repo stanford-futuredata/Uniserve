@@ -179,7 +179,7 @@ public class DataStore<R extends Row, S extends Shard> {
         // Upload the shard's data.
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum), versionNumber);
         if (cloudName.isEmpty()) {
-            logger.warn("DS{} Shard {} upload failed", dsID, shardNum);
+            logger.warn("DS{} Shard {}-{} upload failed", dsID, shardNum, versionNumber);
             return;
         }
         // Notify the coordinator about the upload.
@@ -192,6 +192,7 @@ public class DataStore<R extends Row, S extends Shard> {
             logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
         }
         lastUploadedVersionMap.put(shardNum, versionNumber);
+        logger.warn("DS{} Shard {}-{} upload succeeded", dsID, shardNum, versionNumber);
     }
 
     /** Synchronously download a shard from the cloud **/

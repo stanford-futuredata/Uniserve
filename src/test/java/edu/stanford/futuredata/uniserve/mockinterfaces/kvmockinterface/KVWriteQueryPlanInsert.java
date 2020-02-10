@@ -6,17 +6,15 @@ import java.util.List;
 
 public class KVWriteQueryPlanInsert implements WriteQueryPlan<KVRow, KVShard> {
 
-    private List<KVRow> rows;
-
     @Override
     public boolean preCommit(KVShard shard, List<KVRow> rows) {
-        this.rows = rows;
+        shard.insertRows(rows);
         return true;
     }
 
     @Override
     public void commit(KVShard shard) {
-        shard.insertRows(rows);
+
     }
 
     @Override

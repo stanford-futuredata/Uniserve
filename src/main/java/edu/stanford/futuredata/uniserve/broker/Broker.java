@@ -125,20 +125,6 @@ public class Broker {
             }
             success = success && t.isSuccess();
         }
-        List<WriteQueryCommitShardThread> writeQueryCommitShardThreads = new ArrayList<>();
-        for (Integer shardNum: shardRowArrayMap.keySet()) {
-            WriteQueryCommitShardThread t = new WriteQueryCommitShardThread(shardNum, success, txID);
-            t.start();
-            writeQueryCommitShardThreads.add(t);
-        }
-        for (WriteQueryCommitShardThread t: writeQueryCommitShardThreads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                logger.error("Write query interrupted: {}", e.getMessage());
-                assert(false);
-            }
-        }
         return success;
     }
 
@@ -383,38 +369,6 @@ public class Broker {
         }
     }
 
-    private class WriteQueryCommitShardThread extends Thread {
-        private final boolean commitOrAbort;  // Commit on true, abort on false.
-        private final int shardNum;
-        private final long txID;
-
-        WriteQueryCommitShardThread(int shardNum, boolean commitOrAbort, long txID) {
-            this.shardNum = shardNum;
-            this.commitOrAbort = commitOrAbort;
-            this.txID = txID;
-        }
-
-        @Override
-        public void run() { writeQueryCommitShard(); }
-
-        private void writeQueryCommitShard() {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
-            if (stubOpt.isEmpty()) {
-                logger.error("Could not find DataStore for shard {}", shardNum);
-                assert(false);  // TODO:  Retry
-                return;
-            }
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
-            WriteQueryCommitMessage rowMessage = WriteQueryCommitMessage.newBuilder().
-                    setShard(shardNum).setCommitOrAbort(commitOrAbort).setTxID(txID).build();
-            try {
-                WriteQueryCommitResponse alwaysEmpty = stub.writeQueryCommit(rowMessage);
-            } catch (StatusRuntimeException e) {
-                logger.warn("RPC failed: {}", e.getStatus());
-                assert(false); // TODO:  Retry
-            }
-        }
-    }
 
     private class ExecuteReadQueryStageThread<S extends Shard, T extends Serializable, V> extends Thread {
         private final ReadQueryPlan<S, T, V> readQueryPlan;
