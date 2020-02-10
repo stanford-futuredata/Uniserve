@@ -119,6 +119,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int addRowReturnCode;
             if (primaryWriteSuccess && success.get()) {
                 addRowReturnCode = Broker.QUERY_SUCCESS;
+                writeQueryPlan.commit(shard);
+                int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+                Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+                shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+                dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
             } else {
                 addRowReturnCode = Broker.QUERY_FAILURE;
             }
