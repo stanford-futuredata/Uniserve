@@ -60,7 +60,7 @@ public class DataStore<R extends Row, S extends Shard> {
     private final UploadShardDaemon uploadShardDaemon;
     public static int uploadThreadSleepDurationMillis = 10000;
 
-    public static int qpsReportTimeInterval = 10;
+    public static int qpsReportTimeInterval = 120; // In seconds.
 
     public boolean runPingDaemon = true; // Public for testing
     private final PingDaemon pingDaemon;
