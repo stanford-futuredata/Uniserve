@@ -63,7 +63,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
 
     private WriteQueryPreCommitResponse writeQueryPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-        // Use the CommitLockerThread to acquire the shard's write lock.
         dataStore.shardLockMap.get(shardNum).writeLock().lock();
         if (dataStore.primaryShardMap.containsKey(shardNum)) {
             S shard = dataStore.primaryShardMap.get(shardNum);
@@ -159,12 +158,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             long executeStartTime = System.nanoTime();
             Serializable queryResult = readQueryPlan.queryShard(shard);
             long executeEndTime = System.nanoTime();
-            dataStore.readQueryExecuteTimes.add(executeEndTime - executeStartTime);
+            dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             ByteString queryResponse;
             queryResponse = Utilities.objectToByteString(queryResult);
             long fullEndtime = System.nanoTime();
-            dataStore.readQueryFullTimes.add(fullEndtime - fullStartTime);
+            dataStore.readQueryFullTimes.add((fullEndtime - fullStartTime) / 1000L);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
         } else {
             dataStore.shardLockMap.get(shardNum).readLock().unlock();

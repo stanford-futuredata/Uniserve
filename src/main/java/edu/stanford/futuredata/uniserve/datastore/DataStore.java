@@ -167,7 +167,9 @@ public class DataStore<R extends Row, S extends Shard> {
         OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
         OptionalDouble averageFullTime = readQueryFullTimes.stream().mapToLong(i -> i).average();
         if (averageExecuteTime.isPresent() && averageFullTime.isPresent()) {
-            logger.info("Queries: {} Avg Exec: {} Avg Full: {}", numQueries, averageExecuteTime.getAsDouble(), averageFullTime.getAsDouble());
+            long medianExec = readQueryExecuteTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryExecuteTimes.size() / 2];
+            long medianFull = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() / 2];
+            logger.info("Queries: {} Avg Exec: {}μs Median Exec: {}μs Avg Full: {}μs Median Full: {}μs", numQueries, Math.round(averageExecuteTime.getAsDouble()), medianExec, Math.round(averageFullTime.getAsDouble()), medianFull);
         }
     }
 
