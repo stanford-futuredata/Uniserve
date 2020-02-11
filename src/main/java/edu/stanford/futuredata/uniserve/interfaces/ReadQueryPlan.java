@@ -14,9 +14,9 @@ public interface ReadQueryPlan<S extends Shard, T> extends Serializable {
     // Include -1 to execute on all shards.
     List<Integer> keysForQuery();
     // This function will execute on each shard containing at least one key from keysForQuery.
-    ByteString queryShard(S shard);
+    List<ByteString> queryShard(S shard);
     // The query will return the result of this function executed on all results from queryShard.
-    T aggregateShardQueries(List<ByteString> shardQueryResults);
+    T aggregateShardQueries(List<List<ByteString>> shardQueryResults);
     // Get query plans for subqueries.
     List<ReadQueryPlan> getSubQueries();
     // Set results of subqueries.

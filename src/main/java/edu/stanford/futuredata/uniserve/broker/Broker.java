@@ -407,7 +407,7 @@ public class Broker {
                 readQueryShardThreads.add(readQueryShardThread);
                 readQueryShardThread.start();
             }
-            List<ByteString> intermediates = new ArrayList<>();
+            List<List<ByteString>> intermediates = new ArrayList<>();
             for (ReadQueryShardThread readQueryShardThread : readQueryShardThreads) {
                 try {
                     readQueryShardThread.join();
@@ -415,7 +415,7 @@ public class Broker {
                     logger.error("Query interrupted: {}", e.getMessage());
                     assert(false);
                 }
-                Optional<ByteString> intermediate = readQueryShardThread.getIntermediate();
+                Optional<List<ByteString>> intermediate = readQueryShardThread.getIntermediate();
                 if (intermediate.isPresent()) {
                     intermediates.add(intermediate.get());
                 } else {
@@ -434,7 +434,7 @@ public class Broker {
     private class ReadQueryShardThread extends Thread {
         private final int shardNum;
         private final ReadQueryPlan readQueryPlan;
-        private Optional<ByteString> intermediate;
+        private Optional<List<ByteString>> intermediate;
 
         ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan) {
             this.shardNum = shardNum;
@@ -446,7 +446,7 @@ public class Broker {
             this.intermediate = queryShard(this.shardNum);
         }
 
-        private Optional<ByteString> queryShard(int shard) {
+        private Optional<List<ByteString>> queryShard(int shard) {
             int queryStatus = QUERY_RETRY;
             ReadQueryResponse readQueryResponse = null;
             while (queryStatus == QUERY_RETRY) {
@@ -480,13 +480,13 @@ public class Broker {
                 }
             }
             long deserStart = System.nanoTime();
-            ByteString responseByteString = readQueryResponse.getResponse();
+            List<ByteString> responseByteString = readQueryResponse.getResponseList();
             long deserEnd = System.nanoTime();
             deserializationTimes.add((deserEnd - deserStart) / 1000L);
             return Optional.of(responseByteString);
         }
 
-        Optional<ByteString> getIntermediate() {
+        Optional<List<ByteString>> getIntermediate() {
             return this.intermediate;
         }
     }
