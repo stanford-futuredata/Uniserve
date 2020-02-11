@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,8 +48,9 @@ public class Broker {
     // How long should the daemon wait between runs?
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
-    public final List<Long> serializationTimes = new ArrayList<>();
-    public final List<Long> deserializationTimes = new ArrayList<>();
+    public final Collection<Long> serializationTimes = new ConcurrentLinkedQueue<>();
+    public final Collection<Long> deserializationTimes = new ConcurrentLinkedQueue<>();
+    public final Collection<Long> remoteExecutionTimes = new ConcurrentLinkedQueue<>();
 
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;
@@ -97,10 +99,9 @@ public class Broker {
         int numQueries = serializationTimes.size();
         OptionalDouble averageSerTime = serializationTimes.stream().mapToLong(i -> i).average();
         OptionalDouble averageDeserTime = deserializationTimes.stream().mapToLong(i -> i).average();
-        if (averageSerTime.isPresent() && averageDeserTime.isPresent()) {
-            long medianSer = serializationTimes.stream().mapToLong(i -> i).sorted().toArray()[serializationTimes.size() / 2];
-            long medianDeser = deserializationTimes.stream().mapToLong(i -> i).sorted().toArray()[deserializationTimes.size() / 2];
-            logger.info("Queries: {} Avg Ser: {}μs Median Ser: {}μs Avg Deser: {}μs Median Deser: {}μs", numQueries, Math.round(averageSerTime.getAsDouble()), medianSer, Math.round(averageDeserTime.getAsDouble()), medianDeser);
+        OptionalDouble averageRETime = remoteExecutionTimes.stream().mapToLong(i -> i).average();
+        if (averageSerTime.isPresent() && averageDeserTime.isPresent() && averageRETime.isPresent()) {
+            logger.info("Queries: {} Avg Ser: {}μs Avg Deser: {}μs Avg Remote Execution: {}μs", numQueries, Math.round(averageSerTime.getAsDouble()), Math.round(averageDeserTime.getAsDouble()), Math.round(averageRETime.getAsDouble()));
         }
     }
 
@@ -463,7 +464,10 @@ public class Broker {
                 serializationTimes.add((serEnd - serStart) / 1000L);
                 ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
                 try {
+                    long remoteStart = System.nanoTime();
                     readQueryResponse = stub.readQuery(readQuery);
+                    long remoteEnd = System.nanoTime();
+                    remoteExecutionTimes.add((remoteEnd - remoteStart) / 1000L);
                     queryStatus = readQueryResponse.getReturnCode();
                     assert queryStatus != QUERY_FAILURE;
                 } catch (StatusRuntimeException e) {
