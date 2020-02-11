@@ -47,6 +47,9 @@ public class Broker {
     // How long should the daemon wait between runs?
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
+    public final List<Long> serializationTimes = new ArrayList<>();
+    public final List<Long> deserializationTimes = new ArrayList<>();
+
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;
     public static final int QUERY_RETRY = 2;
@@ -90,6 +93,14 @@ public class Broker {
             for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: stubs) {
                 ((ManagedChannel) stub.getChannel()).shutdown();
             }
+        }
+        int numQueries = serializationTimes.size();
+        OptionalDouble averageSerTime = serializationTimes.stream().mapToLong(i -> i).average();
+        OptionalDouble averageDeserTime = deserializationTimes.stream().mapToLong(i -> i).average();
+        if (averageSerTime.isPresent() && averageDeserTime.isPresent()) {
+            long medianSer = serializationTimes.stream().mapToLong(i -> i).sorted().toArray()[serializationTimes.size() / 2];
+            long medianDeser = deserializationTimes.stream().mapToLong(i -> i).sorted().toArray()[deserializationTimes.size() / 2];
+            logger.info("Queries: {} Avg Ser: {}μs Median Ser: {}μs Avg Deser: {}μs Median Deser: {}μs", numQueries, Math.round(averageSerTime.getAsDouble()), medianSer, Math.round(averageDeserTime.getAsDouble()), medianDeser);
         }
     }
 
@@ -446,7 +457,10 @@ public class Broker {
                 }
                 BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
                 ByteString serializedQuery;
+                long serStart = System.nanoTime();
                 serializedQuery = Utilities.objectToByteString(readQueryPlan);
+                long serEnd = System.nanoTime();
+                serializationTimes.add((serEnd - serStart) / 1000L);
                 ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
                 try {
                     readQueryResponse = stub.readQuery(readQuery);
@@ -462,9 +476,12 @@ public class Broker {
                     } catch (Throwable ignored) {}
                 }
             }
+            long deserStart = System.nanoTime();
             ByteString responseByteString = readQueryResponse.getResponse();
             T obj;
             obj = (T) Utilities.byteStringToObject(responseByteString);
+            long deserEnd = System.nanoTime();
+            deserializationTimes.add((deserEnd - deserStart) / 1000L);
             return Optional.of(obj);
         }
 
