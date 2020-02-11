@@ -14,10 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -66,6 +63,10 @@ public class DataStore<R extends Row, S extends Shard> {
     private final PingDaemon pingDaemon;
     private final static int pingDaemonSleepDurationMillis = 100;
     private final static int pingDaemonRefreshInterval = 10;
+
+    // Collect execution times of all read queries.
+    public final List<Long> readQueryExecuteTimes = new ArrayList<>();
+    public final List<Long> readQueryFullTimes = new ArrayList<>();
 
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
@@ -161,6 +162,12 @@ public class DataStore<R extends Row, S extends Shard> {
         for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
+        }
+        int numQueries = readQueryExecuteTimes.size();
+        OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
+        OptionalDouble averageFullTime = readQueryFullTimes.stream().mapToLong(i -> i).average();
+        if (averageExecuteTime.isPresent() && averageFullTime.isPresent()) {
+            logger.info("Queries: {} Avg Exec: {} Avg Full: {}", numQueries, averageExecuteTime.getAsDouble(), averageFullTime.getAsDouble());
         }
     }
 
