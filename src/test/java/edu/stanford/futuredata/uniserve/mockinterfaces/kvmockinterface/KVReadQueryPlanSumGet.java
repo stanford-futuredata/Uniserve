@@ -1,12 +1,14 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer, Integer> {
+public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
 
     private final List<Integer> keys;
 
@@ -20,7 +22,7 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer, In
     }
 
     @Override
-    public Integer queryShard(KVShard shard) {
+    public ByteString queryShard(KVShard shard) {
         Integer sum = 0;
         KVShard kvShard = shard;
         for (Integer key : keys) {
@@ -29,12 +31,12 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer, In
                 sum += value.get();
             }
         }
-        return sum;
+        return Utilities.objectToByteString(sum);
     }
 
     @Override
-    public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
-        return shardQueryResults.stream().mapToInt(i -> i).sum();
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
     @Override

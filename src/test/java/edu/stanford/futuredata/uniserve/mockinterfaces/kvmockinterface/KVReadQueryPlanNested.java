@@ -1,11 +1,13 @@
 package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
 
-public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer, Integer> {
+public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     // Return the value corresponding to the key corresponding to innerKey.
 
     private final KVReadQueryPlanGet subQuery;
@@ -21,13 +23,13 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer, In
     }
 
     @Override
-    public Integer queryShard(KVShard shard) {
-        return shard.queryKey(this.innerKeyValue).get();
+    public ByteString queryShard(KVShard shard) {
+        return Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get());
     }
 
     @Override
-    public Integer aggregateShardQueries(List<Integer> shardQueryResults) {
-        return shardQueryResults.get(0);
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
     }
 
     @Override

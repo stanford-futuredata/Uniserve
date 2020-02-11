@@ -87,7 +87,7 @@ public class TestMain {
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertTrue(writeSuccess);
-        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
+        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
         Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
         broker.shutdown();

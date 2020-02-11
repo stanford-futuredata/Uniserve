@@ -19,7 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -140,7 +139,7 @@ public class Broker {
         return success;
     }
 
-    public <S extends Shard, T extends Serializable, V> V readQuery(ReadQueryPlan<S, T, V> readQueryPlan) {
+    public <S extends Shard, T extends Serializable, V> V readQuery(ReadQueryPlan<S, V> readQueryPlan) {
         Set<ReadQueryPlan> unexecutedReadQueryPlans = new HashSet<>();
         // DFS the query plan tree to construct a list of all sub-query plans.
         Stack<ReadQueryPlan> searchStack = new Stack<>();
@@ -188,7 +187,7 @@ public class Broker {
         }
         // When all dependencies are resolved, the only query still executing will be the top-level one.  Return its result.
         assert(executeReadQueryStageThreads.size() == 1);
-        ExecuteReadQueryStageThread<S, T, V> finalThread = (ExecuteReadQueryStageThread<S, T, V>) executeReadQueryStageThreads.get(0);
+        ExecuteReadQueryStageThread<S, V> finalThread = (ExecuteReadQueryStageThread<S, V>) executeReadQueryStageThreads.get(0);
         try {
             finalThread.join();
         } catch (InterruptedException e) {
@@ -382,18 +381,18 @@ public class Broker {
     }
 
 
-    private class ExecuteReadQueryStageThread<S extends Shard, T extends Serializable, V> extends Thread {
-        private final ReadQueryPlan<S, T, V> readQueryPlan;
+    private class ExecuteReadQueryStageThread<S extends Shard, V> extends Thread {
+        private final ReadQueryPlan<S, V> readQueryPlan;
         private V queryResult;
 
-        ExecuteReadQueryStageThread(ReadQueryPlan<S, T, V> readQueryPlan) {
+        ExecuteReadQueryStageThread(ReadQueryPlan<S, V> readQueryPlan) {
             this.readQueryPlan = readQueryPlan;
         }
 
         @Override
         public void run() { this.queryResult = executeReadQueryStage(readQueryPlan); }
 
-        public V executeReadQueryStage(ReadQueryPlan<S, T, V> readQueryPlan) {
+        public V executeReadQueryStage(ReadQueryPlan<S, V> readQueryPlan) {
             List<Integer> partitionKeys = readQueryPlan.keysForQuery();
             List<Integer> shardNums;
             if (partitionKeys.contains(-1)) {
@@ -402,21 +401,21 @@ public class Broker {
             } else {
                 shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
             }
-            List<ReadQueryShardThread<T>> readQueryShardThreads = new ArrayList<>();
+            List<ReadQueryShardThread> readQueryShardThreads = new ArrayList<>();
             for (int shardNum : shardNums) {
-                ReadQueryShardThread<T> readQueryShardThread = new ReadQueryShardThread<>(shardNum, readQueryPlan);
+                ReadQueryShardThread readQueryShardThread = new ReadQueryShardThread(shardNum, readQueryPlan);
                 readQueryShardThreads.add(readQueryShardThread);
                 readQueryShardThread.start();
             }
-            List<T> intermediates = new ArrayList<>();
-            for (ReadQueryShardThread<T> readQueryShardThread : readQueryShardThreads) {
+            List<ByteString> intermediates = new ArrayList<>();
+            for (ReadQueryShardThread readQueryShardThread : readQueryShardThreads) {
                 try {
                     readQueryShardThread.join();
                 } catch (InterruptedException e) {
                     logger.error("Query interrupted: {}", e.getMessage());
                     assert(false);
                 }
-                Optional<T> intermediate = readQueryShardThread.getIntermediate();
+                Optional<ByteString> intermediate = readQueryShardThread.getIntermediate();
                 if (intermediate.isPresent()) {
                     intermediates.add(intermediate.get());
                 } else {
@@ -429,13 +428,13 @@ public class Broker {
         }
 
         V getQueryResult() { return this.queryResult; }
-        ReadQueryPlan<S, T, V> getReadQueryPlan() { return this.readQueryPlan; }
+        ReadQueryPlan<S, V> getReadQueryPlan() { return this.readQueryPlan; }
     }
 
-    private class ReadQueryShardThread<T extends Serializable> extends Thread {
+    private class ReadQueryShardThread extends Thread {
         private final int shardNum;
         private final ReadQueryPlan readQueryPlan;
-        private Optional<T> intermediate;
+        private Optional<ByteString> intermediate;
 
         ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan) {
             this.shardNum = shardNum;
@@ -447,7 +446,7 @@ public class Broker {
             this.intermediate = queryShard(this.shardNum);
         }
 
-        private Optional<T> queryShard(int shard) {
+        private Optional<ByteString> queryShard(int shard) {
             int queryStatus = QUERY_RETRY;
             ReadQueryResponse readQueryResponse = null;
             while (queryStatus == QUERY_RETRY) {
@@ -482,14 +481,12 @@ public class Broker {
             }
             long deserStart = System.nanoTime();
             ByteString responseByteString = readQueryResponse.getResponse();
-            T obj;
-            obj = (T) Utilities.byteStringToObject(responseByteString);
             long deserEnd = System.nanoTime();
             deserializationTimes.add((deserEnd - deserStart) / 1000L);
-            return Optional.of(obj);
+            return Optional.of(responseByteString);
         }
 
-        Optional<T> getIntermediate() {
+        Optional<ByteString> getIntermediate() {
             return this.intermediate;
         }
     }

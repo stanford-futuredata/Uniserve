@@ -82,7 +82,7 @@ public class LoadBalancerTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
 
-        ReadQueryPlan<KVShard, Integer, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
+        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
         Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(1), queryResponse);
 

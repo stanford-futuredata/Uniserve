@@ -153,15 +153,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         }
         if (shard != null) {
             ByteString serializedQuery = readQuery.getSerializedQuery();
-            ReadQueryPlan<S, Serializable, Object> readQueryPlan;
-            readQueryPlan = (ReadQueryPlan<S, Serializable, Object>) Utilities.byteStringToObject(serializedQuery);
+            ReadQueryPlan<S, Object> readQueryPlan;
+            readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
             long executeStartTime = System.nanoTime();
-            Serializable queryResult = readQueryPlan.queryShard(shard);
+            ByteString queryResponse = readQueryPlan.queryShard(shard);
             long executeEndTime = System.nanoTime();
             dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
-            ByteString queryResponse;
-            queryResponse = Utilities.objectToByteString(queryResult);
             long fullEndtime = System.nanoTime();
             dataStore.readQueryFullTimes.add((fullEndtime - fullStartTime) / 1000L);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
