@@ -44,5 +44,5 @@ message ReadQueryMessage {
 
 message ReadQueryResponse {
     int32 returnCode = 1;
-    repeated bytes response = 2;
+    bytes response = 2;
 }

@@ -22,7 +22,7 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public List<ByteString> queryShard(KVShard shard) {
+    public ByteString queryShard(KVShard shard) {
         Integer sum = 0;
         KVShard kvShard = shard;
         for (Integer key : keys) {
@@ -31,12 +31,12 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
                 sum += value.get();
             }
         }
-        return Collections.singletonList(Utilities.objectToByteString(sum));
+        return Utilities.objectToByteString(sum);
     }
 
     @Override
-    public Integer aggregateShardQueries(List<List<ByteString>> shardQueryResults) {
-        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i.get(0))).mapToInt(i -> i).sum();
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
     @Override

@@ -23,13 +23,13 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public List<ByteString> queryShard(KVShard shard) {
-        return Collections.singletonList(Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get()));
+    public ByteString queryShard(KVShard shard) {
+        return Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get());
     }
 
     @Override
-    public Integer aggregateShardQueries(List<List<ByteString>> shardQueryResults) {
-        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0).get(0));
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
     }
 
     @Override

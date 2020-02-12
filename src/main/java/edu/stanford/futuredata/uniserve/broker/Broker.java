@@ -407,7 +407,7 @@ public class Broker {
                 readQueryShardThreads.add(readQueryShardThread);
                 readQueryShardThread.start();
             }
-            List<List<ByteString>> intermediates = new ArrayList<>();
+            List<ByteString> intermediates = new ArrayList<>();
             for (ReadQueryShardThread readQueryShardThread : readQueryShardThreads) {
                 try {
                     readQueryShardThread.join();
@@ -415,7 +415,7 @@ public class Broker {
                     logger.error("Query interrupted: {}", e.getMessage());
                     assert(false);
                 }
-                Optional<List<ByteString>> intermediate = readQueryShardThread.getIntermediate();
+                Optional<ByteString> intermediate = readQueryShardThread.getIntermediate();
                 if (intermediate.isPresent()) {
                     intermediates.add(intermediate.get());
                 } else {
@@ -434,7 +434,7 @@ public class Broker {
     private class ReadQueryShardThread extends Thread {
         private final int shardNum;
         private final ReadQueryPlan readQueryPlan;
-        private Optional<List<ByteString>> intermediate;
+        private Optional<ByteString> intermediate;
 
         ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan) {
             this.shardNum = shardNum;
@@ -446,7 +446,7 @@ public class Broker {
             this.intermediate = queryShard(this.shardNum);
         }
 
-        private Optional<List<ByteString>> queryShard(int shard) {
+        private Optional<ByteString> queryShard(int shard) {
             int queryStatus = QUERY_RETRY;
             ReadQueryResponse readQueryResponse = null;
             while (queryStatus == QUERY_RETRY) {
@@ -480,13 +480,13 @@ public class Broker {
                 }
             }
             long deserStart = System.nanoTime();
-            List<ByteString> responseByteString = readQueryResponse.getResponseList();
+            ByteString responseByteString = readQueryResponse.getResponse();
             long deserEnd = System.nanoTime();
             deserializationTimes.add((deserEnd - deserStart) / 1000L);
             return Optional.of(responseByteString);
         }
 
-        Optional<List<ByteString>> getIntermediate() {
+        Optional<ByteString> getIntermediate() {
             return this.intermediate;
         }
     }

@@ -156,13 +156,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ReadQueryPlan<S, Object> readQueryPlan;
             readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
             long executeStartTime = System.nanoTime();
-            List<ByteString> queryResponse = readQueryPlan.queryShard(shard);
+            ByteString queryResponse = readQueryPlan.queryShard(shard);
             long executeEndTime = System.nanoTime();
             dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             long fullEndtime = System.nanoTime();
             dataStore.readQueryFullTimes.add((fullEndtime - fullStartTime) / 1000L);
-            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).addAllResponse(queryResponse).build();
+            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
         } else {
             dataStore.shardLockMap.get(shardNum).readLock().unlock();
             logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
