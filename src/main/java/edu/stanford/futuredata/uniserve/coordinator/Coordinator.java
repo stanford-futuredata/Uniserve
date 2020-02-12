@@ -100,18 +100,20 @@ public class Coordinator {
     }
 
     public boolean addReplica(int shardNum, int replicaID, double ratio) {
-        shardMapLock.lock();
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
-        List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
         assert (replicaID != primaryDataStore);
-        assert(replicaRatios.size() == replicaDataStores.size());
         if (replicaDataStores.contains(replicaID)) {
             // Update existing replica with new ratio.
+            shardMapLock.lock();
+            replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+            List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
+            assert(replicaRatios.size() == replicaDataStores.size());
             int replicaIndex = replicaDataStores.indexOf(replicaID);
             replicaRatios.set(replicaIndex, ratio);
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
+            shardMapLock.unlock();
         } else {
             // Create new replica.
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(replicaID);
@@ -120,20 +122,22 @@ public class Coordinator {
                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
                 if (r.getReturnCode() != 0) {
                     logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
-                    shardMapLock.unlock();
                     return false;
                 }
             } catch (StatusRuntimeException e) {
                 logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
-                shardMapLock.unlock();
                 return false;
             }
+            shardMapLock.lock();
+            replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+            List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
+            assert(replicaRatios.size() == replicaDataStores.size());
             replicaDataStores.add(replicaID);
             replicaRatios.add(ratio);
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
+            shardMapLock.unlock();
         }
-        shardMapLock.unlock();
         return true;
     }
 
@@ -271,9 +275,30 @@ public class Coordinator {
 
     /** Use an assignmentMap to assign shards to datastores **/
     public void assignShards(Map<Integer, Map<Integer, Double>> assignmentMap) {
+        List<Thread> dsThreads = new ArrayList<>();
+        // Do additions for all datastores in parallel.
+        for(Map.Entry<Integer, Map<Integer, Double>> entry: assignmentMap.entrySet()) {
+            Thread t = new Thread(() -> {
+                // For each datastore, do additions sequentially.
+                int dsID = entry.getKey();
+                for (Map.Entry<Integer, Double> assignment : entry.getValue().entrySet()) {
+                    int shardNum = assignment.getKey();
+                    double shardRatio = assignment.getValue();
+                    if (shardRatio > 0.0) {
+                        if (shardToPrimaryDataStoreMap.get(shardNum) != dsID) {
+                            addReplica(shardNum, dsID, shardRatio);
+                        }
+                    }
+                }
+            });
+            t.start();
+            dsThreads.add(t);
+        }
+        dsThreads.forEach(t -> { try {t.join(); } catch (InterruptedException ignored) {} });
+        // Do all removals sequentially.
         for(Map.Entry<Integer, Map<Integer, Double>> entry: assignmentMap.entrySet()) {
             int dsID = entry.getKey();
-            for(Map.Entry<Integer, Double> assignment: entry.getValue().entrySet()) {
+            for (Map.Entry<Integer, Double> assignment : entry.getValue().entrySet()) {
                 int shardNum = assignment.getKey();
                 double shardRatio = assignment.getValue();
                 if (shardRatio == 0.0) {
@@ -282,10 +307,6 @@ public class Coordinator {
                     }
                     if (shardToReplicaDataStoreMap.get(shardNum).contains(dsID)) {
                         removeShard(shardNum, dsID);
-                    }
-                } else {
-                    if (shardToPrimaryDataStoreMap.get(shardNum) != dsID) {
-                        addReplica(shardNum, dsID, shardRatio);
                     }
                 }
             }
