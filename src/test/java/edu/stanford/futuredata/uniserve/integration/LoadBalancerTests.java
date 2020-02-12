@@ -110,7 +110,7 @@ public class LoadBalancerTests {
         for(Map<Integer, Double> shardRatios: assignmentMap.values()) {
             assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum()/4) * 1.2);
         }
-        coordinator.assignShards(assignmentMap);
+        coordinator.assignShards(assignmentMap, qpsLoad);
 
         readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
         queryResponse = broker.readQuery(readQueryPlan);

@@ -18,6 +18,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 public class Coordinator {
 
@@ -274,21 +275,30 @@ public class Coordinator {
     }
 
     /** Use an assignmentMap to assign shards to datastores **/
-    public void assignShards(Map<Integer, Map<Integer, Double>> assignmentMap) {
+    public void assignShards(Map<Integer, Map<Integer, Double>> assignmentMap, Map<Integer, Integer> loadMap) {
         List<Thread> dsThreads = new ArrayList<>();
         // Do additions for all datastores in parallel.
         for(Map.Entry<Integer, Map<Integer, Double>> entry: assignmentMap.entrySet()) {
             Thread t = new Thread(() -> {
                 // For each datastore, do additions sequentially.
                 int dsID = entry.getKey();
-                for (Map.Entry<Integer, Double> assignment : entry.getValue().entrySet()) {
+                List<Integer> addReplicasList = new ArrayList<>();
+                Map<Integer, Double> ratioMap = entry.getValue();
+                // Get a list of shards to add to this datastore.
+                for (Map.Entry<Integer, Double> assignment : ratioMap.entrySet()) {
                     int shardNum = assignment.getKey();
                     double shardRatio = assignment.getValue();
                     if (shardRatio > 0.0) {
                         if (shardToPrimaryDataStoreMap.get(shardNum) != dsID) {
-                            addReplica(shardNum, dsID, shardRatio);
+                            addReplicasList.add(shardNum);
                         }
                     }
+                }
+                // Sort in decreasing order by load on the new replica.
+                addReplicasList = addReplicasList.stream().sorted(Comparator.comparing(i -> -1 * ratioMap.get(i) * loadMap.get(i))).collect(Collectors.toList());
+                // Sequentially do additions from most-loaded to least-loaded.
+                for (Integer shardNum: addReplicasList) {
+                    addReplica(shardNum, dsID, ratioMap.get(shardNum));
                 }
             });
             t.start();
@@ -329,7 +339,7 @@ public class Coordinator {
                 logger.info("Collected memory usages: {}", memoryUsages);
                 Map<Integer, Map<Integer, Double>> assignmentMap = getShardAssignments(qpsLoad, memoryUsages);
                 logger.info("Generated assignment map: {}", assignmentMap);
-                assignShards(assignmentMap);
+                assignShards(assignmentMap, qpsLoad);
             }
         }
     }
