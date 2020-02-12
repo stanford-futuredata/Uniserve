@@ -73,6 +73,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     }
 
     private LoadShardReplicaResponse loadShardReplicaHandler(LoadShardReplicaMessage request) {
+        long loadStart = System.currentTimeMillis();
         int shardNum = request.getShard();
         assert(!dataStore.primaryShardMap.containsKey(shardNum));
         assert(!dataStore.replicaShardMap.containsKey(shardNum));
@@ -141,7 +142,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, replicaVersion);
         dataStore.shardLockMap.get(shardNum).writeLock().unlock();
-        logger.info("DS{} Loaded new replica shard {} version {}", dataStore.dsID, shardNum, replicaVersion);
+        logger.info("DS{} Loaded new replica shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
         return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
     }
 

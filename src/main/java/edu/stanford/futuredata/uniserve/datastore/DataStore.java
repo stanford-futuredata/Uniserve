@@ -176,6 +176,7 @@ public class DataStore<R extends Row, S extends Shard> {
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     /** Assumes read lock is held **/
     public void uploadShardToCloud(int shardNum) {
+        long uploadStart = System.currentTimeMillis();
         // TODO:  Safely delete old versions.
         Shard shard = primaryShardMap.get(shardNum);
         Integer versionNumber = shardVersionMap.get(shardNum);
@@ -201,7 +202,7 @@ public class DataStore<R extends Row, S extends Shard> {
             logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
         }
         lastUploadedVersionMap.put(shardNum, versionNumber);
-        logger.warn("DS{} Shard {}-{} upload succeeded", dsID, shardNum, versionNumber);
+        logger.warn("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }
 
     /** Synchronously download a shard from the cloud **/
