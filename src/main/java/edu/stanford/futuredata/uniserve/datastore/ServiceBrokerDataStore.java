@@ -8,6 +8,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -137,8 +138,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     @Override
     public void readQuery(ReadQueryMessage request,  StreamObserver<ReadQueryResponse> responseObserver) {
-        responseObserver.onNext(readQueryHandler(request));
-        responseObserver.onCompleted();
+        ServerCallStreamObserver<ReadQueryResponse> callStreamObserver =
+                (ServerCallStreamObserver<ReadQueryResponse>) responseObserver;
+        callStreamObserver.setCompression("gzip");
+        callStreamObserver.onNext(readQueryHandler(request));
+        callStreamObserver.onCompleted();
     }
 
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
