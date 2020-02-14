@@ -101,13 +101,14 @@ public class LoadBalancerTests {
         int numServers = 4;
         for (int i = 0; i < numServers; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
-                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
+                    Path.of("/var/tmp/KVUniserve","shard" + i), zkHost, zkPort,"127.0.0.1",  8100 + i);
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        broker.runShardAffinityDaemon = false;
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));
@@ -134,6 +135,7 @@ public class LoadBalancerTests {
             }
         }
 
+        broker.sendAffinitiesToCoordinator();
         Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
         Map<Integer, Integer> qpsLoad = load.getValue0();
         Map<Integer, Integer> memoryLoad = load.getValue1();
@@ -141,6 +143,7 @@ public class LoadBalancerTests {
         assertEquals(3, qpsLoad.get(1));
 
         Map<Integer, Map<Integer, Double>> assignmentMap = coordinator.getShardAssignments(qpsLoad, memoryLoad);
+        logger.info("Generated assignment map: {}", assignmentMap);
         for(Map<Integer, Double> shardRatios: assignmentMap.values()) {
             assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum() / numServers) * 1.1);
         }

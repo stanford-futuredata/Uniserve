@@ -30,7 +30,7 @@ public class LoadBalancer {
 
         long feasibilityStart = System.currentTimeMillis();
         double affinityThreshold = 1.0;
-        for(int alpha = 10; alpha > 0; alpha -= 1) {
+        for(int alpha = 0; alpha < 10; alpha += 1) {
             double affinityCandidate = alpha / 10.0;
             IloCplex cplex = new IloCplex();
             cplex.setOut(null);
@@ -45,9 +45,10 @@ public class LoadBalancer {
             if (cplex.solve()) {
                 affinityThreshold = affinityCandidate;
                 logger.info("Affinity threshold feasible: {}", affinityCandidate);
+                break;
             }
         }
-        logger.info("Affinity threshold set: {} Time: {}ms", affinityThreshold, System.currentTimeMillis() - feasibilityStart);
+        logger.info("Affinity threshold: {} Time: {}ms", affinityThreshold, System.currentTimeMillis() - feasibilityStart);
 
         int[][] transferCosts = currentLocations.clone();
         for(int i = 0; i < transferCosts.length; i++) {
@@ -75,7 +76,7 @@ public class LoadBalancer {
 
         setConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, affinityPairs, maxMemory);
 
-        cplex.solve();
+        assert(cplex.solve());
 
         List<double[]> returnR = new ArrayList<>();
         for (int i = 0; i < numServers; i++) {
@@ -89,8 +90,8 @@ public class LoadBalancer {
         Set<Pair<Integer, Integer>> affinityPairs = new HashSet<>();
         int numShards = shardAffinities.length;
         for(int i = 0; i < numShards; i++) {
-            for(int j = 0; j < numShards - i; j++) {
-                if(i != j && (shardAffinities[i][j] >= threshold || shardAffinities[j][i] >= threshold)) {
+            for(int j = i; j < numShards; j++) {
+                if(i != j && (shardAffinities[i][j] > threshold || shardAffinities[j][i] > threshold)) {
                     affinityPairs.add(new Pair<>(i, j));
                 }
             }

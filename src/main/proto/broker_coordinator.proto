@@ -9,6 +9,7 @@ package brokercoordinator;
 // Communication from datastores to the coordinator.
 service BrokerCoordinator {
     rpc ShardLocation (ShardLocationMessage) returns (ShardLocationResponse) {}
+    rpc ShardAffinity (ShardAffinityMessage) returns (ShardAffinityResponse) {}
 }
 
 message ShardLocationMessage {
@@ -21,3 +22,10 @@ message ShardLocationResponse {
     string host = 3;
     int32 port = 4;
 }
+
+message ShardAffinityMessage {
+    bytes affinityCounts = 1;
+    bytes readQueryCounts = 2;
+}
+
+message ShardAffinityResponse {}

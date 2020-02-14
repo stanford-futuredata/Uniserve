@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
 
@@ -65,4 +67,20 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
     }
 
+    @Override
+    public void shardAffinity(ShardAffinityMessage request, StreamObserver<ShardAffinityResponse> responseObserver) {
+        responseObserver.onNext(shardAffinityHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ShardAffinityResponse shardAffinityHandler(ShardAffinityMessage m) {
+        ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Integer>> affinityCounts = (ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Integer>>) Utilities.byteStringToObject(m.getAffinityCounts());
+        ConcurrentHashMap<Integer, Integer> readQueryCounts = (ConcurrentHashMap<Integer, Integer>) Utilities.byteStringToObject(m.getReadQueryCounts());
+        coordinator.affinityLock.lock();
+        readQueryCounts.forEach((r, v) -> coordinator.readQueryCounts.merge(r, v, Integer::sum));
+        affinityCounts.keySet().forEach(k -> coordinator.affinityCounts.putIfAbsent(k, new ConcurrentHashMap<>()));
+        affinityCounts.forEach((r, map) -> map.forEach((s, count) -> coordinator.affinityCounts.get(r).merge(s, count, Integer::sum)));
+        coordinator.affinityLock.unlock();
+        return ShardAffinityResponse.newBuilder().build();
+    }
 }
