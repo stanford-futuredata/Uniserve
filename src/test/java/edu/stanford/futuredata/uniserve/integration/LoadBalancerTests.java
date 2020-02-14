@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.IntStream;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -47,12 +48,45 @@ public class LoadBalancerTests {
         int[] shardLoads = new int[]{1, 2, 3, 20};
         int[] memoryUsages = new int[]{9, 1, 1, 1};
         int[][] currentLocations = new int[][]{new int[]{1, 1, 1, 1}, new int[]{0, 0, 0, 0}};
+        double[][] shardAffinities = new double[4][4];
         int maxMemory = 10;
 
-        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, maxMemory);
-        assertArrayEquals(new double[]{0.0, 1.0, 1.0, 0.27}, returnR.get(0));
-        assertArrayEquals(new double[]{1.0, 0.0, 0.0, 0.73}, returnR.get(1));
+        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, shardAffinities, maxMemory);
+        logger.info("{} {}", returnR.get(0), returnR.get(1));
+        double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
+        for(double[] Rs: returnR) {
+            double serverLoad = 0;
+            for(int i = 0; i < numShards; i++) {
+                serverLoad += Rs[i] * shardLoads[i];
+            }
+            assertTrue(serverLoad <= averageLoad * 1.1);
+        }
+    }
 
+    @Test
+    public void testBalanceLoadWithAffinity() throws IloException {
+        logger.info("testBalanceLoadWithAffinity");
+
+        int numShards = 3;
+        int numServers = 2;
+        int[] shardLoads = new int[]{1, 1, 1};
+        int[] memoryUsages = new int[]{1, 1, 1};
+        int[][] currentLocations = new int[][]{new int[]{1, 1, 1}, new int[]{0, 0, 0}};
+        double[][] shardAffinities = new double[][]{new double[]{0, 0.9, 0.5}, new double[]{0.9, 0, 0.5}, new double[] {0.5, 0.5, 0}};
+        int maxMemory = 10;
+
+        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, shardAffinities, maxMemory);
+        logger.info("{} {}", returnR.get(0), returnR.get(1));
+        double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
+        for(double[] Rs: returnR) {
+            double serverLoad = 0;
+            for(int i = 0; i < numShards; i++) {
+                serverLoad += Rs[i] * shardLoads[i];
+            }
+            assertTrue(serverLoad <= averageLoad * 1.1);
+        }
+        assertTrue(returnR.get(0)[0] > 0 ^ returnR.get(0)[1] > 0);
+        assertTrue(returnR.get(1)[0] > 0 ^ returnR.get(1)[1] > 0);
     }
 
     @Test
@@ -64,8 +98,8 @@ public class LoadBalancerTests {
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
-        int num_datastores = 4;
-        for (int i = 0; i < num_datastores; i++) {
+        int numServers = 4;
+        for (int i = 0; i < numServers; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
                     Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
             dataStore.runPingDaemon = false;
@@ -108,7 +142,7 @@ public class LoadBalancerTests {
 
         Map<Integer, Map<Integer, Double>> assignmentMap = coordinator.getShardAssignments(qpsLoad, memoryLoad);
         for(Map<Integer, Double> shardRatios: assignmentMap.values()) {
-            assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum()/4) * 1.2);
+            assertTrue(shardRatios.get(0) * qpsLoad.get(0) + shardRatios.get(1) * qpsLoad.get(1) <= (qpsLoad.values().stream().mapToDouble(i -> i).sum() / numServers) * 1.1);
         }
         coordinator.assignShards(assignmentMap, qpsLoad);
 
@@ -122,7 +156,7 @@ public class LoadBalancerTests {
         queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(55), queryResponse);
 
-        for (int i = 0; i < num_datastores; i++) {
+        for (int i = 0; i < numServers; i++) {
             dataStores.get(i).shutDown();
         }
         coordinator.stopServing();

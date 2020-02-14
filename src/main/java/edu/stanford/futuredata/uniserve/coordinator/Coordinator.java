@@ -254,7 +254,7 @@ public class Coordinator {
         List<double[]> serverShardRatios = null;
         try {
             int maxMemory = 1000000;  // TODO:  Actually set this.
-            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, maxMemory);
+            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, new double[numShards][numShards], maxMemory);
         } catch (IloException e) {
             assert (false);
         }
