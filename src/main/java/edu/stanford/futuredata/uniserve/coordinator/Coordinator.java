@@ -108,6 +108,10 @@ public class Coordinator {
 
     public void addReplica(int shardNum, int replicaID, double ratio) {
         shardMapLock.lock();
+        if (dataStoresMap.get(replicaID).status.get() == DataStoreDescription.DEAD) {
+            shardMapLock.unlock();
+            return;
+        }
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
@@ -240,7 +244,10 @@ public class Coordinator {
     /** Take in maps from shards to loads, return a map from DSIDs to shards assigned to that datastore and their ratios. **/
     public Map<Integer, Map<Integer, Double>> getShardAssignments(Map<Integer, Integer> qpsLoad, Map<Integer, Integer> memoryLoad) {
         int numShards = shardToPrimaryDataStoreMap.size();
-        int numServers = dataStoresMap.size();
+        List<Integer> aliveDSIDs = dataStoresMap.keySet().stream()
+                .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
+                .collect(Collectors.toList());
+        int numServers = aliveDSIDs.size();
         Map<Integer, Integer> indexToDSIDMap = new HashMap<>();
         Map<Integer, Integer> dsIDToIndexMap = new HashMap<>();
         Map<Integer, Integer> indexToShardNumMap = new HashMap<>();
@@ -258,7 +265,7 @@ public class Coordinator {
             shardIndex++;
         }
         int serverIndex = 0;
-        for(int dsID: dataStoresMap.keySet()) {
+        for(int dsID: aliveDSIDs) {
             indexToDSIDMap.put(serverIndex, dsID);
             dsIDToIndexMap.put(dsID, serverIndex);
             currentLocations[serverIndex] = new int[numShards];

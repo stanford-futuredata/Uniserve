@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,8 +30,13 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     }
 
     private int assignShardToDataStore(int shardNum) {
-        // TODO:  Better DataStore choice.
-        return shardNum % coordinator.dataStoresMap.size();
+        DataStoreDescription ds;
+        int offset = 0;
+        do {
+            ds = coordinator.dataStoresMap.get(shardNum % coordinator.dataStoresMap.size() + offset);
+            offset++;
+        } while (ds.status.get() != DataStoreDescription.ALIVE);
+        return ds.dsID;
     }
 
     private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
