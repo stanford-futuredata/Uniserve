@@ -9,7 +9,6 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
 import java.util.List;
 
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
@@ -58,7 +57,6 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         int dsID = coordinator.shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDSIDs = coordinator.shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = coordinator.shardToReplicaRatioMap.get(shardNum);
-        coordinator.shardToVersionMap.put(shardNum, versionNumber);
         coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber, replicaDSIDs, replicaRatios);
         coordinator.shardMapLock.unlock();
         return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
