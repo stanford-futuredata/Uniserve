@@ -104,6 +104,17 @@ public class Coordinator {
             loadBalancer.interrupt();
             loadBalancer.join();
         } catch (InterruptedException ignored) {}
+        zkCurator.close();
+    }
+
+    int assignShardToDataStore(int shardNum) {
+        DataStoreDescription ds;
+        int offset = 0;
+        do {
+            ds = dataStoresMap.get(shardNum % dataStoresMap.size() + offset);
+            offset++;
+        } while (ds.status.get() == DataStoreDescription.DEAD);
+        return ds.dsID;
     }
 
     public void addReplica(int shardNum, int replicaID, double ratio) {
@@ -115,7 +126,6 @@ public class Coordinator {
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
-        assert (replicaID != primaryDataStore);
         assert(replicaRatios.size() == replicaDataStores.size());
         if (replicaDataStores.contains(replicaID)) {
             // Update existing replica with new ratio.
@@ -126,13 +136,13 @@ public class Coordinator {
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
             shardMapLock.unlock();
-        } else {
+        } else if (replicaID != primaryDataStore) {
             replicaDataStores.add(replicaID);
             replicaRatios.add(ratio);
             shardMapLock.unlock();
             // Create new replica.
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(replicaID);
-            LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).build();
+            LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).setIsReplacementPrimary(false).build();
             try {
                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
                 if (r.getReturnCode() != 0) {
@@ -140,7 +150,6 @@ public class Coordinator {
                     logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
                 }
             } catch (StatusRuntimeException e) {
-                assert(false);
                 logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
             }
             shardMapLock.lock();
@@ -159,11 +168,16 @@ public class Coordinator {
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         List<Double> replicaRatios = shardToReplicaRatioMap.get(shardNum);
         if (primaryDataStore == targetID) {
-            assert(replicaDataStores.size() > 0);
-            Integer newPrimary = replicaDataStores.get(ThreadLocalRandom.current().nextInt(0, replicaDataStores.size()));
-            int newPrimaryIndex = replicaDataStores.indexOf(newPrimary);
-            replicaDataStores.remove(newPrimary);
-            replicaRatios.remove(newPrimaryIndex);
+            Integer newPrimary;
+            boolean replicasExist = replicaDataStores.size() > 0;
+            if (replicasExist) {
+                newPrimary = replicaDataStores.get(ThreadLocalRandom.current().nextInt(0, replicaDataStores.size()));
+                int newPrimaryIndex = replicaDataStores.indexOf(newPrimary);
+                replicaDataStores.remove(newPrimary);
+                replicaRatios.remove(newPrimaryIndex);
+            } else {
+                newPrimary = assignShardToDataStore(shardNum);
+            }
             shardToPrimaryDataStoreMap.put(shardNum, newPrimary);
             shardMapLock.unlock();
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub primaryStub = dataStoreStubsMap.get(targetID);
@@ -174,13 +188,26 @@ public class Coordinator {
                 logger.warn("Shard {} remove RPC failed on DataStore {}", shardNum, targetID);
             }
             CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub newPrimaryStub = dataStoreStubsMap.get(newPrimary);
-            PromoteReplicaShardMessage promoteReplicaShardMessage =
-                    PromoteReplicaShardMessage.newBuilder().setShard(shardNum).build();
-            try {
-                PromoteReplicaShardResponse promoteReplicaShardResponse =
-                        newPrimaryStub.promoteReplicaShard(promoteReplicaShardMessage);
-            } catch (StatusRuntimeException e) {
-                logger.warn("Shard {} promote RPC failed on DataStore {}", shardNum, newPrimary);
+            if (replicasExist) {
+                PromoteReplicaShardMessage promoteReplicaShardMessage =
+                        PromoteReplicaShardMessage.newBuilder().setShard(shardNum).build();
+                try {
+                    PromoteReplicaShardResponse promoteReplicaShardResponse =
+                            newPrimaryStub.promoteReplicaShard(promoteReplicaShardMessage);
+                } catch (StatusRuntimeException e) {
+                    logger.warn("Shard {} promote RPC failed on DataStore {}", shardNum, newPrimary);
+                }
+            } else {
+                LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).setIsReplacementPrimary(true).build();
+                try {
+                    LoadShardReplicaResponse r = newPrimaryStub.loadShardReplica(m);
+                    if (r.getReturnCode() != 0) {
+                        assert(false);
+                        logger.warn("Shard {} load failed on DataStore {}", shardNum, newPrimary);
+                    }
+                } catch (StatusRuntimeException e) {
+                    logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, newPrimary);
+                }
             }
             shardMapLock.lock();
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
@@ -190,7 +217,9 @@ public class Coordinator {
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
             shardMapLock.unlock();
         } else {
-            assert(replicaDataStores.contains(targetID));
+            if (!replicaDataStores.contains(targetID)) {
+                return;
+            }
             int targetIndex = replicaDataStores.indexOf(targetID);
             replicaDataStores.remove(Integer.valueOf(targetID));
             replicaRatios.remove(targetIndex);

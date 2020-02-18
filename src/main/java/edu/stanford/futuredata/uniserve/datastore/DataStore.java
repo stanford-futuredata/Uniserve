@@ -27,6 +27,7 @@ public class DataStore<R extends Row, S extends Shard> {
     int dsID;
     private final String dsHost;
     private final int dsPort;
+    public boolean serving = false;
 
     // Map from primary shard number to shard data structure.
     public final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>(); // Public for testing.
@@ -68,7 +69,6 @@ public class DataStore<R extends Row, S extends Shard> {
     public final List<Long> readQueryExecuteTimes = new ArrayList<>();
     public final List<Long> readQueryFullTimes = new ArrayList<>();
 
-
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
@@ -88,6 +88,8 @@ public class DataStore<R extends Row, S extends Shard> {
     /** Start serving requests. */
     public int startServing() {
         // Start serving.
+        assert(!serving);
+        serving = true;
         try {
             server.start();
         } catch (IOException e) {
@@ -141,6 +143,10 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** Stop serving requests and shutdown resources. */
     public void shutDown() {
+        if (!serving) {
+            return;
+        }
+        serving = false;
         server.shutdown();
         runPingDaemon = false;
         runUploadShardDaemon = false;
@@ -163,6 +169,7 @@ public class DataStore<R extends Row, S extends Shard> {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
         }
+        zkCurator.close();
         int numQueries = readQueryExecuteTimes.size();
         OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
         OptionalDouble averageFullTime = readQueryFullTimes.stream().mapToLong(i -> i).average();

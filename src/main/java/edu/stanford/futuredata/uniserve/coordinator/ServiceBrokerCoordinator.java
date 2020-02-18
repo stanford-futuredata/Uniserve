@@ -29,16 +29,6 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         responseObserver.onCompleted();
     }
 
-    private int assignShardToDataStore(int shardNum) {
-        DataStoreDescription ds;
-        int offset = 0;
-        do {
-            ds = coordinator.dataStoresMap.get(shardNum % coordinator.dataStoresMap.size() + offset);
-            offset++;
-        } while (ds.status.get() != DataStoreDescription.ALIVE);
-        return ds.dsID;
-    }
-
     private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
         int shardNum = m.getShard();
         coordinator.shardMapLock.lock();
@@ -50,7 +40,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
         }
         // If not, assign it to a DataStore.
-        dsID = assignShardToDataStore(shardNum);
+        dsID = coordinator.assignShardToDataStore(shardNum);
         coordinator.shardToPrimaryDataStoreMap.put(shardNum, dsID);
         coordinator.shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
         coordinator.shardToReplicaRatioMap.put(shardNum, new ArrayList<>());

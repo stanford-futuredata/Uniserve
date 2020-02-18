@@ -107,6 +107,7 @@ public class Broker {
         if (averageSerTime.isPresent() && averageDeserTime.isPresent() && averageRETime.isPresent()) {
             logger.info("Queries: {} Avg Ser: {}μs Avg Deser: {}μs Avg Remote Execution: {}μs", numQueries, Math.round(averageSerTime.getAsDouble()), Math.round(averageDeserTime.getAsDouble()), Math.round(averageRETime.getAsDouble()));
         }
+        zkCurator.close();
     }
 
     /*
@@ -370,7 +371,9 @@ public class Broker {
 
                             @Override
                             public void onError(Throwable th) {
-                                assert (false);
+                                logger.warn("Write query RPC failed for shard {}", shardNum);
+                                queryStatus[0] = QUERY_RETRY;
+                                finishLatch.countDown();
                             }
 
                             @Override
@@ -510,8 +513,8 @@ public class Broker {
                     queryStatus = readQueryResponse.getReturnCode();
                     assert queryStatus != QUERY_FAILURE;
                 } catch (StatusRuntimeException e) {
-                    logger.warn("RPC failed: {}", e.getStatus());
-                    assert (false); // TODO:  Retry?
+                    logger.warn("Read query RPC failed for shard {}", shard);
+                    queryStatus = QUERY_RETRY;
                 }
                 if (queryStatus == QUERY_RETRY) {
                     try {

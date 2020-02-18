@@ -27,6 +27,10 @@ public class BrokerCurator {
         cf.start();
     }
 
+    void close() {
+        cf.close();
+    }
+
     DataStoreDescription getDSDescriptionFromDSID(int dsID) {
         try {
             String path = String.format("/dsDescription/%d", dsID);

@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 
 class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
 
-    private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
+    private static final Logger logger = LoggerFactory.getLogger(ServiceCoordinatorDataStore.class);
     private final DataStore<R, S> dataStore;
 
     ServiceCoordinatorDataStore(DataStore<R, S> dataStore) {
@@ -93,7 +93,11 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.shardLockMap.put(shardNum, new ReentrantReadWriteLock());
         dataStore.shardLockMap.get(shardNum).writeLock().lock();
         dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
-        dataStore.replicaShardMap.put(shardNum, loadedShard.get());
+        if (request.getIsReplacementPrimary()) {
+            dataStore.primaryShardMap.put(shardNum, loadedShard.get());
+        } else {
+            dataStore.replicaShardMap.put(shardNum, loadedShard.get());
+        }
 
         // Set up a connection to the primary.
         DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(primaryDSID);
@@ -101,7 +105,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
 
         // Bootstrap the replica, bringing it up to the same version as the primary.
-        while (true) {  // TODO:  Stream the writes.
+        while (!request.getIsReplacementPrimary()) {  // TODO:  Stream the writes.
             BootstrapReplicaMessage m = BootstrapReplicaMessage.newBuilder()
                     .setShard(shardNum)
                     .setVersionNumber(replicaVersion)
@@ -141,8 +145,16 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         channel.shutdown();
         dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, replicaVersion);
+        if (request.getIsReplacementPrimary()) {
+            dataStore.lastUploadedVersionMap.put(shardNum, replicaVersion);
+            dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
+        }
         dataStore.shardLockMap.get(shardNum).writeLock().unlock();
-        logger.info("DS{} Loaded new replica shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
+        if (request.getIsReplacementPrimary()) {
+            logger.info("DS{} Loaded replacement primary shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
+        } else {
+            logger.info("DS{} Loaded new replica shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
+        }
         return LoadShardReplicaResponse.newBuilder().setReturnCode(0).build();
     }
 

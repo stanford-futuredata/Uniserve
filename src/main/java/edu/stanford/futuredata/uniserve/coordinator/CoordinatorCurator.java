@@ -24,6 +24,10 @@ class CoordinatorCurator {
         cf.start();
     }
 
+    void close() {
+        cf.close();
+    }
+
     void registerCoordinator(String host, int port) {
         // Create coordinator location node.
         try {

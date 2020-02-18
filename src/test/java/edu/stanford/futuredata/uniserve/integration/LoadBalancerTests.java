@@ -93,7 +93,7 @@ public class LoadBalancerTests {
     public void testLoadBalancer() {
         logger.info("testLoadBalancer");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7780);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -101,7 +101,7 @@ public class LoadBalancerTests {
         int numServers = 4;
         for (int i = 0; i < numServers; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
-                    Path.of("/var/tmp/KVUniserve","shard" + i), zkHost, zkPort,"127.0.0.1",  8100 + i);
+                    Path.of("/var/tmp/KVUniserve","shard" + i), zkHost, zkPort,"127.0.0.1",  8300 + i);
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);

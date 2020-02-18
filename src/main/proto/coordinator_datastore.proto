@@ -32,6 +32,7 @@ message CreateNewShardResponse {
 
 message LoadShardReplicaMessage {
     int32 shard = 1;
+    bool isReplacementPrimary = 2;
 }
 
 message LoadShardReplicaResponse {

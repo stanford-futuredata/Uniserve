@@ -8,12 +8,10 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
-import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -28,6 +26,10 @@ class DataStoreCurator {
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         this.cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
+    }
+
+    void close() {
+        cf.close();
     }
 
     DataStoreDescription getDSDescription(int dsID) {

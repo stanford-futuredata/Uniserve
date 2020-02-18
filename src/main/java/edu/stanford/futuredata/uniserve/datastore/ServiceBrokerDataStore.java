@@ -77,14 +77,15 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     @Override
                     public void onNext(ReplicaPreCommitResponse replicaPreCommitResponse) {
                         if (replicaPreCommitResponse.getReturnCode() != 0) {
-                            logger.warn("Replica PreCommit Failed");
+                            logger.warn("DS{} Replica PreCommit Failed Shard {}", dataStore.dsID, shardNum);
                             success.set(false);
                         }
                     }
 
                     @Override
                     public void onError(Throwable throwable) {
-                        assert(false);
+                        logger.warn("DS{} Replica PreCommit RPC Failed Shard {}", dataStore.dsID, shardNum);
+                        semaphore.release();  // TODO:  Maybe some kind of retry or failure needed?
                     }
 
                     @Override
