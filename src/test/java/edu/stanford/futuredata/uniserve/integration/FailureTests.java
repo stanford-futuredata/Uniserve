@@ -152,11 +152,10 @@ public class FailureTests {
         coordinator.removeShard(1, 1);
         coordinator.removeShard(3, 0);
         coordinator.removeShard(3, 3);
-//        dataStores.get(2).shutDown();
+        dataStores.get(2).shutDown();
         coordinator.removeShard(3, 1);
         coordinator.addReplica(3, 3, 0.1);
         coordinator.addReplica(0, 2, 0.2);
-//        dataStores.get(3).shutDown();
 
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -176,7 +175,7 @@ public class FailureTests {
         coordinator.removeShard(2, 3);
         ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
         Integer queryResponse = broker.readQuery(readQueryPlan);
-        assertEquals(Integer.valueOf(2 * 2 + 1), queryResponse);
+        assertEquals(Integer.valueOf(2), queryResponse);
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).runPingDaemon = false;

@@ -121,6 +121,7 @@ public class Coordinator {
         shardMapLock.lock();
         if (dataStoresMap.get(replicaID).status.get() == DataStoreDescription.DEAD) {
             shardMapLock.unlock();
+            logger.info("AddReplica failed for shard {} DEAD DataStore {}", shardNum, replicaID);
             return;
         }
         int primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
@@ -145,9 +146,21 @@ public class Coordinator {
             LoadShardReplicaMessage m = LoadShardReplicaMessage.newBuilder().setShard(shardNum).setIsReplacementPrimary(false).build();
             try {
                 LoadShardReplicaResponse r = stub.loadShardReplica(m);
-                if (r.getReturnCode() != 0) {
-                    assert(false);
+                if (r.getReturnCode() != 0) {  // TODO: Might lead to unavailable shard.
                     logger.warn("Shard {} load failed on DataStore {}", shardNum, replicaID);
+                    shardMapLock.lock();
+                    replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
+                    replicaRatios = shardToReplicaRatioMap.get(shardNum);
+                    if (replicaDataStores.contains(replicaID)) {
+                        int targetIndex = replicaDataStores.indexOf(replicaID);
+                        replicaDataStores.remove(Integer.valueOf(replicaID));
+                        replicaRatios.remove(targetIndex);
+                        primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
+                        ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+                        zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
+                    }
+                    shardMapLock.unlock();
+                    return;
                 }
             } catch (StatusRuntimeException e) {
                 logger.warn("Shard {} load RPC failed on DataStore {}", shardNum, replicaID);
@@ -159,6 +172,9 @@ public class Coordinator {
             primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
             shardMapLock.unlock();
+        } else {
+            shardMapLock.unlock();
+            logger.info("AddReplica failed for shard {} PRIMARY DataStore {}", shardNum, replicaID);
         }
     }
 
@@ -218,6 +234,8 @@ public class Coordinator {
             shardMapLock.unlock();
         } else {
             if (!replicaDataStores.contains(targetID)) {
+                logger.info("RemoveShard Failed DataStore {} does not have shard {}", targetID, shardNum);
+                shardMapLock.unlock();
                 return;
             }
             int targetIndex = replicaDataStores.indexOf(targetID);
