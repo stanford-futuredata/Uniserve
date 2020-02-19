@@ -253,6 +253,12 @@ public class Coordinator {
             primaryDataStore = shardToPrimaryDataStoreMap.get(shardNum);
             replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
             replicaRatios = shardToReplicaRatioMap.get(shardNum);
+            NotifyReplicaRemovedMessage nm = NotifyReplicaRemovedMessage.newBuilder().setDsID(targetID).setShard(shardNum).build();
+            try {
+                NotifyReplicaRemovedResponse r = dataStoreStubsMap.get(primaryDataStore).notifyReplicaRemoved(nm);
+            } catch (StatusRuntimeException e) {
+                logger.warn("Shard {} removal notification RPC for DataStore {} failed on primary DataStore {}", shardNum, targetID, primaryDataStore);
+            }
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             zkCurator.setZKShardDescription(shardNum, primaryDataStore, zkShardDescription.cloudName, zkShardDescription.versionNumber, replicaDataStores, replicaRatios);
             shardMapLock.unlock();

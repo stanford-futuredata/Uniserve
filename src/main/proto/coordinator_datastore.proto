@@ -20,6 +20,8 @@ service CoordinatorDataStore {
     rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
     // Ask a datastore for shard usage information.
     rpc shardUsage (ShardUsageMessage) returns (ShardUsageResponse) {}
+    // Notify the primary a replica is being removed.
+    rpc NotifyReplicaRemoved (NotifyReplicaRemovedMessage) returns (NotifyReplicaRemovedResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -61,3 +63,10 @@ message ShardUsageResponse {
     map<int32, int32> shardQPS = 1;
     map<int32, int32> shardMemoryUsage = 2;
 }
+
+message NotifyReplicaRemovedMessage {
+    int32 shard = 1;
+    int32 dsID = 2;
+}
+
+message NotifyReplicaRemovedResponse {}

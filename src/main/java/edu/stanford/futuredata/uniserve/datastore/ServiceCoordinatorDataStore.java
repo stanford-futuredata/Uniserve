@@ -215,15 +215,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             for (ManagedChannel channel: dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.channel).collect(Collectors.toList())) {
                 channel.shutdown();
             }
-        } else {
-            // Is replica.
-            ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
-            DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(zkShardDescription.primaryDSID);
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryDSDescription.host, primaryDSDescription.port).usePlaintext().build();
-            DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
-            NotifyReplicaRemovedMessage m = NotifyReplicaRemovedMessage.newBuilder().setShard(shardNum).setDsID(dataStore.dsID).build();
-            NotifyReplicaRemovedResponse r = stub.notifyReplicaRemoved(m);
-            channel.shutdown();
         }
         shard.destroy();
         dataStore.primaryShardMap.remove(shardNum);
@@ -268,5 +259,29 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                 .putAllShardQPS(shardQPS)
                 .putAllShardMemoryUsage(shardMemoryUsages)
                 .build();
+    }
+
+    @Override
+    public void notifyReplicaRemoved(NotifyReplicaRemovedMessage request, StreamObserver<NotifyReplicaRemovedResponse> responseObserver) {
+        responseObserver.onNext(notifyReplicaRemovedHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
+        int shardNum = request.getShard();
+        int dsID = request.getDsID();
+        dataStore.shardLockMap.get(shardNum).readLock().lock();
+        List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
+        List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
+        if (matchingDescriptions.size() > 0) {
+            assert(matchingDescriptions.size() == 1);
+            matchingDescriptions.get(0).channel.shutdown();
+            shardReplicaDescriptions.remove(matchingDescriptions.get(0));
+            logger.info("DS{} removed replica of shard {} on DS{}", dataStore.dsID, shardNum, dsID);
+        } else {
+            logger.info("DS{} removed UNKNOWN replica shard {} on DS{}", dataStore.dsID, shardNum, dsID);
+        }
+        dataStore.shardLockMap.get(shardNum).readLock().unlock();
+        return NotifyReplicaRemovedResponse.newBuilder().build();
     }
 }

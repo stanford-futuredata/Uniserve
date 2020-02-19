@@ -10,8 +10,6 @@ package datastoredatastore;
 service DataStoreDataStore {
     // Notify the primary a replica must be updated to the latest version.
     rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
-    // Notify the primary a replica is being removed.
-    rpc NotifyReplicaRemoved (NotifyReplicaRemovedMessage) returns (NotifyReplicaRemovedResponse) {}
     // 2PC-style prepare commit on the replica.
     rpc ReplicaPreCommit (stream ReplicaPreCommitMessage) returns (ReplicaPreCommitResponse) {}
     // Commit or abort the write query.
@@ -56,10 +54,3 @@ message BootstrapReplicaResponse {
 message DataStorePingMessage {}
 
 message DataStorePingResponse {}
-
-message NotifyReplicaRemovedMessage {
-    int32 shard = 1;
-    int32 dsID = 2;
-}
-
-message NotifyReplicaRemovedResponse {}

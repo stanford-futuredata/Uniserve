@@ -130,23 +130,4 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onNext(DataStorePingResponse.newBuilder().build());
         responseObserver.onCompleted();
     }
-
-    @Override
-    public void notifyReplicaRemoved(NotifyReplicaRemovedMessage request, StreamObserver<NotifyReplicaRemovedResponse> responseObserver) {
-        responseObserver.onNext(notifyReplicaRemovedHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
-        int shardNum = request.getShard();
-        int dsID = request.getDsID();
-        dataStore.shardLockMap.get(shardNum).readLock().lock();
-        List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
-        List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
-        assert(matchingDescriptions.size() == 1);
-        shardReplicaDescriptions.remove(matchingDescriptions.get(0));
-        dataStore.shardLockMap.get(shardNum).readLock().unlock();
-        logger.info("DS{} removed replica of shard {} on DS{}", dataStore.dsID, shardNum, dsID);
-        return NotifyReplicaRemovedResponse.newBuilder().build();
-    }
 }

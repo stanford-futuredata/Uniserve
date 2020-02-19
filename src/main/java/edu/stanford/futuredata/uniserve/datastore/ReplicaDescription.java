@@ -13,4 +13,11 @@ public class ReplicaDescription {
         this.channel = channel;
         this.stub = stub;
     }
+
+    @Override
+    public String toString() {
+        return "ReplicaDescription{" +
+                "dsID=" + dsID +
+                '}';
+    }
 }
