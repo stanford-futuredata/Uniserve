@@ -17,7 +17,7 @@ public class Simulator {
 
     private Integer globalClock = 0;
     private final Integer maxMemory = 4;
-    private List<Integer> latencies = new ArrayList<>();
+    private Map<ShardSet, List<Integer>> latencies = new HashMap<>();
 
     final int numShards;
     final int numServers;
@@ -85,15 +85,18 @@ public class Simulator {
 //                for(int serverNum = 0; serverNum < numServers; serverNum++) {
 //                    logger.info("Server {} Assignment: {}", serverNum, shardAssignments.get(serverNum));
 //                }
-                assert(latencies.size() > 0);
-                latencies.sort(Integer::compareTo);
-                double p50 = latencies.get(latencies.size() / 2);
-                double p99 = latencies.get((latencies.size() * 99) / 100);
-                logger.info("p50: {}, p99: {}", p50, p99);
-                latencies.clear();
-                for(int shardNum = 0; shardNum < numShards; shardNum++) {
-                    shardLoads[shardNum] = 0;
+                for(Map.Entry<ShardSet, List<Integer>> entry: latencies.entrySet()) {
+                    List<Integer> shardSetLatencies = entry.getValue();
+                    assert (shardSetLatencies.size() > 0);
+                    shardSetLatencies.sort(Integer::compareTo);
+                    double p50 = shardSetLatencies.get(shardSetLatencies.size() / 2);
+                    double p99 = shardSetLatencies.get((shardSetLatencies.size() * 99) / 100);
+                    logger.info("Shardset: {} NumQueries: {} p50: {}, p99: {}", entry.getKey(), shardSetLatencies.size(), p50, p99);
+                    for (int shardNum = 0; shardNum < numShards; shardNum++) {
+                        shardLoads[shardNum] = 0;
+                    }
                 }
+                latencies.clear();
             }
             globalClock++;
         }
@@ -165,9 +168,47 @@ public class Simulator {
             if (workRemaining == 1) {
                 remainingSubqueries -= 1;
                 if (remainingSubqueries == 0) {
-                    latencies.add(globalClock - startTick);
+                    ShardSet s = new ShardSet(shards);
+                    latencies.putIfAbsent(s, new ArrayList<>());
+                    latencies.get(s).add(globalClock - startTick);
                 }
                 shardLoads[shardNum]++;
+            }
+        }
+    }
+
+    private static class ShardSet {
+        private final List<Integer> shardList;
+        public ShardSet(List<Integer> shardList) {
+            this.shardList = shardList;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ShardSet shardSet = (ShardSet) o;
+            if (shardList.size() == 1 && shardSet.hashCode() == 1) {
+                return true;
+            }
+            return shardList.equals(shardSet.shardList);
+        }
+
+        @Override
+        public int hashCode() {
+            if (shardList.size() == 1) {
+                return 1;
+            } else {
+                return shardList.stream().mapToInt(Object::hashCode).sum();
+            }
+        }
+
+        @Override
+        public String toString() {
+            if (shardList.size() == 1) {
+                return "[1]";
+            } else {
+                return shardList.toString();
             }
         }
     }
