@@ -13,6 +13,7 @@ import java.util.*;
 public class LoadBalancer {
 
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
+    public static boolean verbose = true;
 
     public static List<double[]> balanceLoad(Integer numShards, Integer numServers,
                                    int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
@@ -44,11 +45,15 @@ public class LoadBalancer {
             setConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, affinityPairs, maxMemory);
             if (cplex.solve()) {
                 affinityThreshold = affinityCandidate;
-                logger.info("Affinity threshold feasible: {}", affinityCandidate);
+                if (verbose) {
+                    logger.info("Affinity threshold feasible: {}", affinityCandidate);
+                }
                 break;
             }
         }
-        logger.info("Affinity threshold: {} Time: {}ms", affinityThreshold, System.currentTimeMillis() - feasibilityStart);
+        if (verbose) {
+            logger.info("Affinity threshold: {} Time: {}ms", affinityThreshold, System.currentTimeMillis() - feasibilityStart);
+        }
 
         int[][] transferCosts = currentLocations.clone();
         for(int i = 0; i < transferCosts.length; i++) {
@@ -56,6 +61,9 @@ public class LoadBalancer {
         }
 
         IloCplex cplex = new IloCplex();
+        if (!verbose) {
+            cplex.setOut(null);
+        }
 
         List<IloNumVar[]> r = new ArrayList<>();
         List<IloNumVar[]> x = new ArrayList<>();
@@ -72,7 +80,9 @@ public class LoadBalancer {
 
         Set<Pair<Integer, Integer>> affinityPairs = getAffinityPairs(shardAffinities, affinityThreshold);
 
-        logger.info("Affinity set: {}", affinityPairs);
+        if (verbose) {
+            logger.info("Affinity set: {}", affinityPairs);
+        }
 
         setConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, affinityPairs, maxMemory);
 
