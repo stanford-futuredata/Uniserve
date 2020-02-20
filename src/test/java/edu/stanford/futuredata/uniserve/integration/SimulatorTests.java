@@ -27,9 +27,9 @@ public class SimulatorTests {
     @Test
     public void testBasicSimulator() {
         logger.info("testBasicSimulator");
-        int numShards = 40;
-        int numServers = 20;
+        int numShards = 20;
+        int numServers = 10;
         Simulator simulator = new Simulator(numShards, numServers);
-        simulator.run(10000);
+        simulator.run(1000000);
     }
 }

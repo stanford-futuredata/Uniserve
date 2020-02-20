@@ -18,6 +18,7 @@ public class Simulator {
     private Integer globalClock = 0;
     private final Integer maxMemory = 4;
     private Map<ShardSet, List<Integer>> latencies = new HashMap<>();
+    private Map<Integer, List<Integer>> serverLatencies = new HashMap<>();
 
     final int numShards;
     final int numServers;
@@ -39,7 +40,7 @@ public class Simulator {
         List<double[]> shardAssignments = new ArrayList<>();
         for(int serverNum = 0; serverNum < numServers; serverNum++) {
             shardAssignments.add(new double[numShards]);
-            servers.add(new Server());
+            servers.add(new Server(serverNum));
         }
         for(int shardNum = 0; shardNum < numShards; shardNum++) {
             int startingServer = shardNum % numServers;
@@ -69,7 +70,7 @@ public class Simulator {
                 }
             }
             // Load-balance.
-            if (iterNum > 0 && iterNum % 1000 == 0) {
+            if (iterNum > 0 && iterNum % 10000 == 0) {
                 int[][] currentLocations = new int[numServers][numShards];
                 for(int serverNum = 0; serverNum < numServers; serverNum++) {
                     for(int shardNum = 0; shardNum < numShards; shardNum++) {
@@ -82,9 +83,15 @@ public class Simulator {
                     e.printStackTrace();
                     assert(false);
                 }
-//                for(int serverNum = 0; serverNum < numServers; serverNum++) {
-//                    logger.info("Server {} Assignment: {}", serverNum, shardAssignments.get(serverNum));
-//                }
+                for(int serverNum = 0; serverNum < numServers; serverNum++) {
+                    List<Integer> sLatencies = serverLatencies.get(serverNum);
+                    sLatencies.sort(Integer::compareTo);
+                    double p50 = sLatencies.get(sLatencies.size() / 2);
+                    double p99 = sLatencies.get((sLatencies.size() * 99) / 100);
+                    logger.info("Server {} Assignment: {}  Average queue size: {}  p50: {} p99: {}", serverNum, shardAssignments.get(serverNum), servers.get(serverNum).queueSizes.stream().mapToInt(i -> i).average().getAsDouble(), p50, p99);
+                    servers.get(serverNum).queueSizes.clear();
+                    sLatencies.clear();
+                }
                 for(Map.Entry<ShardSet, List<Integer>> entry: latencies.entrySet()) {
                     List<Integer> shardSetLatencies = entry.getValue();
                     assert (shardSetLatencies.size() > 0);
@@ -92,9 +99,10 @@ public class Simulator {
                     double p50 = shardSetLatencies.get(shardSetLatencies.size() / 2);
                     double p99 = shardSetLatencies.get((shardSetLatencies.size() * 99) / 100);
                     logger.info("Shardset: {} NumQueries: {} p50: {}, p99: {}", entry.getKey(), shardSetLatencies.size(), p50, p99);
-                    for (int shardNum = 0; shardNum < numShards; shardNum++) {
-                        shardLoads[shardNum] = 0;
-                    }
+
+                }
+                for (int shardNum = 0; shardNum < numShards; shardNum++) {
+                    shardLoads[shardNum] = 0;
                 }
                 latencies.clear();
             }
@@ -108,15 +116,29 @@ public class Simulator {
         final int workToGenerate = (numServers * 8) / 10;
         int workGenerated = 0;
         while(workGenerated < workToGenerate) {
-            List<Integer> shardList = Collections.singletonList(ThreadLocalRandom.current().nextInt(numShards));
+            List<Integer> shardList;
+            int querySelector = ThreadLocalRandom.current().nextInt(numShards);
+            if (querySelector <= 5) {
+                shardList = Arrays.asList(0, 1);
+                workGenerated += 2;
+            } else {
+                shardList = Collections.singletonList(ThreadLocalRandom.current().nextInt(numShards));
+                workGenerated += 1;
+            }
             queries.add(new Query(shardList, 1));
-            workGenerated++;
         }
         return queries;
     }
 
     private class Server {
         private List<Pair<Query, Integer>> queries = new ArrayList<>();
+        private List<Integer> queueSizes = new ArrayList<>();
+
+        private final int id;
+
+        public Server(int id) {
+            this.id = id;
+        }
 
         public void addQuery(Query query, Integer shardNum) {
             queries.add(new Pair<>(query, shardNum));
@@ -126,11 +148,12 @@ public class Simulator {
             if (queries.size() > 0) {
                 Query firstQuery = queries.get(0).getValue0();
                 int firstQueryShard = queries.get(0).getValue1();
-                firstQuery.doShardWork(firstQueryShard);
+                firstQuery.doShardWork(firstQueryShard, id);
                 if (!firstQuery.checkShardWork(firstQueryShard)) {
                     queries.remove(0);
                 }
             }
+            queueSizes.add(queries.size());
         }
     }
 
@@ -142,6 +165,7 @@ public class Simulator {
         // Number of outstanding subqueries.
         private int remainingSubqueries;
         private final List<Integer> shards;
+        private final Set<Integer> servers = new HashSet<>();
 
         public Query(List<Integer> shardNums, Integer queryTicks) {
             for(Integer shardNum: shardNums) {
@@ -160,7 +184,8 @@ public class Simulator {
             return subQueries.get(shardNum) > 0;
         }
 
-        public void doShardWork(int shardNum) {
+        public void doShardWork(int shardNum, int serverID) {
+            servers.add(serverID);
             int workRemaining = subQueries.get(shardNum);
             assert(workRemaining > 0);
             subQueries.put(shardNum, workRemaining - 1);
@@ -171,6 +196,10 @@ public class Simulator {
                     ShardSet s = new ShardSet(shards);
                     latencies.putIfAbsent(s, new ArrayList<>());
                     latencies.get(s).add(globalClock - startTick);
+                    for(Integer id: servers) {
+                        serverLatencies.putIfAbsent(id, new ArrayList<>());
+                        serverLatencies.get(id).add(globalClock - startTick);
+                    }
                 }
                 shardLoads[shardNum]++;
             }
@@ -178,7 +207,7 @@ public class Simulator {
     }
 
     private static class ShardSet {
-        private final List<Integer> shardList;
+        public final List<Integer> shardList;
         public ShardSet(List<Integer> shardList) {
             this.shardList = shardList;
         }
@@ -188,7 +217,7 @@ public class Simulator {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             ShardSet shardSet = (ShardSet) o;
-            if (shardList.size() == 1 && shardSet.hashCode() == 1) {
+            if (shardList.size() == 1 && shardSet.shardList.size() == 1) {
                 return true;
             }
             return shardList.equals(shardSet.shardList);
