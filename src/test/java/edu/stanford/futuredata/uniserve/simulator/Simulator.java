@@ -21,6 +21,8 @@ public class Simulator {
     private Map<Integer, List<Integer>> serverLatencies = new HashMap<>();
     private final Integer simulatedNumCores = 4;
 
+    private final int ticksPerSubquery = 10;
+
     final int numShards;
     final int numServers;
 
@@ -53,25 +55,27 @@ public class Simulator {
             for(Server server: servers) {
                 server.doWork();
             }
-            List<Query> queries = generateQueries();
-            // Add queries to servers.
-            for (Query query: queries) {
-                List<Integer> shardNums = query.getShards();
-                for(Integer shardNum: shardNums) {
-                    double randomAssignment = ThreadLocalRandom.current().nextDouble(0.0, 1.0);
-                    double currentState = 0;
-                    for(int serverNum = 0; serverNum < numServers; serverNum++) {
-                        double[] ratios = shardAssignments.get(serverNum);
-                        currentState += ratios[shardNum];
-                        if (currentState > randomAssignment) {
-                            servers.get(serverNum).addQuery(query, shardNum);
-                            break;
+            if (iterNum % ticksPerSubquery == 0) {
+                List<Query> queries = generateQueries();
+                // Add queries to servers.
+                for (Query query : queries) {
+                    List<Integer> shardNums = query.getShards();
+                    for (Integer shardNum : shardNums) {
+                        double randomAssignment = ThreadLocalRandom.current().nextDouble(0.0, 1.0);
+                        double currentState = 0;
+                        for (int serverNum = 0; serverNum < numServers; serverNum++) {
+                            double[] ratios = shardAssignments.get(serverNum);
+                            currentState += ratios[shardNum];
+                            if (currentState > randomAssignment) {
+                                servers.get(serverNum).addQuery(query, shardNum);
+                                break;
+                            }
                         }
                     }
                 }
             }
             // Load-balance.
-            if (iterNum > 0 && iterNum % 10000 == 0 || iterNum == 100) {
+            if (iterNum > 0 && iterNum % 10000 == 0 || iterNum == 1000) {
                 int[][] currentLocations = new int[numServers][numShards];
                 for(int serverNum = 0; serverNum < numServers; serverNum++) {
                     for(int shardNum = 0; shardNum < numShards; shardNum++) {
@@ -117,7 +121,7 @@ public class Simulator {
     // Generate queries which load the cluster to 80% of capacity.
     private List<Query> generateQueries() {
         List<Query> queries = new ArrayList<>();
-        final int workToGenerate =  (simulatedNumCores * numServers * 8) / 10;
+        final int workToGenerate =  (simulatedNumCores * numServers * 80) / 100;
         int workGenerated = 0;
         while(workGenerated < workToGenerate) {
             List<Integer> shardList;
@@ -129,7 +133,7 @@ public class Simulator {
                 shardList = Collections.singletonList(querySelector);
                 workGenerated += 1;
             }
-            queries.add(new Query(shardList, 1));
+            queries.add(new Query(shardList, ticksPerSubquery));
         }
         return queries;
     }
@@ -241,28 +245,17 @@ public class Simulator {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             ShardSet shardSet = (ShardSet) o;
-            if (shardList.size() == 1 && shardSet.shardList.size() == 1) {
-                return true;
-            }
-            return shardList.equals(shardSet.shardList);
+            return shardList.size() == shardSet.shardList.size();
         }
 
         @Override
         public int hashCode() {
-            if (shardList.size() == 1) {
-                return 1;
-            } else {
-                return shardList.stream().mapToInt(Object::hashCode).sum();
-            }
+            return shardList.size();
         }
 
         @Override
         public String toString() {
-            if (shardList.size() == 1) {
-                return "[1]";
-            } else {
-                return shardList.toString();
-            }
+            return Integer.toString(shardList.size());
         }
     }
 }
