@@ -10,15 +10,16 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Simulate the behavior of a cluster of completely serial single-core servers.  Report p50 and p99 latencies.
+ * Simulate the behavior of a cluster of N-core servers.
  */
 public class Simulator {
     private static final Logger logger = LoggerFactory.getLogger(Simulator.class);
 
     private Integer globalClock = 0;
-    private final Integer maxMemory = 4;
+    private final Integer simulatedMaxMemory = 4;
     private Map<ShardSet, List<Integer>> latencies = new HashMap<>();
     private Map<Integer, List<Integer>> serverLatencies = new HashMap<>();
+    private final Integer simulatedNumCores = 4;
 
     final int numShards;
     final int numServers;
@@ -78,7 +79,7 @@ public class Simulator {
                     }
                 }
                 try {
-                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, shardAffinities, maxMemory);
+                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, shardAffinities, simulatedMaxMemory);
                 } catch (IloException e) {
                     e.printStackTrace();
                     assert(false);
@@ -111,14 +112,15 @@ public class Simulator {
 
     }
 
+    // Generate queries which load the cluster to 80% of capacity.
     private List<Query> generateQueries() {
         List<Query> queries = new ArrayList<>();
-        final int workToGenerate = (numServers * 8) / 10;
+        final int workToGenerate =  (simulatedNumCores * numServers * 8) / 10;
         int workGenerated = 0;
         while(workGenerated < workToGenerate) {
             List<Integer> shardList;
             int querySelector = ThreadLocalRandom.current().nextInt(numShards);
-            if (querySelector <= 5) {
+            if (querySelector < 0) {
                 shardList = Arrays.asList(0, 1);
                 workGenerated += 2;
             } else {
@@ -130,6 +132,7 @@ public class Simulator {
         return queries;
     }
 
+    // Each server will divide its cores evenly between all outstanding subqueries, with at most one core per query.
     private class Server {
         private List<Pair<Query, Integer>> queries = new ArrayList<>();
         private List<Integer> queueSizes = new ArrayList<>();
@@ -145,21 +148,35 @@ public class Simulator {
         }
 
         public void doWork() {
-            if (queries.size() > 0) {
-                Query firstQuery = queries.get(0).getValue0();
-                int firstQueryShard = queries.get(0).getValue1();
-                firstQuery.doShardWork(firstQueryShard, id);
-                if (!firstQuery.checkShardWork(firstQueryShard)) {
-                    queries.remove(0);
+            List<Pair<Query, Integer>> finishedQueries = new ArrayList<>();
+            double workAvailable = (double) simulatedNumCores;
+            double workDonePerShard = 0;
+            double epsilon = 0.000001; // for floating-point problems
+            while (queries.size() > 0 && workAvailable > 0 + epsilon && workDonePerShard < 1.0 - epsilon) {
+                double workPerShard = Math.min(workAvailable / queries.size(), 1.0 - workDonePerShard);
+                workDonePerShard += workPerShard;
+                workAvailable -= workPerShard * queries.size();
+                for (Pair<Query, Integer> queryShardPair : queries) {
+                    Query query = queryShardPair.getValue0();
+                    int shard = queryShardPair.getValue1();
+                    double remainingWork = query.doShardWork(shard, id, workPerShard);
+                    if (remainingWork <= 0) { // If less than a full workPerShard amount was needed.
+                        finishedQueries.add(queryShardPair);
+                        workAvailable -= remainingWork;
+                    }
+                }
+                for (Pair<Query, Integer> finishedQuery : finishedQueries) {
+                    queries.remove(finishedQuery);
                 }
             }
             queueSizes.add(queries.size());
         }
     }
 
+    // Each query has several subqueries which run on different shards.
     private class Query {
         // Shard num to work remaining.
-        private final Map<Integer, Integer> subQueries = new HashMap<>();
+        private final Map<Integer, Double> subQueries = new HashMap<>();
         // Tick when query starts.
         private final int startTick;
         // Number of outstanding subqueries.
@@ -169,7 +186,7 @@ public class Simulator {
 
         public Query(List<Integer> shardNums, Integer queryTicks) {
             for(Integer shardNum: shardNums) {
-                subQueries.put(shardNum, queryTicks);
+                subQueries.put(shardNum, (double) queryTicks);
             }
             startTick = globalClock;
             remainingSubqueries = shardNums.size();
@@ -180,17 +197,14 @@ public class Simulator {
             return shards;
         }
 
-        public boolean checkShardWork(int shardNum) {
-            return subQueries.get(shardNum) > 0;
-        }
-
-        public void doShardWork(int shardNum, int serverID) {
+        public double doShardWork(int shardNum, int serverID, double work) {
+            assert(work > 0.0 && work <= 1.0);
             servers.add(serverID);
-            int workRemaining = subQueries.get(shardNum);
+            double workRemaining = subQueries.get(shardNum);
             assert(workRemaining > 0);
-            subQueries.put(shardNum, workRemaining - 1);
+            subQueries.put(shardNum, workRemaining - work);
             // Record query latency if query is finished.
-            if (workRemaining == 1) {
+            if (workRemaining - work <= 0) {
                 remainingSubqueries -= 1;
                 if (remainingSubqueries == 0) {
                     ShardSet s = new ShardSet(shards);
@@ -203,6 +217,14 @@ public class Simulator {
                 }
                 shardLoads[shardNum]++;
             }
+            return workRemaining - work;
+        }
+
+        @Override
+        public String toString() {
+            return "Query{" +
+                    "subQueries=" + subQueries +
+                    '}';
         }
     }
 
