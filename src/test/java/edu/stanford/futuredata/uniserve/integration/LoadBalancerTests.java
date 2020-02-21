@@ -48,10 +48,9 @@ public class LoadBalancerTests {
         int[] shardLoads = new int[]{1, 2, 3, 20};
         int[] memoryUsages = new int[]{9, 1, 1, 1};
         int[][] currentLocations = new int[][]{new int[]{1, 1, 1, 1}, new int[]{0, 0, 0, 0}};
-        double[][] shardAffinities = new double[4][4];
         int maxMemory = 10;
 
-        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, shardAffinities, maxMemory);
+        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, maxMemory);
         logger.info("{} {}", returnR.get(0), returnR.get(1));
         double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
         for(double[] Rs: returnR) {
@@ -61,32 +60,6 @@ public class LoadBalancerTests {
             }
             assertTrue(serverLoad <= averageLoad * 1.1);
         }
-    }
-
-    @Test
-    public void testBalanceLoadWithAffinity() throws IloException {
-        logger.info("testBalanceLoadWithAffinity");
-
-        int numShards = 3;
-        int numServers = 2;
-        int[] shardLoads = new int[]{1, 1, 1};
-        int[] memoryUsages = new int[]{1, 1, 1};
-        int[][] currentLocations = new int[][]{new int[]{1, 1, 1}, new int[]{0, 0, 0}};
-        double[][] shardAffinities = new double[][]{new double[]{0, 0.9, 0.5}, new double[]{0.9, 0, 0.5}, new double[] {0.5, 0.5, 0}};
-        int maxMemory = 10;
-
-        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, shardAffinities, maxMemory);
-        logger.info("{} {}", returnR.get(0), returnR.get(1));
-        double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
-        for(double[] Rs: returnR) {
-            double serverLoad = 0;
-            for(int i = 0; i < numShards; i++) {
-                serverLoad += Rs[i] * shardLoads[i];
-            }
-            assertTrue(serverLoad <= averageLoad * 1.1);
-        }
-        assertTrue(returnR.get(0)[0] > 0 ^ returnR.get(0)[1] > 0);
-        assertTrue(returnR.get(1)[0] > 0 ^ returnR.get(1)[1] > 0);
     }
 
     @Test

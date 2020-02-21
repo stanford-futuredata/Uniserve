@@ -38,7 +38,6 @@ public class Simulator {
 
     public void run(int numIterations) {
         globalClock = 0;
-        double[][] shardAffinities = new double[numShards][numShards];
         List<Server> servers = new ArrayList<>();
         List<double[]> shardAssignments = new ArrayList<>();
         for(int serverNum = 0; serverNum < numServers; serverNum++) {
@@ -83,7 +82,7 @@ public class Simulator {
                     }
                 }
                 try {
-                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, shardAffinities, simulatedMaxMemory);
+                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, simulatedMaxMemory);
                 } catch (IloException e) {
                     e.printStackTrace();
                     assert(false);
