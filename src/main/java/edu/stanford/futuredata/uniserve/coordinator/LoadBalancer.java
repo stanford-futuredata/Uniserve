@@ -1,10 +1,7 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import ilog.concert.IloException;
-import ilog.concert.IloNumExpr;
-import ilog.concert.IloNumVar;
+import ilog.concert.*;
 import ilog.cplex.IloCplex;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +14,7 @@ public class LoadBalancer {
 
     public static List<double[]> balanceLoad(Integer numShards, Integer numServers,
                                    int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
+                                   Map<Set<Integer>, Integer> sampleQueries,
                                    Integer maxMemory) throws IloException {
         assert(shardLoads.length == numShards);
         assert(shardMemoryUsages.length == numShards);
@@ -24,12 +22,11 @@ public class LoadBalancer {
         for (int[] currentLocation : currentLocations) {
             assert (currentLocation.length == numShards);
         }
-        
+
         int[][] transferCosts = currentLocations.clone();
         for(int i = 0; i < transferCosts.length; i++) {
             transferCosts[i] = Arrays.stream(transferCosts[i]).map(j -> j == 0 ? 1 : 0).toArray();
         }
-
         IloCplex cplex = new IloCplex();
         if (!verbose) {
             cplex.setOut(null);
@@ -42,14 +39,42 @@ public class LoadBalancer {
             x.add(cplex.intVarArray(numShards, 0, 1));
         }
 
+        List<Set<Integer>> sampleQueryKeys = new ArrayList<>(sampleQueries.keySet());
+
+        // Minimize sum of query worst-case times, weighted by query frequency.
+        int numSampleQueries = sampleQueries.size();
+        IloIntVar[] m = cplex.intVarArray(numSampleQueries, 0, 20); // Each entry is the maximum number of that query's shards on the same server.
+        int[] queryWeights = sampleQueryKeys.stream().map(sampleQueries::get).mapToInt(i ->i).toArray();
+        IloObjective parallelObjective = cplex.minimize(cplex.scalProd(m, queryWeights));
+
+        // Minimize transfer costs.
         IloNumExpr[] transferCostList = new IloNumExpr[numServers];
         for (int i = 0; i < numServers; i++) {
             transferCostList[i] = cplex.scalProd(x.get(i), transferCosts[i]);
         }
-        cplex.addMinimize(cplex.sum(transferCostList));
+        IloObjective transferObjective = cplex.minimize(cplex.sum(transferCostList));
+        cplex.add(cplex.minimize(cplex.staticLex(
+                new IloNumExpr[] {parallelObjective.getExpr(), transferObjective.getExpr()},
+                new double[]{1.0, 1.0}, // Weights
+                new int[]{2, 1}, // Priorities:  The parallel objective is more important.
+                new double[]{0.0, 0.0}, // Absolute tolerances
+                new double[]{0.0, 0.0}, // Relative tolerances
+                "Objective"
+        )));
 
+        for(int serverNum = 0; serverNum < numServers; serverNum++) {
+            int q = 0;
+            for (Set<Integer> shards : sampleQueryKeys) {
+                IloNumExpr e = cplex.constant(0);
+                for (Integer shardNum : shards) {
+                    e = cplex.sum(e, x.get(serverNum)[shardNum]);
+                }
+                cplex.addLe(e, m[q]);
+                q++;
+            }
+        }
 
-        setConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
+        setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
 
         assert(cplex.solve());
 
@@ -61,17 +86,17 @@ public class LoadBalancer {
     }
 
 
-    // Set the constraints of the load-balancing optimization problem on a solver and its variables.
-    private static void setConstraints(IloCplex cplex, List<IloNumVar[]> r, List<IloNumVar[]> x, Integer numShards, Integer numServers,
-                        int[] shardLoads, int[] shardMemoryUsages,
-                        Integer maxMemory) throws IloException {
+    // Set the load, memory, and sanity constraints.
+    private static void setCoreConstraints(IloCplex cplex, List<IloNumVar[]> r, List<IloNumVar[]> x, Integer numShards, Integer numServers,
+                                           int[] shardLoads, int[] shardMemoryUsages,
+                                           Integer maxMemory) throws IloException {
 
         double averageLoad = (double) Arrays.stream(shardLoads).sum() / numServers;
         double epsilon = averageLoad / 10;
 
         for (int i = 0; i < numServers; i++) {
             cplex.addLe(cplex.scalProd(shardLoads, r.get(i)), averageLoad + epsilon); // Max load constraint
-            // cplex.addGe(cplex.scalProd(shardLoads, r.get(i)), averageLoad - epsilon); // Min load constraint
+            cplex.addGe(cplex.scalProd(shardLoads, r.get(i)), averageLoad - epsilon); // Min load constraint
         }
 
         for (int i = 0; i < numServers; i++) {

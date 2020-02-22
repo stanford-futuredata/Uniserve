@@ -81,8 +81,15 @@ public class Simulator {
                         currentLocations[serverNum][shardNum] = shardAssignments.get(serverNum)[shardNum] > 0 ? 1 : 0;
                     }
                 }
+                Map<Set<Integer>, Integer> sampleQueries = new HashMap<>();
+                for (int i = 0; i < 1000; i++) {
+                    List<Query> queries = generateQueries();
+                    for (Query q: queries) {
+                        sampleQueries.merge(new HashSet<>(q.shards), 1, Integer::sum);
+                    }
+                }
                 try {
-                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, simulatedMaxMemory);
+                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, sampleQueries, simulatedMaxMemory);
                 } catch (IloException e) {
                     e.printStackTrace();
                     assert(false);
@@ -126,7 +133,7 @@ public class Simulator {
             List<Integer> shardList;
             int querySelector = ThreadLocalRandom.current().nextInt(numShards);
             if (querySelector < 20) {
-                shardList = Arrays.asList(querySelector, (querySelector + 1) % numShards);
+                shardList = Arrays.asList(querySelector, (querySelector + 10) % numShards);
                 workGenerated += 2;
             } else {
                 shardList = Collections.singletonList(querySelector);

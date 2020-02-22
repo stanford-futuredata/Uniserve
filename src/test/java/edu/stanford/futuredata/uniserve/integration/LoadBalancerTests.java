@@ -50,7 +50,7 @@ public class LoadBalancerTests {
         int[][] currentLocations = new int[][]{new int[]{1, 1, 1, 1}, new int[]{0, 0, 0, 0}};
         int maxMemory = 10;
 
-        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, maxMemory);
+        List<double[]> returnR = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, new HashMap<>(), maxMemory);
         logger.info("{} {}", returnR.get(0), returnR.get(1));
         double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
         for(double[] Rs: returnR) {
