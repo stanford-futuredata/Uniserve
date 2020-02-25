@@ -43,12 +43,10 @@ public class Coordinator {
     final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
     // Map from shards to their replicas' ratios.
     final Map<Integer, List<Double>> shardToReplicaRatioMap = new ConcurrentHashMap<>();
-    // Matrix of shard affinity counts:  A_ij is number of queries on i that are also on j.
-    final Map<Integer, Map<Integer, Integer>> affinityCounts = new ConcurrentHashMap<>();
-    // Number of queries each shard has received.
-    final Map<Integer, Integer> readQueryCounts = new ConcurrentHashMap<>();
-    // Lock on the affinityCounts and readQueryCounts maps.
-    final Lock affinityLock = new ReentrantLock();
+    // Map from sets of shards touched by query to frequency.
+    public Map<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
+    // Lock on the queryStatistics map.
+    final Lock statisticsLock = new ReentrantLock();
 
     public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
@@ -335,25 +333,13 @@ public class Coordinator {
                 currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
             }
         }
-        affinityLock.lock();
-        double[][] shardAffinities = new double[numShards][numShards];
-        for(int i = 0; i < numShards; i++) {
-            int shardNumI = indexToShardNumMap.get(i);
-            int totalReadCount = readQueryCounts.getOrDefault(i, 0);
-            for(int j = 0; j < numShards; j++) {
-                int shardNumJ = indexToShardNumMap.get(j);
-                int sharedReadCount = affinityCounts.getOrDefault(shardNumI, Collections.emptyMap()).getOrDefault(shardNumJ, 0);
-                if (totalReadCount > 0) {
-                    shardAffinities[i][j] = sharedReadCount / (double) totalReadCount;
-                }
-            }
-        }
-        logger.info("Affinity counts: {}  Total counts: {}", affinityCounts, readQueryCounts);
-        affinityLock.lock();
         List<double[]> serverShardRatios = null;
         try {
             int maxMemory = 1000000;  // TODO:  Actually set this.
-            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, new HashMap<>(), maxMemory);
+            statisticsLock.lock();
+            logger.info("Query Statistics: {}", queryStatistics);
+            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, queryStatistics, maxMemory);
+            statisticsLock.lock();
         } catch (IloException e) {
             logger.info("Cplex exception");
             e.printStackTrace();

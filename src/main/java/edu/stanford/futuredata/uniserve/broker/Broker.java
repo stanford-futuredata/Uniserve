@@ -45,9 +45,9 @@ public class Broker {
     public boolean runShardMapUpdateDaemon = true;
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
-    private ShardAffinityDaemon shardAffinityDaemon;
+    private QueryStatisticsDaemon queryStatisticsDaemon;
     public boolean runShardAffinityDaemon = true;
-    public static int shardAffinityDaemonSleepDurationMillis = 10000;
+    public static int queryStatisticsDaemonSleepDurationMillis = 10000;
 
     public final Collection<Long> serializationTimes = new ConcurrentLinkedQueue<>();
     public final Collection<Long> deserializationTimes = new ConcurrentLinkedQueue<>();
@@ -57,8 +57,7 @@ public class Broker {
     public static final int QUERY_FAILURE = 1;
     public static final int QUERY_RETRY = 2;
 
-    public ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Integer>> affinityCounts = new ConcurrentHashMap<>();
-    public ConcurrentHashMap<Integer, Integer> readQueryCounts = new ConcurrentHashMap<>();
+    public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
 
 
     /*
@@ -276,22 +275,20 @@ public class Broker {
         return getPrimaryStubForShard(shard);
     }
 
-    public void sendAffinitiesToCoordinator() {
-        ByteString affinityCountsSer = Utilities.objectToByteString(affinityCounts);
-        ByteString readQueryCountsSer = Utilities.objectToByteString(readQueryCounts);
-        ShardAffinityMessage m = ShardAffinityMessage.newBuilder().setAffinityCounts(affinityCountsSer).setReadQueryCounts(readQueryCountsSer).build();
-        ShardAffinityResponse r = coordinatorBlockingStub.shardAffinity(m);
+    public void sendStatisticsToCoordinator() {
+        ByteString queryStatisticsSer = Utilities.objectToByteString(queryStatistics);
+        QueryStatisticsMessage m = QueryStatisticsMessage.newBuilder().setQueryStatistics(queryStatisticsSer).build();
+        QueryStatisticsResponse r = coordinatorBlockingStub.queryStatistics(m);
     }
 
-    private class ShardAffinityDaemon extends Thread {
+    private class QueryStatisticsDaemon extends Thread {
         @Override
         public void run() {
             while (runShardAffinityDaemon) {
-                sendAffinitiesToCoordinator();
-                affinityCounts = new ConcurrentHashMap<>();
-                readQueryCounts = new ConcurrentHashMap<>();
+                sendStatisticsToCoordinator();
+                queryStatistics = new ConcurrentHashMap<>();
                 try {
-                    Thread.sleep(shardAffinityDaemonSleepDurationMillis);
+                    Thread.sleep(queryStatisticsDaemonSleepDurationMillis);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -438,18 +435,7 @@ public class Broker {
                 readQueryShardThreads.add(readQueryShardThread);
                 readQueryShardThread.start();
             }
-            for (int shardNum: shardNums) {
-                readQueryCounts.merge(shardNum, 1, Integer::sum);
-                affinityCounts.putIfAbsent(shardNum, new ConcurrentHashMap<>());
-                Map<Integer, Integer> shardAffinities = affinityCounts.getOrDefault(shardNum, null);
-                if (!Objects.isNull(shardAffinities)) {
-                    for (int affinityShardNum: shardNums) {
-                        if (shardNum != affinityShardNum) {
-                            shardAffinities.merge(affinityShardNum, 1, Integer::sum);
-                        }
-                    }
-                }
-            }
+            queryStatistics.merge(new HashSet<>(shardNums), 1, Integer::sum);
             List<ByteString> intermediates = new ArrayList<>();
             for (ReadQueryShardThread readQueryShardThread : readQueryShardThreads) {
                 try {

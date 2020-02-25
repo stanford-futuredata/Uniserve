@@ -108,7 +108,7 @@ public class LoadBalancerTests {
             }
         }
 
-        broker.sendAffinitiesToCoordinator();
+        broker.sendStatisticsToCoordinator();
         Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
         Map<Integer, Integer> qpsLoad = load.getValue0();
         Map<Integer, Integer> memoryLoad = load.getValue1();
