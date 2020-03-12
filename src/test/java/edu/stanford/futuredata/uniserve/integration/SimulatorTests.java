@@ -28,7 +28,7 @@ public class SimulatorTests {
     public void testBasicSimulator() {
         logger.info("testBasicSimulator");
         int numShards = 50;
-        int numServers = 10;
+        int numServers = 5;
         Simulator simulator = new Simulator(numShards, numServers);
         simulator.run(5000000);
     }

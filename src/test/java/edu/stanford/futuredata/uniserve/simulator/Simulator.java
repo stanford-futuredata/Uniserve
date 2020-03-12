@@ -47,7 +47,7 @@ public class Simulator {
             servers.add(new Server(serverNum));
         }
         for(int shardNum = 0; shardNum < numShards; shardNum++) {
-            int startingServer = shardNum % numServers;
+            int startingServer = ThreadLocalRandom.current().nextInt(numServers);
             shardAssignments.get(startingServer)[shardNum] = 1.0;
             memoryMap[shardNum] = 1; // Each server can hold maxMemory shards.
         }

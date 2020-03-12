@@ -119,7 +119,7 @@ public class LoadBalancer {
                                            Integer maxMemory) throws IloException {
 
         double averageLoad = (double) Arrays.stream(shardLoads).sum() / numServers;
-        double epsilon = averageLoad / 10;
+        double epsilon = averageLoad / 20;
 
         for (int i = 0; i < numServers; i++) {
             cplex.addLe(cplex.scalProd(shardLoads, r.get(i)), averageLoad + epsilon); // Max load constraint
