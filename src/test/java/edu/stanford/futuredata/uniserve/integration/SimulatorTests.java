@@ -16,7 +16,7 @@ public class SimulatorTests {
 
     @BeforeAll
     static void setup() {
-        LoadBalancer.verbose = false;
+        LoadBalancer.verbose = true;
     }
 
     @AfterAll
@@ -27,9 +27,9 @@ public class SimulatorTests {
     @Test
     public void testBasicSimulator() {
         logger.info("testBasicSimulator");
-        int numShards = 20;
+        int numShards = 50;
         int numServers = 10;
         Simulator simulator = new Simulator(numShards, numServers);
-        simulator.run(1000000);
+        simulator.run(5000000);
     }
 }

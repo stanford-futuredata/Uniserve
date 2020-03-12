@@ -29,6 +29,8 @@ public class Coordinator {
     private final Server server;
     final CoordinatorCurator zkCurator;
 
+    private static final LoadBalancer lb = new LoadBalancer();
+
     // Used to assign each datastore a unique incremental ID.
     final AtomicInteger dataStoreNumber = new AtomicInteger(0);
     // Map from datastore IDs to their descriptions.
@@ -338,7 +340,7 @@ public class Coordinator {
             int maxMemory = 1000000;  // TODO:  Actually set this.
             statisticsLock.lock();
             logger.info("Query Statistics: {}", queryStatistics);
-            serverShardRatios = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, queryStatistics, maxMemory);
+            serverShardRatios = lb.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, queryStatistics, maxMemory);
             statisticsLock.lock();
         } catch (IloException e) {
             logger.info("Cplex exception");

@@ -12,7 +12,13 @@ public class LoadBalancer {
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
     public static boolean verbose = true;
 
-    public static List<double[]> balanceLoad(Integer numShards, Integer numServers,
+    List<double[]> lastR;
+    List<double[]> lastX;
+    double[] lastM;
+    int lastNumServers = 0;
+    int lastNumShards = 0;
+
+    public List<double[]> balanceLoad(Integer numShards, Integer numServers,
                                    int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
                                    Map<Set<Integer>, Integer> sampleQueries,
                                    Integer maxMemory) throws IloException {
@@ -75,14 +81,35 @@ public class LoadBalancer {
         }
 
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
+        int cplexTimeLimit = 10;
+        cplex.setParam(IloCplex.Param.TimeLimit, cplexTimeLimit);
 
-        assert(cplex.solve());
-
-        List<double[]> returnR = new ArrayList<>();
-        for (int i = 0; i < numServers; i++) {
-            returnR.add(cplex.getValues(r.get(i)));
+        // Warm Start
+        if (lastNumServers == numServers && lastNumShards == numShards && !Objects.isNull(lastM) && lastM.length == m.length) {
+            for(int i = 0; i < numServers; i++) {
+                cplex.addMIPStart(r.get(i), lastR.get(i));
+                cplex.addMIPStart(x.get(i), lastX.get(i));
+            }
+            cplex.addMIPStart(m, lastM);
         }
-        return returnR;
+
+        boolean solution = false;
+        while(!solution) {
+            solution = cplex.solve();
+            cplexTimeLimit *= 2;
+            cplex.setParam(IloCplex.Param.TimeLimit, cplexTimeLimit);
+        }
+
+        lastNumShards = numShards;
+        lastNumServers = numServers;
+        lastR = new ArrayList<>();
+        lastX = new ArrayList<>();
+        lastM = cplex.getValues(m);
+        for (int i = 0; i < numServers; i++) {
+            lastR.add(cplex.getValues(r.get(i)));
+            lastX.add(cplex.getValues(x.get(i)));
+        }
+        return lastR;
     }
 
 

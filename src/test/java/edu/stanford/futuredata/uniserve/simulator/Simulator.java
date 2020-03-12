@@ -15,8 +15,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class Simulator {
     private static final Logger logger = LoggerFactory.getLogger(Simulator.class);
 
+    private static final LoadBalancer lb = new LoadBalancer();
+
     private Integer globalClock = 0;
-    private final Integer simulatedMaxMemory = 4;
+    private final Integer simulatedMaxMemory = 20;
     private Map<ShardSet, List<Integer>> latencies = new HashMap<>();
     private Map<Integer, List<Integer>> serverLatencies = new HashMap<>();
     private final Integer simulatedNumCores = 4;
@@ -74,7 +76,7 @@ public class Simulator {
                 }
             }
             // Load-balance.
-            if (iterNum > 0 && iterNum % 10000 == 0 || iterNum == 1000) {
+            if (iterNum > 0 && iterNum % 1000000 == 0 || iterNum == 1000) {
                 int[][] currentLocations = new int[numServers][numShards];
                 for(int serverNum = 0; serverNum < numServers; serverNum++) {
                     for(int shardNum = 0; shardNum < numShards; shardNum++) {
@@ -82,14 +84,14 @@ public class Simulator {
                     }
                 }
                 Map<Set<Integer>, Integer> sampleQueries = new HashMap<>();
-                for (int i = 0; i < 1000; i++) {
+                for (int i = 0; i < 10000; i++) {
                     List<Query> queries = generateQueries();
                     for (Query q: queries) {
                         sampleQueries.merge(new HashSet<>(q.shards), 1, Integer::sum);
                     }
                 }
                 try {
-                    shardAssignments = LoadBalancer.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, sampleQueries, simulatedMaxMemory);
+                    shardAssignments = lb.balanceLoad(numShards, numServers, shardLoads, memoryMap, currentLocations, sampleQueries, simulatedMaxMemory);
                 } catch (IloException e) {
                     e.printStackTrace();
                     assert(false);
@@ -103,7 +105,8 @@ public class Simulator {
                         sLatencies.sort(Integer::compareTo);
                         double p50 = sLatencies.get(sLatencies.size() / 2);
                         double p99 = sLatencies.get((sLatencies.size() * 99) / 100);
-                        logger.info("Server {} Assignment: {}  Average queue size: {}  p50: {} p99: {}", serverNum, shardAssignments.get(serverNum), servers.get(serverNum).queueSizes.stream().mapToInt(i -> i).average().getAsDouble(), p50, p99);
+                        logger.info("Server {}: {}  Queue size: {}  p50: {} p99: {}",
+                                serverNum, shardAssignments.get(serverNum), servers.get(serverNum).queueSizes.stream().mapToInt(i -> i).average().getAsDouble(), p50, p99);
                         servers.get(serverNum).queueSizes.clear();
                         sLatencies.clear();
                     }
@@ -126,19 +129,27 @@ public class Simulator {
 
     // Generate queries which load the cluster to 80% of capacity.
     private List<Query> generateQueries() {
+
+        int numRecords = 1000;
+        assert(numRecords % numShards == 0);
+        int divisor = numRecords / numShards;
+        int maxQueryRecords = 200;
+
         List<Query> queries = new ArrayList<>();
         final int workToGenerate =  (simulatedNumCores * numServers * 80) / 100;
         int workGenerated = 0;
         while(workGenerated < workToGenerate) {
-            List<Integer> shardList;
-            int querySelector = ThreadLocalRandom.current().nextInt(numShards);
-            if (querySelector < 20) {
-                shardList = Arrays.asList(querySelector, (querySelector + 10) % numShards);
-                workGenerated += 2;
-            } else {
-                shardList = Collections.singletonList(querySelector);
-                workGenerated += 1;
+            List<Integer> shardList = new ArrayList<>();
+            int startRecord = ThreadLocalRandom.current().nextInt(numRecords);
+            int endRecord = startRecord + ThreadLocalRandom.current().nextInt(maxQueryRecords);
+            endRecord = Math.min(endRecord, numRecords - 1);
+            int startShard = startRecord / divisor;
+            int endShard = endRecord / divisor;
+            assert(startShard >= 0 && endShard < numShards);
+            for(int shardNum = startShard; shardNum <= endShard; shardNum++) {
+                shardList.add(shardNum);
             }
+            workGenerated += shardList.size();
             queries.add(new Query(shardList, ticksPerSubquery));
         }
         return queries;
