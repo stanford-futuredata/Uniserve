@@ -84,7 +84,7 @@ public class Simulator {
                     }
                 }
                 Map<Set<Integer>, Integer> sampleQueries = new HashMap<>();
-                for (int i = 0; i < 10000; i++) {
+                for (int i = 0; i < 100000; i++) {
                     List<Query> queries = generateQueries();
                     for (Query q: queries) {
                         sampleQueries.merge(new HashSet<>(q.shards), 1, Integer::sum);

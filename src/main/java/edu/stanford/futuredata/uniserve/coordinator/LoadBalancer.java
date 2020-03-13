@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class LoadBalancer {
 
@@ -49,10 +50,13 @@ public class LoadBalancer {
             x.add(cplex.intVarArray(numShards, 0, 1));
         }
 
+        final int maxQuerySamples = 5 * numShards;
         List<Set<Integer>> sampleQueryKeys = new ArrayList<>(sampleQueries.keySet());
+        sampleQueryKeys = sampleQueryKeys.stream().filter(k -> k.size() > 1).collect(Collectors.toList());
+        sampleQueryKeys = sampleQueryKeys.stream().sorted(Comparator.comparing(sampleQueries::get).reversed()).limit(maxQuerySamples).collect(Collectors.toList());
 
         // Minimize sum of query worst-case times, weighted by query frequency.
-        int numSampleQueries = sampleQueries.size();
+        int numSampleQueries = sampleQueryKeys.size();
         IloIntVar[] m = cplex.intVarArray(numSampleQueries, 0, 20); // Each entry is the maximum number of that query's shards on the same server.
 
         for(int serverNum = 0; serverNum < numServers; serverNum++) {
