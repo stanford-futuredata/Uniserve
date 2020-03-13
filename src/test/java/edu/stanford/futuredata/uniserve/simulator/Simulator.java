@@ -111,8 +111,10 @@ public class Simulator {
                         sLatencies.clear();
                     }
                 }
+                List<Integer> allLatencies = new ArrayList<>();
                 for (Map.Entry<ShardSet, List<Integer>> entry : latencies.entrySet()) {
                     List<Integer> shardSetLatencies = entry.getValue();
+                    allLatencies.addAll(shardSetLatencies);
                     if (shardSetLatencies.size() > 0) {
                         shardSetLatencies.sort(Integer::compareTo);
                         double p50 = shardSetLatencies.get(shardSetLatencies.size() / 2);
@@ -120,6 +122,10 @@ public class Simulator {
                         logger.info("Shardset: {} NumQueries: {} p50: {}, p99: {}", entry.getKey(), shardSetLatencies.size(), p50, p99);
                     }
                 }
+                allLatencies.sort(Integer::compare);
+                double p50 = allLatencies.get(allLatencies.size() / 2);
+                double p99 = allLatencies.get((allLatencies.size() * 99) / 100);
+                logger.info("All Queries:  NumQueries: {} p50: {}, p99: {}", allLatencies.size(), p50, p99);
                 latencies.clear();
             }
             globalClock++;
