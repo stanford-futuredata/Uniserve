@@ -18,6 +18,8 @@ public class LoadBalancer {
     int lastNumServers = 0;
     int lastNumShards = 0;
 
+    final static double mipGap = 0.1;
+
     public List<double[]> balanceLoad(Integer numShards, Integer numServers,
                                    int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
                                    Map<Set<Integer>, Integer> sampleQueries,
@@ -33,6 +35,8 @@ public class LoadBalancer {
         for(int i = 0; i < transferCosts.length; i++) {
             transferCosts[i] = Arrays.stream(transferCosts[i]).map(j -> j == 0 ? 1 : 0).toArray();
         }
+
+        // Begin parallel objective.
         IloCplex cplex = new IloCplex();
         if (!verbose) {
             cplex.setOut(null);
@@ -50,23 +54,6 @@ public class LoadBalancer {
         // Minimize sum of query worst-case times, weighted by query frequency.
         int numSampleQueries = sampleQueries.size();
         IloIntVar[] m = cplex.intVarArray(numSampleQueries, 0, 20); // Each entry is the maximum number of that query's shards on the same server.
-        int[] queryWeights = sampleQueryKeys.stream().map(sampleQueries::get).mapToInt(i ->i).toArray();
-        IloObjective parallelObjective = cplex.minimize(cplex.scalProd(m, queryWeights));
-
-        // Minimize transfer costs.
-        IloNumExpr[] transferCostList = new IloNumExpr[numServers];
-        for (int i = 0; i < numServers; i++) {
-            transferCostList[i] = cplex.scalProd(x.get(i), transferCosts[i]);
-        }
-        IloObjective transferObjective = cplex.minimize(cplex.sum(transferCostList));
-        cplex.add(cplex.minimize(cplex.staticLex(
-                new IloNumExpr[] {parallelObjective.getExpr(), transferObjective.getExpr()},
-                new double[]{1.0, 1.0}, // Weights
-                new int[]{2, 1}, // Priorities:  The parallel objective is more important.
-                new double[]{0.0, 0.0}, // Absolute tolerances
-                new double[]{0.0, 0.0}, // Relative tolerances
-                "Objective"
-        )));
 
         for(int serverNum = 0; serverNum < numServers; serverNum++) {
             int q = 0;
@@ -80,9 +67,11 @@ public class LoadBalancer {
             }
         }
 
+        int[] queryWeights = sampleQueryKeys.stream().map(sampleQueries::get).mapToInt(i ->i).toArray();
+        IloObjective parallelObjective = cplex.minimize(cplex.scalProd(m, queryWeights));
+        cplex.add(parallelObjective);
+
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
-        int cplexTimeLimit = 10;
-        cplex.setParam(IloCplex.Param.TimeLimit, cplexTimeLimit);
 
         // Warm Start
         if (lastNumServers == numServers && lastNumShards == numShards && !Objects.isNull(lastM) && lastM.length == m.length) {
@@ -93,18 +82,62 @@ public class LoadBalancer {
             cplex.addMIPStart(m, lastM);
         }
 
-        boolean solution = false;
-        while(!solution) {
-            solution = cplex.solve();
-            cplexTimeLimit *= 2;
-            cplex.setParam(IloCplex.Param.TimeLimit, cplexTimeLimit);
+        // Solve parallel objective.
+        cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
+        assert(cplex.solve());
+        // Result of parallel objective.
+        lastM = cplex.getValues(m);
+
+        // Begin transfer objective.
+        cplex = new IloCplex();
+        if (!verbose) {
+            cplex.setOut(null);
         }
+        r = new ArrayList<>();
+        x = new ArrayList<>();
+        for (int i = 0; i < numServers; i++) {
+            r.add(cplex.numVarArray(numShards, 0, 1));
+            x.add(cplex.intVarArray(numShards, 0, 1));
+        }
+
+        // Minimize transfer costs.
+        IloNumExpr[] transferCostList = new IloNumExpr[numServers];
+        for (int i = 0; i < numServers; i++) {
+            transferCostList[i] = cplex.scalProd(x.get(i), transferCosts[i]);
+        }
+        IloObjective transferObjective = cplex.minimize(cplex.sum(transferCostList));
+        cplex.add(transferObjective);
+
+        for(int serverNum = 0; serverNum < numServers; serverNum++) {
+            int q = 0;
+            for (Set<Integer> shards : sampleQueryKeys) {
+                IloNumExpr e = cplex.constant(0);
+                for (Integer shardNum : shards) {
+                    e = cplex.sum(e, x.get(serverNum)[shardNum]);
+                }
+                cplex.addLe(e, lastM[q]);
+                q++;
+            }
+        }
+
+        setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
+
+        // Warm Start
+        if (lastNumServers == numServers && lastNumShards == numShards) {
+            for(int i = 0; i < numServers; i++) {
+                cplex.addMIPStart(r.get(i), lastR.get(i));
+                cplex.addMIPStart(x.get(i), lastX.get(i));
+            }
+        }
+
+        // Solve transfer objective.
+        cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
+        assert(cplex.solve());
 
         lastNumShards = numShards;
         lastNumServers = numServers;
         lastR = new ArrayList<>();
         lastX = new ArrayList<>();
-        lastM = cplex.getValues(m);
         for (int i = 0; i < numServers; i++) {
             lastR.add(cplex.getValues(r.get(i)));
             lastX.add(cplex.getValues(x.get(i)));
