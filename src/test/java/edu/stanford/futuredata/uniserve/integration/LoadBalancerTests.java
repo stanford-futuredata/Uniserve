@@ -102,7 +102,7 @@ public class LoadBalancerTests {
     public void testLoadBalancer() {
         logger.info("testLoadBalancer");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7780);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7781);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
