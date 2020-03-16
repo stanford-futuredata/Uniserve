@@ -63,6 +63,42 @@ public class LoadBalancerTests {
     }
 
     @Test
+    public void testLoadBalancerTrivial() throws IloException {
+        logger.info("testLoadBalancerTrivial");
+
+        int numShards = 0;
+        int numServers = 1;
+        int[] shardLoads = new int[]{};
+        int[] memoryUsages = new int[]{};
+        int[][] currentLocations = new int[][]{new int[]{}};
+        int maxMemory = 1000000;
+
+        List<double[]> returnR = new LoadBalancer().balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, new HashMap<>(), maxMemory);
+        assertEquals(returnR.size(),1);
+        assertEquals(returnR.get(0).length, 0);
+        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7780);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
+        for (int i = 0; i < numServers; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
+                    Path.of("/var/tmp/KVUniserve","shard" + i), zkHost, zkPort,"127.0.0.1",  8300 + i);
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
+        Map<Integer, Integer> qpsLoad = load.getValue0();
+        Map<Integer, Integer> memoryLoad = load.getValue1();
+        assertEquals(0, qpsLoad.size());
+        assertEquals(0, qpsLoad.size());
+
+        Map<Integer, Map<Integer, Double>> assignmentMap = coordinator.getShardAssignments(qpsLoad, memoryLoad);
+    }
+
+    @Test
     public void testLoadBalancer() {
         logger.info("testLoadBalancer");
         int numShards = 2;
