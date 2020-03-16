@@ -90,7 +90,12 @@ public class LoadBalancer {
         cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
         assert(cplex.solve());
         // Result of parallel objective.
-        lastM = cplex.getValues(m);
+        if (numSampleQueries > 0) {
+            lastM = cplex.getValues(m);
+        } else {
+            lastM = new double[m.length];
+            Arrays.fill(lastM, 20.0);
+        }
 
         // Begin transfer objective.
         cplex = new IloCplex();

@@ -91,13 +91,8 @@ public class Broker {
         } catch (InterruptedException ignored) {}
         // TODO:  Synchronize with outstanding queries?
         ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdown();
-        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: this.shardToPrimaryStubMap.values()) {
+        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: dsIDToStubMap.values()) {
             ((ManagedChannel) stub.getChannel()).shutdown();
-        }
-        for (List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs: this.shardToReplicaStubMap.values()) {
-            for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: stubs) {
-                ((ManagedChannel) stub.getChannel()).shutdown();
-            }
         }
         int numQueries = serializationTimes.size();
         OptionalDouble averageSerTime = serializationTimes.stream().mapToLong(i -> i).average();
