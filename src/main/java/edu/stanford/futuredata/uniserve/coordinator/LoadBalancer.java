@@ -78,7 +78,7 @@ public class LoadBalancer {
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
 
         // Warm Start
-        if (lastNumServers == numServers && lastNumShards == numShards && !Objects.isNull(lastM) && lastM.length == m.length) {
+        if (numSampleQueries > 0 && lastNumServers == numServers && lastNumShards == numShards && !Objects.isNull(lastM) && lastM.length == m.length) {
             for(int i = 0; i < numServers; i++) {
                 cplex.addMIPStart(r.get(i), lastR.get(i));
                 cplex.addMIPStart(x.get(i), lastX.get(i));
@@ -88,7 +88,7 @@ public class LoadBalancer {
 
         // Solve parallel objective.
         cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
-        assert(cplex.solve());
+        cplex.solve();
         // Result of parallel objective.
         if (numSampleQueries > 0) {
             lastM = cplex.getValues(m);
@@ -132,7 +132,7 @@ public class LoadBalancer {
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
 
         // Warm Start
-        if (lastNumServers == numServers && lastNumShards == numShards) {
+        if (numShards > 0 && lastNumServers == numServers && lastNumShards == numShards) {
             for(int i = 0; i < numServers; i++) {
                 cplex.addMIPStart(r.get(i), lastR.get(i));
                 cplex.addMIPStart(x.get(i), lastX.get(i));
@@ -141,7 +141,7 @@ public class LoadBalancer {
 
         // Solve transfer objective.
         cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
-        assert(cplex.solve());
+        cplex.solve();
 
         lastNumShards = numShards;
         lastNumServers = numServers;
