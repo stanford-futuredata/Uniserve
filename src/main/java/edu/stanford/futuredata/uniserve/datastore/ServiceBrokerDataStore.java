@@ -145,9 +145,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         long fullStartTime = System.nanoTime();
         int shardNum = readQuery.getShard();
+        dataStore.shardLockMap.get(shardNum).readLock().lock();
         long unixTime = Instant.now().getEpochSecond();
         dataStore.QPSMap.get(shardNum).compute(unixTime, (k, v) -> v == null ? 1 : v + 1);
-        dataStore.shardLockMap.get(shardNum).readLock().lock();
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {
             shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
