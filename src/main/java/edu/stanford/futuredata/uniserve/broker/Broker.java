@@ -373,7 +373,7 @@ public class Broker {
                                 finishLatch.countDown();
                             }
                         });
-                final int STEPSIZE = 10000;
+                final int STEPSIZE = 1000;
                 for (int i = 0; i < rowArray.length; i += STEPSIZE) {
                     ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                     R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
