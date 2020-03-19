@@ -229,7 +229,7 @@ public class DataStore<R extends Row, S extends Shard> {
             return Optional.empty();
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
-        return shardFactory.createShardFromDir(targetDirectory);
+        return shardFactory.createShardFromDir(targetDirectory, shardNum);
     }
 
     private class UploadShardDaemon extends Thread {

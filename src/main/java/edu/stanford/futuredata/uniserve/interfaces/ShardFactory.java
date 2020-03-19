@@ -8,7 +8,7 @@ public interface ShardFactory<S extends Shard> {
      Create a shard storing data in a directory.
      */
 
-    Optional<S> createNewShard(Path shardPath);
+    Optional<S> createNewShard(Path shardPath, int shardNum);
 
-    Optional<S> createShardFromDir(Path shardPath);
+    Optional<S> createShardFromDir(Path shardPath, int shardNum);
 }

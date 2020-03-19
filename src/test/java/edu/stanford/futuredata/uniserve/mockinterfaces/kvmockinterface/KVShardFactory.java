@@ -13,7 +13,7 @@ public class KVShardFactory implements ShardFactory<KVShard> {
     private static final Logger logger = LoggerFactory.getLogger(KVShardFactory.class);
 
     @Override
-    public Optional<KVShard> createNewShard(Path shardPath) {
+    public Optional<KVShard> createNewShard(Path shardPath, int shardNum) {
         try {
             return Optional.of(new KVShard(shardPath, false));
         } catch (IOException | ClassNotFoundException e) {
@@ -22,7 +22,7 @@ public class KVShardFactory implements ShardFactory<KVShard> {
     }
 
     @Override
-    public Optional<KVShard> createShardFromDir(Path shardPath) {
+    public Optional<KVShard> createShardFromDir(Path shardPath, int shardNum) {
         try {
             return Optional.of(new KVShard(shardPath, true));
         } catch (IOException | ClassNotFoundException e) {

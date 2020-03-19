@@ -50,7 +50,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                 return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
             }
         }
-        Optional<S> shard = dataStore.shardFactory.createNewShard(shardPath);
+        Optional<S> shard = dataStore.shardFactory.createNewShard(shardPath, shardNum);
         if (shard.isEmpty()) {
             logger.error("DS{} Shard creation failed {}", dataStore.dsID, shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
