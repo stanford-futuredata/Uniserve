@@ -422,6 +422,37 @@ public class Coordinator {
         }
     }
 
+    private Integer findShardForDataStore(int dsID) {
+        for (Map.Entry<Integer, Integer> primaryEntry: shardToPrimaryDataStoreMap.entrySet()) {
+            if (primaryEntry.getValue() == dsID) {
+                return primaryEntry.getKey();
+            }
+        }
+        for (Map.Entry<Integer, List<Integer>> replicaEntry: shardToReplicaDataStoreMap.entrySet()) {
+            if (replicaEntry.getValue().contains(dsID)) {
+                return replicaEntry.getKey();
+            }
+        }
+        return null;
+    }
+
+    public void killDataStore(int dsID) {
+        DataStoreDescription dsDescription = dataStoresMap.get(dsID);
+        if (dsDescription.status.compareAndSet(DataStoreDescription.ALIVE, DataStoreDescription.DEAD)) {
+            logger.warn("DS{} Failure Detected", dsID);
+            zkCurator.setDSDescription(dsDescription);
+            Integer shardToRemove;
+            do {
+                shardMapLock.lock();
+                shardToRemove = findShardForDataStore(dsID);
+                shardMapLock.unlock();
+                if (shardToRemove != null) {
+                    removeShard(shardToRemove, dsID);
+                }
+            } while (shardToRemove != null);
+        }
+    }
+
     public void autoScale(Map<Integer, Double> serverCpuUsage) {
         OptionalDouble averageCpuUsageOpt = serverCpuUsage.values().stream().mapToDouble(i -> i).average();
         if (averageCpuUsageOpt.isEmpty()) {
@@ -444,9 +475,18 @@ public class Coordinator {
                     .filter(i -> dsIDToCloudID.containsKey(i))
                     .collect(Collectors.toList());
             if (removeableDSIDs.size() > 0) {
-                int removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
+                Map<Integer, Integer> primaryCount = new HashMap<>();
+                shardMapLock.lock();
+                for (Integer primaryDSID: shardToPrimaryDataStoreMap.values()) {
+                    if (removeableDSIDs.contains(primaryDSID)) {
+                        primaryCount.merge(primaryDSID, 1, Integer::sum);
+                    }
+                }
+                shardMapLock.unlock();
+                int removedDSID = primaryCount.keySet().stream().min(Comparator.comparing(primaryCount::get)).get();
                 int removedCloudID = dsIDToCloudID.get(removedDSID);
                 logger.info("Remove DataStore: {} Cloud ID: {}", removedDSID, removedCloudID);
+                killDataStore(removedDSID);
                 cCloud.removeDataStore(removedCloudID);
             }
         }

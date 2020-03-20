@@ -80,35 +80,8 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         try {
             CoordinatorPingResponse alwaysEmpty = coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
         } catch (StatusRuntimeException e) {
-            DataStoreDescription dsDescription = coordinator.dataStoresMap.get(dsID);
-            if (dsDescription.status.compareAndSet(DataStoreDescription.ALIVE, DataStoreDescription.DEAD)) {
-                logger.warn("DS{} Failure Detected", dsID);
-                coordinator.zkCurator.setDSDescription(dsDescription);
-                Integer shardToRemove;
-                do {
-                    coordinator.shardMapLock.lock();
-                    shardToRemove = findShardForDataStore(dsID);
-                    coordinator.shardMapLock.unlock();
-                    if (shardToRemove != null) {
-                        coordinator.removeShard(shardToRemove, dsID);
-                    }
-                } while (shardToRemove != null);
-            }
+            coordinator.killDataStore(dsID);
         }
         return PotentialDSFailureResponse.newBuilder().build();
-    }
-
-    private Integer findShardForDataStore(int dsID) {
-        for (Map.Entry<Integer, Integer> primaryEntry: coordinator.shardToPrimaryDataStoreMap.entrySet()) {
-            if (primaryEntry.getValue() == dsID) {
-                return primaryEntry.getKey();
-            }
-        }
-        for (Map.Entry<Integer, List<Integer>> replicaEntry: coordinator.shardToReplicaDataStoreMap.entrySet()) {
-            if (replicaEntry.getValue().contains(dsID)) {
-                return replicaEntry.getKey();
-            }
-        }
-        return null;
     }
 }
