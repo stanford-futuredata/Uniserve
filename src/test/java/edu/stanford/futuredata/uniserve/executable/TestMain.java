@@ -64,7 +64,7 @@ public class TestMain {
     }
 
     private static void runCoordinator(String zkHost, int zkPort, String cHost, int cPort) throws InterruptedException {
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, cHost, cPort);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, cHost, cPort);
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

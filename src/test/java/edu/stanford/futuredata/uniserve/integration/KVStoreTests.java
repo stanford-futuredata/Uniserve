@@ -74,7 +74,7 @@ public class KVStoreTests {
     public void testSingleKey() {
         logger.info("testSingleKey");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -101,7 +101,7 @@ public class KVStoreTests {
     public void testMultiKey() {
         logger.info("testMultiKey");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -147,7 +147,7 @@ public class KVStoreTests {
     public void testBasicNestedQuery() {
         logger.info("testBasicNestedQuery");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -182,7 +182,7 @@ public class KVStoreTests {
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -252,7 +252,7 @@ public class KVStoreTests {
     public void testReplication() {
         logger.info("testReplication");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -316,7 +316,7 @@ public class KVStoreTests {
     public void testAddRemoveReplicas() throws InterruptedException {
         logger.info("testAddRemoveReplicas");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -411,7 +411,7 @@ public class KVStoreTests {
     public void testShardUpload() {
         logger.info("testShardUpload");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);

@@ -60,8 +60,10 @@ message RemoveShardResponse {}
 message ShardUsageMessage {}
 
 message ShardUsageResponse {
-    map<int32, int32> shardQPS = 1;
-    map<int32, int32> shardMemoryUsage = 2;
+    int32 dsID = 1;
+    map<int32, int32> shardQPS = 2;
+    map<int32, int32> shardMemoryUsage = 3;
+    double serverCPUUsage = 4;
 }
 
 message NotifyReplicaRemovedMessage {

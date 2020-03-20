@@ -8,7 +8,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
-import org.javatuples.Pair;
+import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +30,7 @@ public class Coordinator {
     final CoordinatorCurator zkCurator;
 
     private static final LoadBalancer lb = new LoadBalancer();
+    private final CoordinatorCloud cCloud;
 
     // Used to assign each datastore a unique incremental ID.
     final AtomicInteger dataStoreNumber = new AtomicInteger(0);
@@ -59,7 +60,7 @@ public class Coordinator {
     // the operation, lock, retrieve the local copies, set the ZK mirrors to the local copies, unlock.
     public final Lock shardMapLock = new ReentrantLock();
 
-    public Coordinator(String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
+    public Coordinator(CoordinatorCloud cCloud, String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
         this.coordinatorPort = coordinatorPort;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
@@ -68,6 +69,7 @@ public class Coordinator {
                 .addService(new ServiceBrokerCoordinator(this))
                 .build();
         loadBalancer = new LoadBalancerDaemon();
+        this.cCloud = cCloud;
     }
 
     /** Start serving requests. */
@@ -265,11 +267,16 @@ public class Coordinator {
         }
     }
 
-    /** Construct a map from shard number to the shard's QPS and memory usage **/
-    public Pair<Map<Integer, Integer>, Map<Integer, Integer>> collectLoad() {
+    /** Construct three load maps:
+     * 1.  Shard number to shard QPS.
+     * 2.  Shard number to shard memory usage.
+     * 3.  DSID to datastore CPU usage.
+     * **/
+    public Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> collectLoad() {
         Map<Integer, Integer> qpsMap = new ConcurrentHashMap<>();
         Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
         Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
+        Map<Integer, Double> serverCpuUsageMap = new ConcurrentHashMap<>();
         List<Thread> threads = new ArrayList<>();
         for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
             Runnable r = () -> {
@@ -280,6 +287,7 @@ public class Coordinator {
                 dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
                 dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
                 dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
+                serverCpuUsageMap.put(response.getDsID(), response.getServerCPUUsage());
             };
             Thread t = new Thread(r);
             t.start();
@@ -291,7 +299,7 @@ public class Coordinator {
             } catch (InterruptedException ignored) {}
         }
         memoryUsagesMap.replaceAll((k, v) -> v / shardCountMap.get(k));
-        return new Pair<>(qpsMap, memoryUsagesMap);
+        return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
     }
 
     /** Take in maps from shards to loads, return a map from DSIDs to shards assigned to that datastore and their ratios. **/
@@ -412,6 +420,10 @@ public class Coordinator {
         }
     }
 
+    public void autoScale(Map<Integer, Double> serverCpuUsage) {
+        return;
+    }
+
     private class LoadBalancerDaemon extends Thread {
         @Override
         public void run() {
@@ -421,7 +433,7 @@ public class Coordinator {
                 } catch (InterruptedException e) {
                     return;
                 }
-                Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = collectLoad();
+                Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = collectLoad();
                 Map<Integer, Integer> qpsLoad = load.getValue0();
                 Map<Integer, Integer> memoryUsages = load.getValue1();
                 logger.info("Collected QPS Load: {}", qpsLoad);
@@ -429,6 +441,11 @@ public class Coordinator {
                 Map<Integer, Map<Integer, Double>> assignmentMap = getShardAssignments(qpsLoad, memoryUsages);
                 logger.info("Generated assignment map: {}", assignmentMap);
                 assignShards(assignmentMap, qpsLoad);
+                Map<Integer, Double> serverCpuUsage = load.getValue2();
+                logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
+                if (cCloud != null) {
+                    autoScale(serverCpuUsage);
+                }
             }
         }
     }

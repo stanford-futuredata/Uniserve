@@ -43,7 +43,7 @@ public class FailureTests {
     public void testSingleFailure() {
         logger.info("testSingleFailure");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -92,7 +92,7 @@ public class FailureTests {
     public void testFailureWithChangingReplicas() {
         logger.info("testFailureWithChangingReplicas");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);

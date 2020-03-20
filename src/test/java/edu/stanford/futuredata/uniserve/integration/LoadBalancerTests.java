@@ -9,7 +9,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
 import ilog.concert.IloException;
-import org.javatuples.Pair;
+import org.javatuples.Triplet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,8 @@ import java.util.*;
 import java.util.stream.IntStream;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LoadBalancerTests {
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancerTests.class);
@@ -76,7 +77,7 @@ public class LoadBalancerTests {
         List<double[]> returnR = new LoadBalancer().balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, new HashMap<>(), maxMemory);
         assertEquals(returnR.size(),1);
         assertEquals(returnR.get(0).length, 0);
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7780);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7780);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -89,7 +90,7 @@ public class LoadBalancerTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
+        Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = coordinator.collectLoad();
         Map<Integer, Integer> qpsLoad = load.getValue0();
         Map<Integer, Integer> memoryLoad = load.getValue1();
         assertEquals(0, qpsLoad.size());
@@ -102,7 +103,7 @@ public class LoadBalancerTests {
     public void testLoadBalancer() {
         logger.info("testLoadBalancer");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(zkHost, zkPort, "127.0.0.1", 7781);
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7781);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -145,7 +146,7 @@ public class LoadBalancerTests {
         }
 
         broker.sendStatisticsToCoordinator();
-        Pair<Map<Integer, Integer>, Map<Integer, Integer>> load = coordinator.collectLoad();
+        Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = coordinator.collectLoad();
         Map<Integer, Integer> qpsLoad = load.getValue0();
         Map<Integer, Integer> memoryLoad = load.getValue1();
         assertEquals(2, qpsLoad.get(0));
