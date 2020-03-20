@@ -476,6 +476,7 @@ public class Coordinator {
                     .collect(Collectors.toList());
             if (removeableDSIDs.size() > 0) {
                 Map<Integer, Integer> primaryCount = new HashMap<>();
+                removeableDSIDs.forEach(i -> primaryCount.put(i, 0));
                 shardMapLock.lock();
                 for (Integer primaryDSID: shardToPrimaryDataStoreMap.values()) {
                     if (removeableDSIDs.contains(primaryDSID)) {
