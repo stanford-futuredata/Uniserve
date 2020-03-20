@@ -75,7 +75,7 @@ public class TestMain {
     }
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort) throws InterruptedException {
-        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort);
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, -1);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));

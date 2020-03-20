@@ -32,7 +32,12 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
     private RegisterDataStoreResponse registerDataStoreHandler(RegisterDataStoreMessage m) {
         String host = m.getHost();
         int port = m.getPort();
+        int cloudID = m.getCloudID();
         int dsID = coordinator.dataStoreNumber.getAndIncrement();
+        if (cloudID != -1) {
+            assert(cloudID >= 0);
+            coordinator.dsIDToCloudID.put(dsID, cloudID);
+        }
         DataStoreDescription dsDescription = new DataStoreDescription(dsID, DataStoreDescription.ALIVE, host, port);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
         coordinator.dataStoreChannelsMap.put(dsID, channel);
@@ -40,7 +45,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.dataStoreStubsMap.put(dsID, stub);
         coordinator.zkCurator.setDSDescription(dsDescription);
         coordinator.dataStoresMap.put(dsID, dsDescription);
-        logger.info("Registered DataStore ID: {} Host: {} Port: {}", dsID, host, port);
+        logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
     }
 

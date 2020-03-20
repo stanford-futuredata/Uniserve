@@ -51,7 +51,7 @@ public class FailureTests {
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
-                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i);
+                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i, -1);
             dataStore.runUploadShardDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -101,7 +101,7 @@ public class FailureTests {
         for (int i = 0; i < num_datastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i);
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
             dataStore.runUploadShardDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);

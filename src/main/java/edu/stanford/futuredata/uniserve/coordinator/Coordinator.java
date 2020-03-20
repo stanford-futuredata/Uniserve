@@ -50,6 +50,8 @@ public class Coordinator {
     public Map<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
     // Lock on the queryStatistics map.
     final Lock statisticsLock = new ReentrantLock();
+    // Maps from DSIDs to the cloud IDs uniquely assigned by the autoscaler to new datastores.
+    public Map<Integer, Integer> dsIDToCloudID = new ConcurrentHashMap<>();
 
     public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
@@ -421,7 +423,31 @@ public class Coordinator {
     }
 
     public void autoScale(Map<Integer, Double> serverCpuUsage) {
-        return;
+        OptionalDouble averageCpuUsageOpt = serverCpuUsage.values().stream().mapToDouble(i -> i).average();
+        if (averageCpuUsageOpt.isEmpty()) {
+            return;
+        }
+        double averageCpuUsage = averageCpuUsageOpt.getAsDouble();
+        logger.info("Average CPU Usage: {}", averageCpuUsage);
+        // Add a server.
+        if (averageCpuUsage > 0.8) {
+            logger.info("Adding DataStore");
+            boolean success = cCloud.addDataStore();
+            if (!success) {
+                logger.info("DataStore addition failed");
+            }
+        }
+        // Remove a server.
+        if (averageCpuUsage < 0.5) {
+            List<Integer> removeableDSIDs = dataStoresMap.keySet().stream()
+                    .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
+                    .filter(i -> dsIDToCloudID.containsKey(i))
+                    .collect(Collectors.toList());
+            int removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
+            int removedCloudID = dsIDToCloudID.get(removedDSID);
+            logger.info("Remove DataStore: {} Cloud ID: {}", removedDSID, removedCloudID);
+            cCloud.removeDataStore(removedCloudID);
+        }
     }
 
     private class LoadBalancerDaemon extends Thread {

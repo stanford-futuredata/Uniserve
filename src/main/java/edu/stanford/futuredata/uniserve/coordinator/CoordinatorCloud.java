@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-public interface CoordinatorCloud {
-    public boolean addDataStore(int dsID);
+import java.util.Optional;
 
-    public void removeDataStore(int dsID);
+public interface CoordinatorCloud {
+    public boolean addDataStore();
+
+    public void removeDataStore(int cloudID);
 }

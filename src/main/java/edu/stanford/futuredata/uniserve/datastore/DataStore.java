@@ -25,6 +25,7 @@ public class DataStore<R extends Row, S extends Shard> {
 
     // Datastore metadata
     int dsID;
+    private int cloudID;
     private final String dsHost;
     private final int dsPort;
     public boolean serving = false;
@@ -69,7 +70,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public final List<Long> readQueryExecuteTimes = new ArrayList<>();
     public final List<Long> readQueryFullTimes = new ArrayList<>();
 
-    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort) {
+    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
         this.dsCloud = dsCloud;
@@ -81,6 +82,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 .addService(new ServiceDataStoreDataStore<>(this))
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
+        this.cloudID = cloudID;
         uploadShardDaemon = new UploadShardDaemon();
         pingDaemon = new PingDaemon();
     }
@@ -118,7 +120,8 @@ public class DataStore<R extends Row, S extends Shard> {
         coordinatorChannel =
                 ManagedChannelBuilder.forAddress(coordinatorHost, coordinatorPort).usePlaintext().build();
         coordinatorStub = DataStoreCoordinatorGrpc.newBlockingStub(coordinatorChannel);
-        RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder().setHost(dsHost).setPort(dsPort).build();
+        RegisterDataStoreMessage m = RegisterDataStoreMessage.newBuilder()
+                .setHost(dsHost).setPort(dsPort).setCloudID(cloudID).build();
         try {
             RegisterDataStoreResponse r = coordinatorStub.registerDataStore(m);
             assert r.getReturnCode() == 0;
