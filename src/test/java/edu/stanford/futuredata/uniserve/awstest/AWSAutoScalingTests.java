@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.awstest;
 
 import com.amazonaws.services.ec2.model.InstanceType;
+import com.amazonaws.util.EC2MetadataUtils;
 import edu.stanford.futuredata.uniserve.awscloud.AWSCoordinatorCloud;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
@@ -40,15 +41,17 @@ public class AWSAutoScalingTests {
     // @Test
     public void testBasicAutoScaling() throws InterruptedException {
         logger.info("testBalanceLoadFunction");
+        String serverHost = EC2MetadataUtils.getPrivateIpAddress();
         String launchDataStoreScript =
                 "#!/bin/bash\n" +
                 "cd /home/ubuntu/Uniserve\n" +
-                "nohup java -jar target/Uniserve-1.0-SNAPSHOT-fat-tests.jar -datastore -zh 172.31.24.219 -zp 2181 -h aws -p 8000 -c CLOUDID > /home/ubuntu/datastore.log &\n" +
+                "nohup java -jar target/Uniserve-1.0-SNAPSHOT-fat-tests.jar -datastore -zh SERVERHOST -zp 2181 -h aws -p 8000 -c CLOUDID > /home/ubuntu/datastore.log &\n" +
                 "chmod +444 /home/ubuntu/datastore.log\n";
+        launchDataStoreScript = launchDataStoreScript.replace("SERVERHOST", serverHost);
         String ami = "ami-032d8d51f6f913bb5";
         InstanceType instanceType = InstanceType.T2Micro;
         CoordinatorCloud cCloud = new AWSCoordinatorCloud(ami, launchDataStoreScript, instanceType);
-        Coordinator coordinator = new Coordinator(cCloud, zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(cCloud, zkHost, zkPort, serverHost, 7777);
         coordinator.runLoadBalancerDaemon = false;
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
@@ -60,12 +63,12 @@ public class AWSAutoScalingTests {
         Map<Integer, Double> overLoadedMap = Map.of(0, 0.9);
         coordinator.autoScale(overLoadedMap);
 
-        Thread.sleep(30000);
+        Thread.sleep(90000);
 
         Map<Integer, Double> underLoadedMap = Map.of(0, 0.2, 1, 0.2);
         coordinator.autoScale(underLoadedMap);
 
-        Thread.sleep(30000);
+        Thread.sleep(90000);
 
         dataStore.shutDown();
         coordinator.stopServing();

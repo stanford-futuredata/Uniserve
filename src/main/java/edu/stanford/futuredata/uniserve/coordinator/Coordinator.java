@@ -443,10 +443,12 @@ public class Coordinator {
                     .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
                     .filter(i -> dsIDToCloudID.containsKey(i))
                     .collect(Collectors.toList());
-            int removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
-            int removedCloudID = dsIDToCloudID.get(removedDSID);
-            logger.info("Remove DataStore: {} Cloud ID: {}", removedDSID, removedCloudID);
-            cCloud.removeDataStore(removedCloudID);
+            if (removeableDSIDs.size() > 0) {
+                int removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
+                int removedCloudID = dsIDToCloudID.get(removedDSID);
+                logger.info("Remove DataStore: {} Cloud ID: {}", removedDSID, removedCloudID);
+                cCloud.removeDataStore(removedCloudID);
+            }
         }
     }
 
