@@ -30,6 +30,7 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
     public boolean addDataStore() {
         AmazonEC2 ec2 = AmazonEC2ClientBuilder.defaultClient();
         int cloudID = this.cloudID.getAndIncrement();
+        assert(launchDataStoreScript.contains("CLOUDID"));
         launchDataStoreScript = launchDataStoreScript.replace("CLOUDID", Integer.toString(cloudID));
         String encodedScript = Base64.encodeAsString(launchDataStoreScript.getBytes());
         RunInstancesRequest runInstancesRequest =
