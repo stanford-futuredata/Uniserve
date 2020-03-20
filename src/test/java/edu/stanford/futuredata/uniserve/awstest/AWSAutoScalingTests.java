@@ -63,12 +63,12 @@ public class AWSAutoScalingTests {
         Map<Integer, Double> overLoadedMap = Map.of(0, 0.9);
         coordinator.autoScale(overLoadedMap);
 
-        Thread.sleep(90000);
+        Thread.sleep(120000);
 
         Map<Integer, Double> underLoadedMap = Map.of(0, 0.2, 1, 0.2);
         coordinator.autoScale(underLoadedMap);
 
-        Thread.sleep(90000);
+        Thread.sleep(5000);
 
         dataStore.shutDown();
         coordinator.stopServing();
