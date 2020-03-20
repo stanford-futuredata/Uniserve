@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
+import com.sun.management.OperatingSystemMXBean;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
@@ -257,12 +257,12 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             int shardMemoryUsage = entry.getValue().getMemoryUsage();
             shardMemoryUsages.put(shardNum, shardMemoryUsage);
         }
-        OperatingSystemMXBean bean = ManagementFactory.getOperatingSystemMXBean();
+        OperatingSystemMXBean bean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
         return ShardUsageResponse.newBuilder()
                 .setDsID(dataStore.dsID)
                 .putAllShardQPS(shardQPS)
                 .putAllShardMemoryUsage(shardMemoryUsages)
-                .setServerCPUUsage(bean.getSystemLoadAverage())
+                .setServerCPUUsage(bean.getSystemCpuLoad())
                 .build();
     }
 
