@@ -33,6 +33,7 @@ public class TestMain {
         options.addOption("zp", true, "ZooKeeper Port");
         options.addOption("h", true, "Local Host Address");
         options.addOption("p", true, "Local Port");
+        options.addOption("c", true, "Cloud ID");
 
         CommandLineParser parser = new DefaultParser();
         CommandLine cmd = parser.parse(options, args);
@@ -53,9 +54,10 @@ public class TestMain {
                     serverHost, Integer.parseInt(cmd.getOptionValue("p")));
         }
         if (cmd.hasOption("datastore")) {
+            int cloudID = cmd.hasOption("c") ? Integer.parseInt(cmd.getOptionValue("c")) : -1;
             logger.info("Starting datastore!");
             runDataStore(cmd.getOptionValue("zh"), Integer.parseInt(cmd.getOptionValue("zp")),
-                    serverHost, Integer.parseInt(cmd.getOptionValue("p")));
+                    serverHost, Integer.parseInt(cmd.getOptionValue("p")), cloudID);
         }
         if (cmd.hasOption("broker")) {
             logger.info("Starting broker!");
@@ -74,8 +76,8 @@ public class TestMain {
         Thread.sleep(Long.MAX_VALUE);
     }
 
-    private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort) throws InterruptedException {
-        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, -1);
+    private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) throws InterruptedException {
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, cloudID);
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));
