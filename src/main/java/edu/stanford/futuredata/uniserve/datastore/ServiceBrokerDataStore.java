@@ -29,8 +29,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         this.dataStore = dataStore;
     }
 
-    private Map<Integer, CommitLockerThread<R, S>> activeCLTs = new HashMap<>();
-
     @Override
     public StreamObserver<WriteQueryPreCommitMessage> writeQueryPreCommit(StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
         return new StreamObserver<>() {

@@ -63,8 +63,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 .build();
     }
 
-    private Map<Integer, CommitLockerThread<R, S>> activeCLTs = new HashMap<>();
-
     @Override
     public StreamObserver<ReplicaPreCommitMessage> replicaPreCommit(StreamObserver<ReplicaPreCommitResponse> responseObserver) {
         return new StreamObserver<>() {
