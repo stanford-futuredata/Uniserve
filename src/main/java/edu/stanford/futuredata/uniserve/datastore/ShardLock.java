@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import java.util.Objects;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -17,6 +18,7 @@ public class ShardLock {
 
     public void systemLockLock() {
         systemLock.writeLock().lock();
+        assert(Objects.isNull(mode));
         mode = Mode.SYSTEM;
     }
 
@@ -29,6 +31,7 @@ public class ShardLock {
     public void writerLockLock() {
         systemLock.readLock().lock();
         writerLock.lock();
+        assert(Objects.isNull(mode));
         mode = Mode.WRITE;
     }
 
@@ -41,6 +44,7 @@ public class ShardLock {
 
     public void readerLockLock() {
         systemLock.readLock().lock();
+        assert(Objects.isNull(mode));
         mode = Mode.READ;
     }
 

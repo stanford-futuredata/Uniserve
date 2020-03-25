@@ -17,7 +17,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.locks.ReadWriteLock;
 
 public class DataStore<R extends Row, S extends Shard> {
 
@@ -69,6 +68,11 @@ public class DataStore<R extends Row, S extends Shard> {
     // Collect execution times of all read queries.
     public final List<Long> readQueryExecuteTimes = new ArrayList<>();
     public final List<Long> readQueryFullTimes = new ArrayList<>();
+
+    public static final int COLLECT = 0;
+    public static final int PREPARE = 1;
+    public static final int COMMIT = 2;
+    public static final int ABORT = 3;
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) {
         this.dsHost = dsHost;

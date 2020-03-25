@@ -64,63 +64,85 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
 
     @Override
-    public StreamObserver<ReplicaPreCommitMessage> replicaPreCommit(StreamObserver<ReplicaPreCommitResponse> responseObserver) {
+    public StreamObserver<ReplicaWriteMessage> replicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
         return new StreamObserver<>() {
             int shardNum;
-            long txID;
             int versionNumber;
             WriteQueryPlan<R, S> writeQueryPlan;
             List<R[]> rowArrayList = new ArrayList<>();
+            List<R> rowList;
+            int lastState = DataStore.COLLECT;
+            WriteLockerThread t;
 
             @Override
-            public void onNext(ReplicaPreCommitMessage replicaPreCommitMessage) {
-                versionNumber = replicaPreCommitMessage.getVersionNumber();
-                shardNum = replicaPreCommitMessage.getShard();
-                txID = replicaPreCommitMessage.getTxID();
-                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaPreCommitMessage.getSerializedQuery()); // TODO:  Only send this once.
-                R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaPreCommitMessage.getRowData());
-                rowArrayList.add(rowChunk);
+            public void onNext(ReplicaWriteMessage replicaWriteMessage) {
+                int writeState = replicaWriteMessage.getWriteState();
+                if (writeState == DataStore.COLLECT) {
+                    assert(lastState == DataStore.COLLECT);
+                    versionNumber = replicaWriteMessage.getVersionNumber();
+                    shardNum = replicaWriteMessage.getShard();
+                    writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
+                    rowArrayList.add(rowChunk);
+                } else if (writeState == DataStore.PREPARE) {
+                    assert(lastState == DataStore.COLLECT);
+                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
+                    t.acquireLock();
+                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    responseObserver.onNext(prepareReplicaWrite(shardNum, writeQueryPlan, rowList, versionNumber));
+                } else if (writeState == DataStore.COMMIT) {
+                    assert(lastState == DataStore.PREPARE);
+                    commitReplicaWrite(shardNum, writeQueryPlan, rowList);
+                    t.releaseLock();
+                } else if (writeState == DataStore.ABORT) {
+                    assert(lastState == DataStore.PREPARE);
+                    abortReplicaWrite(shardNum, writeQueryPlan);
+                    t.releaseLock();
+                }
+                lastState = writeState;
             }
 
             @Override
             public void onError(Throwable throwable) {
+                logger.warn("DS{} Replica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
                 assert (false);
             }
 
             @Override
             public void onCompleted() {
-                List<R> rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                responseObserver.onNext(replicaPreCommitHandler(shardNum, txID, writeQueryPlan, rowList, versionNumber));
                 responseObserver.onCompleted();
             }
         };
     }
 
-    private ReplicaPreCommitResponse replicaPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
-        // Use the CommitLockerThread to acquire the shard's write lock.
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
+    private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
         if (dataStore.replicaShardMap.containsKey(shardNum)) {
             S shard = dataStore.replicaShardMap.get(shardNum);
             assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
-            boolean replicaWriteSuccess = writeQueryPlan.preCommit(shard, rows);
-            int returnCode;
-            if (replicaWriteSuccess) {
-                returnCode = 0;
-                writeQueryPlan.commit(shard);
-                int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
-                Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
-                shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
-                dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+            boolean success =  writeQueryPlan.preCommit(shard, rows);
+            if (success) {
+                return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
             } else {
-                returnCode = 1;
+                return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
             }
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return ReplicaPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
         } else {
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             logger.warn("DS{} replica got write request for absent shard {}", dataStore.dsID, shardNum);
-            return ReplicaPreCommitResponse.newBuilder().setReturnCode(1).build();
+            return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
         }
+    }
+
+    private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+        S shard = dataStore.replicaShardMap.get(shardNum);
+        writeQueryPlan.commit(shard);
+        int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+        shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+        dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+    }
+
+    private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
+        S shard = dataStore.replicaShardMap.get(shardNum);
+        writeQueryPlan.abort(shard);
     }
 
     @Override

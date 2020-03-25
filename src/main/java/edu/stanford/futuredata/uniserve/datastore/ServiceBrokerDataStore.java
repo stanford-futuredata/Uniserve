@@ -13,7 +13,6 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Semaphore;
@@ -69,64 +68,96 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             R[] rowArray;
             rowArray = (R[]) rows.toArray(new Row[0]);
             AtomicBoolean success = new AtomicBoolean(true);
-            Semaphore semaphore = new Semaphore(0);
+            Semaphore prepareSemaphore = new Semaphore(0);
+            Semaphore commitSemaphore = new Semaphore(0);
+            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
             for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
-                StreamObserver<ReplicaPreCommitMessage> observer = stub.replicaPreCommit(new StreamObserver<>() {
+                StreamObserver<ReplicaWriteMessage> observer = stub.replicaWrite(new StreamObserver<>() {
                     @Override
-                    public void onNext(ReplicaPreCommitResponse replicaPreCommitResponse) {
+                    public void onNext(ReplicaWriteResponse replicaPreCommitResponse) {
                         if (replicaPreCommitResponse.getReturnCode() != 0) {
-                            logger.warn("DS{} Replica PreCommit Failed Shard {}", dataStore.dsID, shardNum);
+                            logger.warn("DS{} Replica Prepare Failed Shard {}", dataStore.dsID, shardNum);
                             success.set(false);
                         }
+                        prepareSemaphore.release();
                     }
 
                     @Override
                     public void onError(Throwable throwable) {
-                        logger.warn("DS{} Replica PreCommit RPC Failed Shard {}", dataStore.dsID, shardNum);
-                        semaphore.release();  // TODO:  Maybe some kind of retry or failure needed?
+                        logger.warn("DS{} Replica Prepare RPC Failed Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                        success.set(false);
+                        prepareSemaphore.release();
+                        commitSemaphore.release();
                     }
 
                     @Override
                     public void onCompleted() {
-                        semaphore.release();
+                        commitSemaphore.release();
                     }
                 });
+                replicaObservers.add(observer);
+            }
+            for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
                 final int STEPSIZE = 10000;
                 for(int i = 0; i < rowArray.length; i += STEPSIZE) {
                     ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                     R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
                     ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    ReplicaPreCommitMessage rm = ReplicaPreCommitMessage.newBuilder()
+                    ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setShard(shardNum)
                             .setSerializedQuery(serializedQuery)
                             .setRowData(rowData)
-                            .setTxID(txID)
                             .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
+                            .setWriteState(DataStore.COLLECT)
                             .build();
                     observer.onNext(rm);
                 }
-                observer.onCompleted();
+                ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                        .setWriteState(DataStore.PREPARE)
+                        .build();
+                observer.onNext(rm);
             }
             boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
             try {
-                semaphore.acquire(numReplicas);
+                prepareSemaphore.acquire(numReplicas);
             } catch (InterruptedException e) {
                 logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
                 assert(false);
             }
-            int addRowReturnCode;
+            int returnCode;
             if (primaryWriteSuccess && success.get()) {
-                addRowReturnCode = Broker.QUERY_SUCCESS;
+                for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                    ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                            .setWriteState(DataStore.COMMIT)
+                            .build();
+                    observer.onNext(rm);
+                    observer.onCompleted();
+                }
                 writeQueryPlan.commit(shard);
                 int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+                returnCode = Broker.QUERY_SUCCESS;
             } else {
-                addRowReturnCode = Broker.QUERY_FAILURE;
+                for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                    ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                            .setWriteState(DataStore.ABORT)
+                            .build();
+                    observer.onNext(rm);
+                    observer.onCompleted();
+                }
+                writeQueryPlan.abort(shard);
+                returnCode = Broker.QUERY_FAILURE;
+            }
+            try {
+                commitSemaphore.acquire(numReplicas);
+            } catch (InterruptedException e) {
+                logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
+                assert(false);
             }
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(addRowReturnCode).build();
+            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
         } else {
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);

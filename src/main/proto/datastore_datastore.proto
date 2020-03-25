@@ -10,33 +10,23 @@ package datastoredatastore;
 service DataStoreDataStore {
     // Notify the primary a replica must be updated to the latest version.
     rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
-    // 2PC-style prepare commit on the replica.
-    rpc ReplicaPreCommit (stream ReplicaPreCommitMessage) returns (ReplicaPreCommitResponse) {}
-    // Commit or abort the write query.
-    rpc ReplicaCommit (ReplicaCommitMessage) returns (ReplicaCommitResponse) {}
+    // Write to a replica.
+    rpc ReplicaWrite (stream ReplicaWriteMessage) returns (stream ReplicaWriteResponse) {}
     // DataStorePing a datastore to see if it's alive.
     rpc DataStorePing (DataStorePingMessage) returns (DataStorePingResponse) {}
 }
 
-message ReplicaPreCommitMessage {
+message ReplicaWriteMessage {
     int32 shard = 1;
     bytes serializedQuery = 2;
     bytes rowData = 3;
-    int64 txID = 4;
-    int32 versionNumber = 5;
+    int32 versionNumber = 4;
+    int32 writeState = 5;
 }
 
-message ReplicaPreCommitResponse {
+message ReplicaWriteResponse {
     int32 returnCode = 1;
 }
-
-message ReplicaCommitMessage {
-    int32 shard = 1;
-    bool commitOrAbort = 2; // Commit on true, abort on false
-    int64 txID = 3;
-}
-
-message ReplicaCommitResponse {}
 
 message BootstrapReplicaMessage {
     int32 shard = 1;
