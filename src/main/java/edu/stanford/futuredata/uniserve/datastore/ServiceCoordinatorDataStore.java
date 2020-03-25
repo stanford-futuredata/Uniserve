@@ -57,7 +57,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             logger.error("DS{} Shard creation failed {}", dataStore.dsID, shardNum);
             return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
         }
-        dataStore.shardLockMap.put(shardNum, new ReentrantReadWriteLock());
+        dataStore.shardLockMap.put(shardNum, new ShardLock());
         dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, 0);
         dataStore.lastUploadedVersionMap.put(shardNum, 0);
@@ -92,8 +92,8 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         // Load but lock the replica until it has been bootstrapped.
         S shard = loadedShard.get();
-        dataStore.shardLockMap.put(shardNum, new ReentrantReadWriteLock());
-        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        dataStore.shardLockMap.put(shardNum, new ShardLock());
+        dataStore.shardLockMap.get(shardNum).systemLockLock();
         dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
         if (request.getIsReplacementPrimary()) {
             dataStore.primaryShardMap.put(shardNum, loadedShard.get());
@@ -120,7 +120,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                 channel.shutdown();
                 shard.destroy();
                 dataStore.replicaShardMap.remove(shardNum);
-                dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+                dataStore.shardLockMap.get(shardNum).systemLockUnlock();
                 dataStore.shardLockMap.remove(shardNum);
                 logger.error("DS{} Replica Shard {} could not sync primary {}: {}", dataStore.dsID, shardNum, primaryDSID, e.getMessage());
                 return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();
@@ -151,7 +151,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             dataStore.lastUploadedVersionMap.put(shardNum, replicaVersion);
             dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
         }
-        dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+        dataStore.shardLockMap.get(shardNum).systemLockUnlock();
         if (request.getIsReplacementPrimary()) {
             logger.info("DS{} Loaded replacement primary shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
         } else {
@@ -174,7 +174,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
 
     private PromoteReplicaShardResponse promoteReplicaShardHandler(PromoteReplicaShardMessage message) {
         Integer shardNum = message.getShard();
-        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         assert(dataStore.replicaShardMap.containsKey(shardNum));
         assert(!dataStore.primaryShardMap.containsKey(shardNum));
         ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
@@ -195,7 +195,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         S shard = dataStore.replicaShardMap.get(shardNum);
         dataStore.replicaShardMap.remove(shardNum);
         dataStore.primaryShardMap.put(shardNum, shard);
-        dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
         logger.info("DS{} promoted shard {} to primary", dataStore.dsID, shardNum);
         return PromoteReplicaShardResponse.newBuilder().build();
     }
@@ -208,7 +208,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
 
     private RemoveShardResponse removeShardHandler(RemoveShardMessage message) {
         Integer shardNum = message.getShard();
-        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        dataStore.shardLockMap.get(shardNum).systemLockLock();
         assert(dataStore.replicaShardMap.containsKey(shardNum) || dataStore.primaryShardMap.containsKey(shardNum));
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {
@@ -225,7 +225,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.replicaDescriptionsMap.remove(shardNum);
         dataStore.lastUploadedVersionMap.remove(shardNum);
         dataStore.shardVersionMap.remove(shardNum);
-        dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+        dataStore.shardLockMap.get(shardNum).systemLockUnlock();
         logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
         return RemoveShardResponse.newBuilder().build();
     }
@@ -275,7 +275,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
         int shardNum = request.getShard();
         int dsID = request.getDsID();
-        dataStore.shardLockMap.get(shardNum).readLock().lock();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
         List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
         if (matchingDescriptions.size() > 0) {
@@ -286,7 +286,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         } else {
             logger.info("DS{} removed UNKNOWN replica shard {} on DS{}", dataStore.dsID, shardNum, dsID);
         }
-        dataStore.shardLockMap.get(shardNum).readLock().unlock();
+        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
         return NotifyReplicaRemovedResponse.newBuilder().build();
     }
 }

@@ -39,7 +39,7 @@ public class DataStore<R extends Row, S extends Shard> {
     // Map from primary shard number to last uploaded version number.
     final Map<Integer, Integer> lastUploadedVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
-    final Map<Integer, ReadWriteLock> shardLockMap = new ConcurrentHashMap<>();
+    final Map<Integer, ShardLock> shardLockMap = new ConcurrentHashMap<>();
     // Map from shard number to maps from version number to write query and data.
     final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
     // Map from primary shard number to list of replica descriptions for that shard.
@@ -185,11 +185,14 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     /** Assumes read lock is held **/
+    // TODO:  Safely delete old versions.
     public void uploadShardToCloud(int shardNum) {
         long uploadStart = System.currentTimeMillis();
-        // TODO:  Safely delete old versions.
-        Shard shard = primaryShardMap.get(shardNum);
         Integer versionNumber = shardVersionMap.get(shardNum);
+        if (lastUploadedVersionMap.get(shardNum).equals(versionNumber)) {
+            return;
+        }
+        Shard shard = primaryShardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
@@ -241,15 +244,12 @@ public class DataStore<R extends Row, S extends Shard> {
             while (runUploadShardDaemon) {
                 List<Thread> uploadThreadList = new ArrayList<>();
                 for (Integer shardNum : primaryShardMap.keySet()) {
-                    if (lastUploadedVersionMap.get(shardNum).equals(shardVersionMap.get(shardNum))) {
-                        continue;
-                    }
                     Thread uploadThread = new Thread(() -> {
-                        shardLockMap.get(shardNum).readLock().lock();  // TODO:  Might block writes for too long.
+                        shardLockMap.get(shardNum).writerLockLock();
                         if (primaryShardMap.containsKey(shardNum)) {
                             uploadShardToCloud(shardNum);
                         }
-                        shardLockMap.get(shardNum).readLock().unlock();
+                        shardLockMap.get(shardNum).writerLockUnlock();
                     });
                     uploadThread.start();
                     uploadThreadList.add(uploadThread);

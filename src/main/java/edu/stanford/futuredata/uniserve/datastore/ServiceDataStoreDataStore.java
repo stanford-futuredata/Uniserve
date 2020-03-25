@@ -33,7 +33,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
     private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
         int shardNum = request.getShard();
-        dataStore.shardLockMap.get(shardNum).readLock().lock();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         Integer replicaVersion = request.getVersionNumber();
         Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
         assert(primaryVersion != null);
@@ -47,7 +47,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             ReplicaDescription rd = new ReplicaDescription(request.getDsID(), channel, asyncStub);
             dataStore.replicaDescriptionsMap.get(shardNum).add(rd);
         }
-        dataStore.shardLockMap.get(shardNum).readLock().unlock();
+        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
         List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
         List<R[]> rowListList = new ArrayList<>();
         for (int v = replicaVersion + 1; v <= primaryVersion; v++) {
@@ -98,7 +98,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
     private ReplicaPreCommitResponse replicaPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
         // Use the CommitLockerThread to acquire the shard's write lock.
-        dataStore.shardLockMap.get(shardNum).writeLock().lock();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         if (dataStore.replicaShardMap.containsKey(shardNum)) {
             S shard = dataStore.replicaShardMap.get(shardNum);
             assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
@@ -114,10 +114,10 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             } else {
                 returnCode = 1;
             }
-            dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             return ReplicaPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
         } else {
-            dataStore.shardLockMap.get(shardNum).writeLock().unlock();
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             logger.warn("DS{} replica got write request for absent shard {}", dataStore.dsID, shardNum);
             return ReplicaPreCommitResponse.newBuilder().setReturnCode(1).build();
         }
