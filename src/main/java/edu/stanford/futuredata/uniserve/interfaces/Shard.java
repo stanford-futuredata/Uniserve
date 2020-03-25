@@ -8,14 +8,15 @@ public interface Shard {
      A stateful data structure.
 
      Shard concurrency contract:
-     Writes always have exclusive access to the shard.
-     Reads (including shardToData) run concurrently with other reads, but never with writes.
+     Writes never run simultaneously.
+     shardToData never runs at the same time as a write.
+     Reads run at any time.
      */
 
     // Return the amount of memory this shard uses in kilobytes.
     int getMemoryUsage();
     // Destroy shard data and processes.  After destruction, shard is no longer usable.
     void destroy();
-    // Return directory containing shard files.
+    // Return a directory containing a serialization of this shard.
     Optional<Path> shardToData();
 }
