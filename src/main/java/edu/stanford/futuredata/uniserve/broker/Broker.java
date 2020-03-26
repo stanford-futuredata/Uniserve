@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.broker;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
@@ -19,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -344,8 +346,8 @@ public class Broker {
         public void run() { this.success = writeQuery(); }
 
         private boolean writeQuery() {
-            final int[] queryStatus = {QUERY_RETRY};
-            while (queryStatus[0] == QUERY_RETRY) {
+            AtomicInteger queryStatus = new AtomicInteger(QUERY_RETRY);
+            while (queryStatus.get() == QUERY_RETRY) {
                 Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
                 if (stubOpt.isEmpty()) {
                     logger.error("Could not find DataStore for shard {}", shardNum);
@@ -353,12 +355,14 @@ public class Broker {
                     return false;
                 }
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
+                final CountDownLatch prepareLatch = new CountDownLatch(1);
                 final CountDownLatch finishLatch = new CountDownLatch(1);
                 StreamObserver<WriteQueryMessage> observer =
                         stub.writeQuery(new StreamObserver<>() {
                             @Override
                             public void onNext(WriteQueryResponse writeQueryResponse) {
-                                queryStatus[0] = writeQueryResponse.getReturnCode();
+                                queryStatus.set(writeQueryResponse.getReturnCode());
+                                prepareLatch.countDown();
                             }
 
                             @Override
@@ -377,9 +381,44 @@ public class Broker {
                     ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                     R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
                     ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder().setShard(shardNum).
-                            setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
+                    WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder()
+                            .setShard(shardNum).
+                            setSerializedQuery(serializedQuery)
+                            .setRowData(rowData)
+                            .setTxID(txID)
+                            .setWriteState(DataStore.COLLECT)
+                            .build();
                     observer.onNext(rowMessage);
+                }
+                WriteQueryMessage prepare = WriteQueryMessage.newBuilder()
+                        .setWriteState(DataStore.PREPARE)
+                        .build();
+                observer.onNext(prepare);
+                try {
+                    prepareLatch.await();
+                } catch (InterruptedException e) {
+                    logger.error("Write Interrupted: {}", e.getMessage());
+                    assert (false);
+                }
+                if (queryStatus.get() == QUERY_RETRY) {
+                    try {
+                        observer.onCompleted();
+                        Thread.sleep(shardMapDaemonSleepDurationMillis);
+                        continue;
+                    } catch (InterruptedException e) {
+                        logger.error("Write Interrupted: {}", e.getMessage());
+                        assert (false);
+                    }
+                } else if (queryStatus.get() == QUERY_SUCCESS) {
+                    WriteQueryMessage commit = WriteQueryMessage.newBuilder()
+                            .setWriteState(DataStore.COMMIT)
+                            .build();
+                    observer.onNext(commit);
+                } else if (queryStatus.get() == QUERY_FAILURE) {
+                    WriteQueryMessage abort = WriteQueryMessage.newBuilder()
+                            .setWriteState(DataStore.ABORT)
+                            .build();
+                    observer.onNext(abort);
                 }
                 observer.onCompleted();
                 try {
@@ -388,13 +427,8 @@ public class Broker {
                     logger.error("Write Interrupted: {}", e.getMessage());
                     assert (false);
                 }
-                if (queryStatus[0] == QUERY_RETRY) {
-                    try {
-                        Thread.sleep(shardMapDaemonSleepDurationMillis);
-                    } catch (Throwable ignored) {}
-                }
             }
-            return queryStatus[0] == 0;
+            return queryStatus.get() == QUERY_SUCCESS;
         }
 
         public boolean isSuccess() {

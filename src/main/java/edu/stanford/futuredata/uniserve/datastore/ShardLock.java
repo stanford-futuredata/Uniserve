@@ -44,13 +44,9 @@ public class ShardLock {
 
     public void readerLockLock() {
         systemLock.readLock().lock();
-        assert(Objects.isNull(mode));
-        mode = Mode.READ;
     }
 
     public void readerLockUnlock() {
-        assert(mode == Mode.READ);
-        mode = null;
         systemLock.readLock().unlock();
     }
 }

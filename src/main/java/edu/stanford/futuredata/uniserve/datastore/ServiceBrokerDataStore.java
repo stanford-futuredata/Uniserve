@@ -35,14 +35,38 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             long txID;
             WriteQueryPlan<R, S> writeQueryPlan;
             List<R[]> rowArrayList = new ArrayList<>();
+            int lastState = DataStore.COLLECT;
+            List<R> rows;
+            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
+            Semaphore commitSemaphore = new Semaphore(0);
+            WriteLockerThread t;
 
             @Override
             public void onNext(WriteQueryMessage writeQueryMessage) {
-                shardNum = writeQueryMessage.getShard();
-                txID = writeQueryMessage.getTxID();
-                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
-                R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
-                rowArrayList.add(rowChunk);
+                int writeState = writeQueryMessage.getWriteState();
+                if (writeState == DataStore.COLLECT) {
+                    assert (lastState == DataStore.COLLECT);
+                    shardNum = writeQueryMessage.getShard();
+                    txID = writeQueryMessage.getTxID();
+                    writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
+                    rowArrayList.add(rowChunk);
+                } else if (writeState == DataStore.PREPARE) {
+                    assert (lastState == DataStore.COLLECT);
+                    rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
+                    t.acquireLock();
+                    responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
+                } else if (writeState == DataStore.COMMIT) {
+                    assert (lastState == DataStore.PREPARE);
+                    commitWriteQuery(shardNum, txID, writeQueryPlan);
+                    t.releaseLock();
+                } else if (writeState == DataStore.ABORT) {
+                    assert (lastState == DataStore.PREPARE);
+                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    t.releaseLock();
+                }
+                lastState = writeState;
             }
 
             @Override
@@ -52,80 +76,88 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             @Override
             public void onCompleted() {
-                List<R> rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                responseObserver.onNext(writeQueryHandler(shardNum, txID, writeQueryPlan, rowList));
                 responseObserver.onCompleted();
             }
-        };
-    }
 
-    private WriteQueryResponse writeQueryHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
-        if (dataStore.primaryShardMap.containsKey(shardNum)) {
-            S shard = dataStore.primaryShardMap.get(shardNum);
-            List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
-            int numReplicas = replicaStubs.size();
-            R[] rowArray;
-            rowArray = (R[]) rows.toArray(new Row[0]);
-            AtomicBoolean success = new AtomicBoolean(true);
-            Semaphore prepareSemaphore = new Semaphore(0);
-            Semaphore commitSemaphore = new Semaphore(0);
-            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
-            for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
-                StreamObserver<ReplicaWriteMessage> observer = stub.replicaWrite(new StreamObserver<>() {
-                    @Override
-                    public void onNext(ReplicaWriteResponse replicaResponse) {
-                        if (replicaResponse.getReturnCode() != 0) {
-                            logger.warn("DS{} Replica Prepare Failed Shard {}", dataStore.dsID, shardNum);
-                            success.set(false);
+
+            private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
+                if (dataStore.primaryShardMap.containsKey(shardNum)) {
+                    S shard = dataStore.primaryShardMap.get(shardNum);
+                    List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
+                    int numReplicas = replicaStubs.size();
+                    R[] rowArray;
+                    rowArray = (R[]) rows.toArray(new Row[0]);
+                    AtomicBoolean success = new AtomicBoolean(true);
+                    Semaphore prepareSemaphore = new Semaphore(0);
+                    for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
+                        StreamObserver<ReplicaWriteMessage> observer = stub.replicaWrite(new StreamObserver<>() {
+                            @Override
+                            public void onNext(ReplicaWriteResponse replicaResponse) {
+                                if (replicaResponse.getReturnCode() != 0) {
+                                    logger.warn("DS{} Replica Prepare Failed Shard {}", dataStore.dsID, shardNum);
+                                    success.set(false);
+                                }
+                                prepareSemaphore.release();
+                            }
+
+                            @Override
+                            public void onError(Throwable throwable) {
+                                logger.warn("DS{} Replica Prepare RPC Failed Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                                success.set(false);
+                                prepareSemaphore.release();
+                                commitSemaphore.release();
+                            }
+
+                            @Override
+                            public void onCompleted() {
+                                commitSemaphore.release();
+                            }
+                        });
+                        replicaObservers.add(observer);
+                    }
+                    for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                        final int STEPSIZE = 10000;
+                        for(int i = 0; i < rowArray.length; i += STEPSIZE) {
+                            ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                            R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                            ByteString rowData = Utilities.objectToByteString(rowSlice);
+                            ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                                    .setShard(shardNum)
+                                    .setSerializedQuery(serializedQuery)
+                                    .setRowData(rowData)
+                                    .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
+                                    .setWriteState(DataStore.COLLECT)
+                                    .build();
+                            observer.onNext(rm);
                         }
-                        prepareSemaphore.release();
+                        ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                                .setWriteState(DataStore.PREPARE)
+                                .build();
+                        observer.onNext(rm);
                     }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        logger.warn("DS{} Replica Prepare RPC Failed Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
-                        success.set(false);
-                        prepareSemaphore.release();
-                        commitSemaphore.release();
+                    boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
+                    try {
+                        prepareSemaphore.acquire(numReplicas);
+                    } catch (InterruptedException e) {
+                        logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
+                        assert(false);
                     }
-
-                    @Override
-                    public void onCompleted() {
-                        commitSemaphore.release();
+                    int returnCode;
+                    if (primaryWriteSuccess && success.get()) {
+                        returnCode = Broker.QUERY_SUCCESS;
+                    } else {
+                        returnCode = Broker.QUERY_FAILURE;
                     }
-                });
-                replicaObservers.add(observer);
-            }
-            for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
-                final int STEPSIZE = 10000;
-                for(int i = 0; i < rowArray.length; i += STEPSIZE) {
-                    ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                    R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
-                    ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
-                            .setShard(shardNum)
-                            .setSerializedQuery(serializedQuery)
-                            .setRowData(rowData)
-                            .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
-                            .setWriteState(DataStore.COLLECT)
-                            .build();
-                    observer.onNext(rm);
+                    return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
+                } else {
+                    logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
+                    t.releaseLock();
+                    return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
                 }
-                ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
-                        .setWriteState(DataStore.PREPARE)
-                        .build();
-                observer.onNext(rm);
             }
-            boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
-            try {
-                prepareSemaphore.acquire(numReplicas);
-            } catch (InterruptedException e) {
-                logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
-                assert(false);
-            }
-            int returnCode;
-            if (primaryWriteSuccess && success.get()) {
+
+            private void commitWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
+                S shard = dataStore.primaryShardMap.get(shardNum);
                 for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.COMMIT)
@@ -138,8 +170,16 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
-                returnCode = Broker.QUERY_SUCCESS;
-            } else {
+                try {
+                    commitSemaphore.acquire(replicaObservers.size());
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
+                    assert(false);
+                }
+            }
+
+            private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
+                S shard = dataStore.primaryShardMap.get(shardNum);
                 for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.ABORT)
@@ -148,23 +188,17 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     observer.onCompleted();
                 }
                 writeQueryPlan.abort(shard);
-                returnCode = Broker.QUERY_FAILURE;
+                try {
+                    commitSemaphore.acquire(replicaObservers.size());
+                } catch (InterruptedException e) {
+                    logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
+                    assert(false);
+                }
             }
-            try {
-                commitSemaphore.acquire(numReplicas);
-            } catch (InterruptedException e) {
-                logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
-                assert(false);
-            }
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
-        } else {
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
-            return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
-        }
-    }
 
+        };
+    }
+    
     @Override
     public void readQuery(ReadQueryMessage request,  StreamObserver<ReadQueryResponse> responseObserver) {
         responseObserver.onNext(readQueryHandler(request));
