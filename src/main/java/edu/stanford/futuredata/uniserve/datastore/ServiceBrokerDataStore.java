@@ -29,7 +29,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
 
     @Override
-    public StreamObserver<WriteQueryPreCommitMessage> writeQueryPreCommit(StreamObserver<WriteQueryPreCommitResponse> responseObserver) {
+    public StreamObserver<WriteQueryMessage> writeQuery(StreamObserver<WriteQueryResponse> responseObserver) {
         return new StreamObserver<>() {
             int shardNum;
             long txID;
@@ -37,11 +37,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             List<R[]> rowArrayList = new ArrayList<>();
 
             @Override
-            public void onNext(WriteQueryPreCommitMessage writeQueryPreCommitMessage) {
-                shardNum = writeQueryPreCommitMessage.getShard();
-                txID = writeQueryPreCommitMessage.getTxID();
-                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryPreCommitMessage.getSerializedQuery()); // TODO:  Only send this once.
-                R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryPreCommitMessage.getRowData());
+            public void onNext(WriteQueryMessage writeQueryMessage) {
+                shardNum = writeQueryMessage.getShard();
+                txID = writeQueryMessage.getTxID();
+                writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
+                R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
                 rowArrayList.add(rowChunk);
             }
 
@@ -53,13 +53,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             @Override
             public void onCompleted() {
                 List<R> rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                responseObserver.onNext(writeQueryPreCommitHandler(shardNum, txID, writeQueryPlan, rowList));
+                responseObserver.onNext(writeQueryHandler(shardNum, txID, writeQueryPlan, rowList));
                 responseObserver.onCompleted();
             }
         };
     }
 
-    private WriteQueryPreCommitResponse writeQueryPreCommitHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    private WriteQueryResponse writeQueryHandler(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         dataStore.shardLockMap.get(shardNum).writerLockLock();
         if (dataStore.primaryShardMap.containsKey(shardNum)) {
             S shard = dataStore.primaryShardMap.get(shardNum);
@@ -74,8 +74,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
                 StreamObserver<ReplicaWriteMessage> observer = stub.replicaWrite(new StreamObserver<>() {
                     @Override
-                    public void onNext(ReplicaWriteResponse replicaPreCommitResponse) {
-                        if (replicaPreCommitResponse.getReturnCode() != 0) {
+                    public void onNext(ReplicaWriteResponse replicaResponse) {
+                        if (replicaResponse.getReturnCode() != 0) {
                             logger.warn("DS{} Replica Prepare Failed Shard {}", dataStore.dsID, shardNum);
                             success.set(false);
                         }
@@ -157,11 +157,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 assert(false);
             }
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(returnCode).build();
+            return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
         } else {
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
-            return WriteQueryPreCommitResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+            return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
     }
 

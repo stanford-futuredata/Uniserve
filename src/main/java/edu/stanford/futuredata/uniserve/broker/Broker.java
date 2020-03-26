@@ -118,16 +118,16 @@ public class Broker {
         }
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
-        List<WriteQueryPreCommitShardThread<R, S>> writeQueryPreCommitShardThreads = new ArrayList<>();
+        List<WriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
         long txID = ThreadLocalRandom.current().nextLong();
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
-            WriteQueryPreCommitShardThread<R, S> t = new WriteQueryPreCommitShardThread<>(shardNum, writeQueryPlan, rowArray, txID);
+            WriteQueryThread<R, S> t = new WriteQueryThread<>(shardNum, writeQueryPlan, rowArray, txID);
             t.start();
-            writeQueryPreCommitShardThreads.add(t);
+            writeQueryThreads.add(t);
         }
         boolean success = true; // Commit on true, abort on false.
-        for (WriteQueryPreCommitShardThread<R, S> t: writeQueryPreCommitShardThreads) {
+        for (WriteQueryThread<R, S> t: writeQueryThreads) {
             try {
                 t.join();
             } catch (InterruptedException e) {
@@ -326,14 +326,14 @@ public class Broker {
         }
     }
 
-    private class WriteQueryPreCommitShardThread<R extends Row, S extends Shard> extends Thread {
+    private class WriteQueryThread<R extends Row, S extends Shard> extends Thread {
         private final int shardNum;
         private final WriteQueryPlan<R, S> writeQueryPlan;
         private final R[] rowArray;
         private final long txID;
         private boolean success;
 
-        WriteQueryPreCommitShardThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID) {
+        WriteQueryThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID) {
             this.shardNum = shardNum;
             this.writeQueryPlan = writeQueryPlan;
             this.rowArray = rowArray;
@@ -341,9 +341,9 @@ public class Broker {
         }
 
         @Override
-        public void run() { this.success = writeQueryPreCommitShard(); }
+        public void run() { this.success = writeQuery(); }
 
-        private boolean writeQueryPreCommitShard() {
+        private boolean writeQuery() {
             final int[] queryStatus = {QUERY_RETRY};
             while (queryStatus[0] == QUERY_RETRY) {
                 Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
@@ -354,11 +354,11 @@ public class Broker {
                 }
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
                 final CountDownLatch finishLatch = new CountDownLatch(1);
-                StreamObserver<WriteQueryPreCommitMessage> observer =
-                        stub.writeQueryPreCommit(new StreamObserver<>() {
+                StreamObserver<WriteQueryMessage> observer =
+                        stub.writeQuery(new StreamObserver<>() {
                             @Override
-                            public void onNext(WriteQueryPreCommitResponse writeQueryPreCommitResponse) {
-                                queryStatus[0] = writeQueryPreCommitResponse.getReturnCode();
+                            public void onNext(WriteQueryResponse writeQueryResponse) {
+                                queryStatus[0] = writeQueryResponse.getReturnCode();
                             }
 
                             @Override
@@ -378,7 +378,7 @@ public class Broker {
                     ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                     R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
                     ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    WriteQueryPreCommitMessage rowMessage = WriteQueryPreCommitMessage.newBuilder().setShard(shardNum).
+                    WriteQueryMessage rowMessage = WriteQueryMessage.newBuilder().setShard(shardNum).
                             setSerializedQuery(serializedQuery).setRowData(rowData).setTxID(txID).build();
                     observer.onNext(rowMessage);
                 }
@@ -386,7 +386,7 @@ public class Broker {
                 try {
                     finishLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write PreCommit Interrupted: {}", e.getMessage());
+                    logger.error("Write Interrupted: {}", e.getMessage());
                     assert (false);
                 }
                 if (queryStatus[0] == QUERY_RETRY) {
