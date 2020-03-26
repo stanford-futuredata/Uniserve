@@ -23,8 +23,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 
 public class KVStoreTests {
@@ -403,6 +402,37 @@ public class KVStoreTests {
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).shutDown();
         }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testAbortedWrite() {
+        logger.info("testAbortedWrite");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
+                Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1);
+        int d_r = dataStore.startServing();
+        assertEquals(0, d_r);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 2)));
+        assertTrue(writeSuccess);
+
+        writeSuccess = broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 3), new KVRow(2, 3), new KVRow(3, 3),
+                new KVRow(123123123, 1)));
+        assertFalse(writeSuccess);
+
+        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3));
+        Integer queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(5), queryResponse);
+
+        dataStore.shutDown();
         coordinator.stopServing();
         broker.shutdown();
     }

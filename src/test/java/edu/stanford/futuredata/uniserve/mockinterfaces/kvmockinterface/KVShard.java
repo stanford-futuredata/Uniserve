@@ -17,6 +17,8 @@ public class KVShard implements Shard {
     private final Integer shardNum;
     private final Path shardPath;
 
+    List<KVRow> rows;
+
     public KVShard(Path shardPath, boolean shardExists) throws IOException, ClassNotFoundException {
         this.shardNum = numShards.getAndIncrement();
         if (shardExists) {
@@ -48,7 +50,11 @@ public class KVShard implements Shard {
         }
     }
 
-    public void insertRows(List<KVRow> rows) {
+    public void setRows(List<KVRow> rows) {
+        this.rows = rows;
+    }
+
+    public void insertRows() {
         for (KVRow row: rows) {
             KVMap.put(row.getKey(), row.getValue());
         }
