@@ -364,8 +364,7 @@ public class Broker {
                             @Override
                             public void onError(Throwable th) {
                                 logger.warn("Write query RPC failed for shard {}", shardNum);
-                                queryStatus[0] = QUERY_RETRY;
-                                finishLatch.countDown();
+                                assert(false);
                             }
 
                             @Override

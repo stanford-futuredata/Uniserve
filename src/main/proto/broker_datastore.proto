@@ -19,6 +19,7 @@ message WriteQueryMessage {
     bytes serializedQuery = 2;
     bytes rowData = 3;
     int64 txID = 4;
+    int32 writeState = 5;
 }
 
 message WriteQueryResponse {

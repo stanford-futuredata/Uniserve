@@ -132,19 +132,9 @@ public class FailureTests {
         dataStores.get(1).shutDown();
 
         for (int i = 1; i < 100; i++) {
-            WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
-                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
-            assertTrue(writeSuccess);
             ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(2 * i), queryResponse);
-            readQueryPlan = new KVReadQueryPlanGet(2 * i);
-            queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(4 * i), queryResponse);
-            readQueryPlan = new KVReadQueryPlanGet(4 *  i);
-            queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(8 * i), queryResponse);
+            assertEquals(Integer.valueOf(i), queryResponse);
         }
 
         coordinator.removeShard(0, 1);
@@ -158,19 +148,9 @@ public class FailureTests {
         coordinator.addReplica(0, 2, 0.2);
 
         for (int i = 1; i < 100; i++) {
-            WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i + 1),
-                    new KVRow(2 * i, 4 * i + 1), new KVRow(4 * i, 8 * i + 1)));
-            assertTrue(writeSuccess);
             ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(2 * i + 1), queryResponse);
-            readQueryPlan = new KVReadQueryPlanGet(2 * i);
-            queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(4 * i + 1), queryResponse);
-            readQueryPlan = new KVReadQueryPlanGet(4 *  i);
-            queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(8 * i + 1), queryResponse);
+            assertEquals(Integer.valueOf(i), queryResponse);
         }
         coordinator.removeShard(2, 3);
         ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
