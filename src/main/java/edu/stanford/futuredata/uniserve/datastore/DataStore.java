@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class DataStore<R extends Row, S extends Shard> {
@@ -66,8 +67,8 @@ public class DataStore<R extends Row, S extends Shard> {
     private final static int pingDaemonRefreshInterval = 10;
 
     // Collect execution times of all read queries.
-    public final List<Long> readQueryExecuteTimes = new ArrayList<>();
-    public final List<Long> readQueryFullTimes = new ArrayList<>();
+    public final Collection<Long> readQueryExecuteTimes = new ConcurrentLinkedQueue<>();
+    public final Collection<Long> readQueryFullTimes = new ConcurrentLinkedQueue<>();
 
     public static final int COLLECT = 0;
     public static final int PREPARE = 1;
@@ -181,9 +182,11 @@ public class DataStore<R extends Row, S extends Shard> {
         OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
         OptionalDouble averageFullTime = readQueryFullTimes.stream().mapToLong(i -> i).average();
         if (averageExecuteTime.isPresent() && averageFullTime.isPresent()) {
-            long medianExec = readQueryExecuteTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryExecuteTimes.size() / 2];
-            long medianFull = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() / 2];
-            logger.info("Queries: {} Avg Exec: {}μs Median Exec: {}μs Avg Full: {}μs Median Full: {}μs", numQueries, Math.round(averageExecuteTime.getAsDouble()), medianExec, Math.round(averageFullTime.getAsDouble()), medianFull);
+            long p50Exec = readQueryExecuteTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryExecuteTimes.size() / 2];
+            long p99Exec = readQueryExecuteTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryExecuteTimes.size() * 99 / 100];
+            long p50Full = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() / 2];
+            long p99Full = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() * 99 / 100];
+            logger.info("Queries: {} p50 Exec: {}μs p99 Exec: {}μs p50 Full: {}μs p99 Full: {}μs", numQueries, p50Exec, p99Exec, p50Full, p99Full);
         }
     }
 

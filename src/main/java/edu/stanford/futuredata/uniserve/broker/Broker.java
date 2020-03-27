@@ -51,9 +51,8 @@ public class Broker {
     public boolean runShardAffinityDaemon = true;
     public static int queryStatisticsDaemonSleepDurationMillis = 10000;
 
-    public final Collection<Long> serializationTimes = new ConcurrentLinkedQueue<>();
-    public final Collection<Long> deserializationTimes = new ConcurrentLinkedQueue<>();
     public final Collection<Long> remoteExecutionTimes = new ConcurrentLinkedQueue<>();
+    public final Collection<Long> aggregationTimes = new ConcurrentLinkedQueue<>();
 
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;
@@ -96,12 +95,13 @@ public class Broker {
         for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: dsIDToStubMap.values()) {
             ((ManagedChannel) stub.getChannel()).shutdown();
         }
-        int numQueries = serializationTimes.size();
-        OptionalDouble averageSerTime = serializationTimes.stream().mapToLong(i -> i).average();
-        OptionalDouble averageDeserTime = deserializationTimes.stream().mapToLong(i -> i).average();
-        OptionalDouble averageRETime = remoteExecutionTimes.stream().mapToLong(i -> i).average();
-        if (averageSerTime.isPresent() && averageDeserTime.isPresent() && averageRETime.isPresent()) {
-            logger.info("Queries: {} Avg Ser: {}μs Avg Deser: {}μs Avg Remote Execution: {}μs", numQueries, Math.round(averageSerTime.getAsDouble()), Math.round(averageDeserTime.getAsDouble()), Math.round(averageRETime.getAsDouble()));
+        int numQueries = remoteExecutionTimes.size();
+        if (numQueries > 0) {
+            long p50RE = remoteExecutionTimes.stream().mapToLong(i -> i).sorted().toArray()[remoteExecutionTimes.size() / 2];
+            long p99RE = remoteExecutionTimes.stream().mapToLong(i -> i).sorted().toArray()[remoteExecutionTimes.size() * 99 / 100];
+            long p50agg = aggregationTimes.stream().mapToLong(i -> i).sorted().toArray()[aggregationTimes.size() / 2];
+            long p99agg = aggregationTimes.stream().mapToLong(i -> i).sorted().toArray()[aggregationTimes.size() * 99 / 100];
+            logger.info("Queries: {} p50 Remote: {}μs p99 Remote: {}μs  p50 Aggregation: {}μs p99 Aggregation: {}μs", numQueries, p50RE, p99RE, p50agg, p99agg);
         }
         zkCurator.close();
     }
@@ -492,7 +492,11 @@ public class Broker {
                     assert(false);
                 }
             }
-            return readQueryPlan.aggregateShardQueries(intermediates);
+            long aggStart = System.nanoTime();
+            V ret =  readQueryPlan.aggregateShardQueries(intermediates);
+            long aggEnd = System.nanoTime();
+            aggregationTimes.add((aggEnd - aggStart) / 1000L);
+            return ret;
         }
 
         V getQueryResult() { return this.queryResult; }
@@ -525,10 +529,7 @@ public class Broker {
                 }
                 BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
                 ByteString serializedQuery;
-                long serStart = System.nanoTime();
                 serializedQuery = Utilities.objectToByteString(readQueryPlan);
-                long serEnd = System.nanoTime();
-                serializationTimes.add((serEnd - serStart) / 1000L);
                 ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();
                 try {
                     long remoteStart = System.nanoTime();
@@ -547,10 +548,7 @@ public class Broker {
                     } catch (Throwable ignored) {}
                 }
             }
-            long deserStart = System.nanoTime();
             ByteString responseByteString = readQueryResponse.getResponse();
-            long deserEnd = System.nanoTime();
-            deserializationTimes.add((deserEnd - deserStart) / 1000L);
             return Optional.of(responseByteString);
         }
 
