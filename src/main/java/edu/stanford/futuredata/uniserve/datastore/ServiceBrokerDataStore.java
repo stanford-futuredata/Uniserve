@@ -54,9 +54,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 } else if (writeState == DataStore.PREPARE) {
                     assert (lastState == DataStore.COLLECT);
                     rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
-                    t.acquireLock();
-                    responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
+                    if (dataStore.shardLockMap.containsKey(shardNum)) {
+                        t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
+                        t.acquireLock();
+                        responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
+                    } else {
+                        responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
+                    }
                 } else if (writeState == DataStore.COMMIT) {
                     assert (lastState == DataStore.PREPARE);
                     commitWriteQuery(shardNum, txID, writeQueryPlan);
@@ -208,6 +212,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         long fullStartTime = System.nanoTime();
         int shardNum = readQuery.getShard();
+        if (!dataStore.shardLockMap.containsKey(shardNum)) {
+            logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
+            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
         dataStore.shardLockMap.get(shardNum).readerLockLock();
         long unixTime = Instant.now().getEpochSecond();
         dataStore.QPSMap.get(shardNum).compute(unixTime, (k, v) -> v == null ? 1 : v + 1);

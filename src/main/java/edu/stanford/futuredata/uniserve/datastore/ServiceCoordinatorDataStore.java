@@ -92,8 +92,13 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         // Load but lock the replica until it has been bootstrapped.
         S shard = loadedShard.get();
-        dataStore.shardLockMap.put(shardNum, new ShardLock());
-        dataStore.shardLockMap.get(shardNum).systemLockLock();
+        if (!dataStore.shardLockMap.containsKey(shardNum)) {
+            ShardLock lock = new ShardLock();
+            lock.systemLockLock();
+            dataStore.shardLockMap.put(shardNum, lock);
+        } else {
+            dataStore.shardLockMap.get(shardNum).systemLockLock();
+        }
         dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
         if (request.getIsReplacementPrimary()) {
             dataStore.primaryShardMap.put(shardNum, loadedShard.get());
