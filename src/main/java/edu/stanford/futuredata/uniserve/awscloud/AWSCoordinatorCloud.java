@@ -46,7 +46,6 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
                         .withIamInstanceProfile(
                                 new IamInstanceProfileSpecification()
                                         .withArn("arn:aws:iam::491037173944:role/s3_full_acess")
-                                        .withName("s3_full_acess")
                         )
                         .withUserData(encodedScript);
         RunInstancesResult result = ec2.runInstances(
