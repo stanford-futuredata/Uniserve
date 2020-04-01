@@ -118,7 +118,7 @@ public class Coordinator {
         DataStoreDescription ds;
         int offset = 0;
         do {
-            ds = dataStoresMap.get(shardNum % dataStoresMap.size() + offset);
+            ds = dataStoresMap.get((shardNum + offset) % dataStoresMap.size());
             offset++;
         } while (ds.status.get() == DataStoreDescription.DEAD);
         return ds.dsID;
