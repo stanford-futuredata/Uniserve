@@ -118,7 +118,7 @@ public class LoadBalancerTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
-        broker.runShardAffinityDaemon = false;
+        broker.runQueryStatisticsDaemon = false;
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));

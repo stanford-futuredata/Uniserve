@@ -50,7 +50,7 @@ public class LoadBalancer {
             x.add(cplex.intVarArray(numShards, 0, 1));
         }
 
-        final int maxQuerySamples = 5 * numShards;
+        final int maxQuerySamples = 500;
         List<Set<Integer>> sampleQueryKeys = new ArrayList<>(sampleQueries.keySet());
         sampleQueryKeys = sampleQueryKeys.stream().filter(k -> k.size() > 1).collect(Collectors.toList());
         sampleQueryKeys = sampleQueryKeys.stream().sorted(Comparator.comparing(sampleQueries::get).reversed()).limit(maxQuerySamples).collect(Collectors.toList());

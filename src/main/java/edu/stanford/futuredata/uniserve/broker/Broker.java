@@ -48,7 +48,7 @@ public class Broker {
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
     private QueryStatisticsDaemon queryStatisticsDaemon;
-    public boolean runShardAffinityDaemon = true;
+    public boolean runQueryStatisticsDaemon = true;
     public static int queryStatisticsDaemonSleepDurationMillis = 10000;
 
     public final Collection<Long> remoteExecutionTimes = new ConcurrentLinkedQueue<>();
@@ -82,13 +82,18 @@ public class Broker {
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
         shardMapUpdateDaemon = new ShardMapUpdateDaemon();
         shardMapUpdateDaemon.start();
+        queryStatisticsDaemon = new QueryStatisticsDaemon();
+        queryStatisticsDaemon.start();
     }
 
     public void shutdown() {
         runShardMapUpdateDaemon = false;
+        runQueryStatisticsDaemon = false;
         try {
             shardMapUpdateDaemon.interrupt();
             shardMapUpdateDaemon.join();
+            queryStatisticsDaemon.interrupt();
+            queryStatisticsDaemon.join();
         } catch (InterruptedException ignored) {}
         // TODO:  Synchronize with outstanding queries?
         ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdown();
@@ -282,7 +287,7 @@ public class Broker {
     private class QueryStatisticsDaemon extends Thread {
         @Override
         public void run() {
-            while (runShardAffinityDaemon) {
+            while (runQueryStatisticsDaemon) {
                 sendStatisticsToCoordinator();
                 queryStatistics = new ConcurrentHashMap<>();
                 try {
