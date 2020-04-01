@@ -45,7 +45,7 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
                         .withSecurityGroups("kraftp-uniserve")
                         .withIamInstanceProfile(
                                 new IamInstanceProfileSpecification()
-                                        .withArn("arn:aws:iam::491037173944:role/s3_full_acess")
+                                        .withArn("arn:aws:iam::491037173944:instance-profile/s3_full_acess")
                         )
                         .withUserData(encodedScript);
         RunInstancesResult result = ec2.runInstances(
