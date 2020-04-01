@@ -17,6 +17,8 @@ public interface ReadQueryPlan<S extends Shard, T> extends Serializable {
     ByteString queryShard(S shard);
     // The query will return the result of this function executed on all results from queryShard.
     T aggregateShardQueries(List<ByteString> shardQueryResults);
+    // Return an estimate of the cost of queryShard.  Always called after queryShard.
+    int getQueryCost();
     // Get query plans for subqueries.
     List<ReadQueryPlan> getSubQueries();
     // Set results of subqueries.

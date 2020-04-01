@@ -40,6 +40,11 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
+    public int getQueryCost() {
+        return 1;
+    }
+
+    @Override
     public List<ReadQueryPlan> getSubQueries() {return Collections.emptyList();}
 
     @Override

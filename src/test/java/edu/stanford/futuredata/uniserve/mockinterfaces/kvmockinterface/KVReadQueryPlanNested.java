@@ -33,6 +33,11 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
+    public int getQueryCost() {
+        return 1;
+    }
+
+    @Override
     public List<ReadQueryPlan> getSubQueries() {return Collections.singletonList(subQuery);}
 
     @Override

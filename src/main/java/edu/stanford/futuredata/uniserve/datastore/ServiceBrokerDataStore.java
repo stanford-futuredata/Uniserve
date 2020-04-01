@@ -218,7 +218,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         }
         dataStore.shardLockMap.get(shardNum).readerLockLock();
         long unixTime = Instant.now().getEpochSecond();
-        dataStore.QPSMap.get(shardNum).compute(unixTime, (k, v) -> v == null ? 1 : v + 1);
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {
             shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
@@ -232,6 +231,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             long executeEndTime = System.nanoTime();
             dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+            dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
             long fullEndtime = System.nanoTime();
             dataStore.readQueryFullTimes.add((fullEndtime - fullStartTime) / 1000L);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
