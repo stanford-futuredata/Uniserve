@@ -351,7 +351,7 @@ public class Coordinator {
             statisticsLock.lock();
             logger.info("Query Statistics: {}", queryStatistics);
             serverShardRatios = lb.balanceLoad(numShards, numServers, shardLoads, shardMemoryUsages, currentLocations, queryStatistics, maxMemory);
-            statisticsLock.lock();
+            statisticsLock.unlock();
         } catch (IloException e) {
             logger.info("Cplex exception");
             e.printStackTrace();
