@@ -6,6 +6,8 @@ import com.amazonaws.services.ec2.model.*;
 import com.amazonaws.util.Base64;
 import edu.stanford.futuredata.uniserve.coordinator.CoordinatorCloud;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +35,7 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
         assert(launchDataStoreScript.contains("CLOUDID"));
         launchDataStoreScript = launchDataStoreScript.replace("CLOUDID", Integer.toString(cloudID));
         String encodedScript = Base64.encodeAsString(launchDataStoreScript.getBytes());
+
         RunInstancesRequest runInstancesRequest =
                 new RunInstancesRequest().withImageId(ami) // Uniserve datastore image
                         .withInstanceType(instanceType)
@@ -40,6 +43,11 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
                         .withMaxCount(1)
                         .withKeyName("kraftp")
                         .withSecurityGroups("kraftp-uniserve")
+                        .withIamInstanceProfile(
+                                new IamInstanceProfileSpecification()
+                                        .withArn("arn:aws:iam::491037173944:role/s3_full_acess")
+                                        .withName("s3_full_acess")
+                        )
                         .withUserData(encodedScript);
         RunInstancesResult result = ec2.runInstances(
                 runInstancesRequest);
@@ -53,11 +61,21 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
 
     @Override
     public void removeDataStore(int cloudID) {
+        assert(cloudIDToInstanceID.containsKey(cloudID));
         AmazonEC2 ec2 = AmazonEC2ClientBuilder.defaultClient();
         String instanceId = cloudIDToInstanceID.get(cloudID);
         TerminateInstancesRequest terminateInstancesRequest = new TerminateInstancesRequest().withInstanceIds(instanceId);
         TerminateInstancesResult terminateInstancesResult = ec2.terminateInstances(terminateInstancesRequest);
         assert(!Objects.isNull(terminateInstancesResult));
         assert(terminateInstancesResult.getTerminatingInstances().size() == 1);
+        cloudIDToInstanceID.remove(cloudID);
+    }
+
+    @Override
+    public void shutdown() {
+        List<Integer> remainingKeys = new ArrayList<>(cloudIDToInstanceID.keySet());
+        for (int key: remainingKeys) {
+            removeDataStore(key);
+        }
     }
 }

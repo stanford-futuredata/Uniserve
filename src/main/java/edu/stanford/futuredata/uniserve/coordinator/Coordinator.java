@@ -109,6 +109,9 @@ public class Coordinator {
             loadBalancer.join();
         } catch (InterruptedException ignored) {}
         zkCurator.close();
+        if (cCloud != null) {
+            cCloud.shutdown();
+        }
     }
 
     int assignShardToDataStore(int shardNum) {
