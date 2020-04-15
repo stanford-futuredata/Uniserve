@@ -14,12 +14,8 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -59,6 +55,8 @@ public class Broker {
     public static final int QUERY_RETRY = 2;
 
     public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
+
+    ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
 
 
     /*
@@ -109,6 +107,7 @@ public class Broker {
             logger.info("Queries: {} p50 Remote: {}μs p99 Remote: {}μs  p50 Aggregation: {}μs p99 Aggregation: {}μs", numQueries, p50RE, p99RE, p50agg, p99agg);
         }
         zkCurator.close();
+        readQueryThreadPool.shutdown();
     }
 
     /*
@@ -444,27 +443,19 @@ public class Broker {
         } else {
             shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
         }
-        List<ReadQueryShardThread> readQueryShardThreads = new ArrayList<>();
-        for (int shardNum : shardNums) {
-            ReadQueryShardThread readQueryShardThread = new ReadQueryShardThread(shardNum, readQueryPlan);
-            readQueryShardThreads.add(readQueryShardThread);
-            readQueryShardThread.start();
-        }
         queryStatistics.merge(new HashSet<>(shardNums), 1, Integer::sum);
-        List<ByteString> intermediates = new ArrayList<>();
-        for (ReadQueryShardThread readQueryShardThread : readQueryShardThreads) {
+        List<ByteString> intermediates = new CopyOnWriteArrayList<>();
+        List<Future<?>> futures = new ArrayList<>();
+        for (int shardNum : shardNums) {
+            ReadQueryShardThread readQueryShardThread = new ReadQueryShardThread(shardNum, readQueryPlan, intermediates);
+            Future<?> f = readQueryThreadPool.submit(readQueryShardThread);
+            futures.add(f);
+        }
+        for (Future<?> f : futures) {
             try {
-                readQueryShardThread.join();
-            } catch (InterruptedException e) {
+                f.get();
+            } catch (InterruptedException | ExecutionException e) {
                 logger.error("Query interrupted: {}", e.getMessage());
-                assert(false);
-            }
-            Optional<ByteString> intermediate = readQueryShardThread.getIntermediate();
-            if (intermediate.isPresent()) {
-                intermediates.add(intermediate.get());
-            } else {
-                // TODO:  Query fault tolerance.
-                logger.warn("Query Failure");
                 assert(false);
             }
         }
@@ -475,19 +466,22 @@ public class Broker {
         return ret;
     }
 
-    private class ReadQueryShardThread extends Thread {
+    private class ReadQueryShardThread implements Runnable {
         private final int shardNum;
         private final ReadQueryPlan readQueryPlan;
-        private Optional<ByteString> intermediate;
+        private List<ByteString> intermediates;
 
-        ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan) {
+        ReadQueryShardThread(int shardNum, ReadQueryPlan readQueryPlan, List<ByteString> intermediates) {
             this.shardNum = shardNum;
             this.readQueryPlan = readQueryPlan;
+            this.intermediates = intermediates;
         }
 
         @Override
         public void run() {
-            this.intermediate = queryShard(this.shardNum);
+            Optional<ByteString> intermediate = queryShard(this.shardNum);
+            assert(intermediate.isPresent());
+            intermediates.add(intermediate.get());
         }
 
         private Optional<ByteString> queryShard(int shard) {
@@ -522,10 +516,6 @@ public class Broker {
             }
             ByteString responseByteString = readQueryResponse.getResponse();
             return Optional.of(responseByteString);
-        }
-
-        Optional<ByteString> getIntermediate() {
-            return this.intermediate;
         }
     }
 }
