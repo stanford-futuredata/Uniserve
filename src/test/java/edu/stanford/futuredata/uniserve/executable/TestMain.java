@@ -14,7 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,7 +71,7 @@ public class TestMain {
     private static void runCoordinator(String zkHost, int zkPort, String cHost, int cPort) throws InterruptedException {
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, cHost, cPort);
         int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        assert(c_r == 0);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             coordinator.stopServing();
             KVStoreTests.cleanUp(zkHost, zkPort);
@@ -79,7 +82,7 @@ public class TestMain {
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) throws InterruptedException {
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, cloudID);
         int d_r = dataStore.startServing();
-        assertEquals(0, d_r);
+        assert(d_r == 0);
         Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));
         Thread.sleep(Long.MAX_VALUE);
     }
@@ -88,10 +91,23 @@ public class TestMain {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
-        assertTrue(writeSuccess);
-        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
-        Integer queryResponse = broker.readQuery(readQueryPlan);
-        assertEquals(Integer.valueOf(2), queryResponse);
+        assert(writeSuccess);
+        List<Long> trialTimes = new ArrayList<>();
+        for (int iterNum = 0; iterNum < 5; iterNum++) {
+            for (int i = 0; i < 10000; i++) {
+                long t0 = System.nanoTime();
+                ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
+                Integer queryResponse = broker.readQuery(readQueryPlan);
+                assert (queryResponse == 2);
+                long timeElapsed = System.nanoTime() - t0;
+                trialTimes.add(timeElapsed / 1000L);
+            }
+            List<Long> sortedTimes = trialTimes.stream().sorted().collect(Collectors.toList());
+            long average = sortedTimes.stream().mapToLong(i -> i).sum() / trialTimes.size();
+            long p50 = sortedTimes.get(trialTimes.size() / 2);
+            long p99 = sortedTimes.get(trialTimes.size() * 99 / 100);
+            logger.info("Queries: {} Average: {}μs p50: {}μs p99: {}μs", trialTimes.size(), average, p50, p99);
+        }
         broker.shutdown();
     }
 }
