@@ -88,12 +88,12 @@ public class TestMain {
     }
 
     private static void runBroker(String zkHost, int zkPort) {
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 5);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 1);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assert(writeSuccess);
-        List<Long> trialTimes = new ArrayList<>();
-        for (int iterNum = 0; iterNum < 5; iterNum++) {
+        for (int iterNum = 0; iterNum < 10; iterNum++) {
+            List<Long> trialTimes = new ArrayList<>();
             for (int i = 0; i < 10000; i++) {
                 long t0 = System.nanoTime();
                 ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
