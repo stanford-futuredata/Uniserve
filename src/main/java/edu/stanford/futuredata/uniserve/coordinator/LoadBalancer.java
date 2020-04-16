@@ -21,6 +21,19 @@ public class LoadBalancer {
 
     final static double mipGap = 0.1;
 
+    /**
+     * Generate an assignment of shards to servers.
+     * @param numShards  Number of shards.
+     * @param numServers  Number of servers.
+     * @param shardLoads Amount of load on each shard.
+     * @param shardMemoryUsages Memory usage of each shard.
+     * @param currentLocations Entry [x][y] is 1 if server x has a copy of shard y and 0 otherwise.
+     * @param sampleQueries A map from sets of shards to the number of queries that touched precisely that set.
+     * @param maxMemory  Maximum server memory.
+     * @return Entry [x][y] is the percentage of queries for shard y that should be routed to server x.
+     * @throws IloException
+     */
+
     public List<double[]> balanceLoad(Integer numShards, Integer numServers,
                                    int[] shardLoads, int[] shardMemoryUsages, int[][] currentLocations,
                                    Map<Set<Integer>, Integer> sampleQueries,
