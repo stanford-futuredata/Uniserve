@@ -454,6 +454,8 @@ public class Coordinator {
 
     private int quiescence = 0;
     public final int quiescencePeriod = 2;
+    public final double addServerThreshold = 0.7;
+    public final double removeServerThreshold = 0.4;
 
     public void autoScale(Map<Integer, Double> serverCpuUsage) {
         OptionalDouble averageCpuUsageOpt = serverCpuUsage.values().stream().mapToDouble(i -> i).average();
@@ -468,7 +470,7 @@ public class Coordinator {
             return;
         }
         // Add a server.
-        if (averageCpuUsage > 0.8) {
+        if (averageCpuUsage > addServerThreshold) {
             logger.info("Adding DataStore");
             boolean success = cCloud.addDataStore();
             if (!success) {
@@ -477,7 +479,7 @@ public class Coordinator {
             quiescence = quiescencePeriod;
         }
         // Remove a server.
-        if (averageCpuUsage < 0.5) {
+        if (averageCpuUsage < removeServerThreshold) {
             List<Integer> removeableDSIDs = dataStoresMap.keySet().stream()
                     .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
                     .filter(i -> dsIDToCloudID.containsKey(i))
