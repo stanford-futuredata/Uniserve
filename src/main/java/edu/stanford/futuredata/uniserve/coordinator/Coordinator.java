@@ -282,26 +282,22 @@ public class Coordinator {
         Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
         Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
         Map<Integer, Double> serverCpuUsageMap = new ConcurrentHashMap<>();
-        List<Thread> threads = new ArrayList<>();
-        for(CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub: dataStoreStubsMap.values()) {
-            Runnable r = () -> {
+        for(DataStoreDescription dsDesc: dataStoresMap.values()) {
+            if (dsDesc.status.get() == DataStoreDescription.ALIVE) {
+                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(dsDesc.dsID);
                 ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
-                ShardUsageResponse response = stub.shardUsage(m);
-                Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
-                Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
-                dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
-                dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
-                dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
-                serverCpuUsageMap.put(response.getDsID(), response.getServerCPUUsage());
-            };
-            Thread t = new Thread(r);
-            t.start();
-            threads.add(t);
-        }
-        for (Thread thread: threads) {
-            try {
-                thread.join();
-            } catch (InterruptedException ignored) {}
+                try {
+                    ShardUsageResponse response = stub.shardUsage(m);
+                    Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
+                    Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
+                    dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
+                    dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
+                    dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
+                    serverCpuUsageMap.put(response.getDsID(), response.getServerCPUUsage());
+                } catch (StatusRuntimeException e) {
+                    logger.info("DS{} load collection failed: {}", dsDesc.dsID, e.getMessage());
+                }
+            }
         }
         memoryUsagesMap.replaceAll((k, v) -> v / shardCountMap.get(k));
         return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
@@ -456,6 +452,9 @@ public class Coordinator {
         }
     }
 
+    private int quiescence = 0;
+    public final int quiescencePeriod = 2;
+
     public void autoScale(Map<Integer, Double> serverCpuUsage) {
         OptionalDouble averageCpuUsageOpt = serverCpuUsage.values().stream().mapToDouble(i -> i).average();
         if (averageCpuUsageOpt.isEmpty()) {
@@ -463,6 +462,11 @@ public class Coordinator {
         }
         double averageCpuUsage = averageCpuUsageOpt.getAsDouble();
         logger.info("Average CPU Usage: {}", averageCpuUsage);
+        // After acting, wait quiescencePeriod cycles before acting again for CPU to rebalance.
+        if (quiescence > 0) {
+            quiescence--;
+            return;
+        }
         // Add a server.
         if (averageCpuUsage > 0.8) {
             logger.info("Adding DataStore");
@@ -470,6 +474,7 @@ public class Coordinator {
             if (!success) {
                 logger.info("DataStore addition failed");
             }
+            quiescence = quiescencePeriod;
         }
         // Remove a server.
         if (averageCpuUsage < 0.5) {
@@ -492,6 +497,7 @@ public class Coordinator {
                 logger.info("Remove DataStore: {} Cloud ID: {}", removedDSID, removedCloudID);
                 killDataStore(removedDSID);
                 cCloud.removeDataStore(removedCloudID);
+                quiescence = quiescencePeriod;
             }
         }
     }
