@@ -24,7 +24,7 @@ public class SimulatorTests {
         LoadBalancer.verbose = true;
     }
 
-    @Test
+//    @Test
     public void testBasicSimulator() {
         logger.info("testBasicSimulator");
         int numShards = 50;

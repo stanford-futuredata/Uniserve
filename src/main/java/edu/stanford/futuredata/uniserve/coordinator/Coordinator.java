@@ -282,6 +282,11 @@ public class Coordinator {
         Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
         Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
         Map<Integer, Double> serverCpuUsageMap = new ConcurrentHashMap<>();
+        for (int shardNum: shardToPrimaryDataStoreMap.keySet()) {
+            qpsMap.put(shardNum, 0);
+            memoryUsagesMap.put(shardNum, 0);
+            shardCountMap.put(shardNum, 0);
+        }
         for(DataStoreDescription dsDesc: dataStoresMap.values()) {
             if (dsDesc.status.get() == DataStoreDescription.ALIVE) {
                 CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(dsDesc.dsID);
@@ -299,7 +304,7 @@ public class Coordinator {
                 }
             }
         }
-        memoryUsagesMap.replaceAll((k, v) -> v / shardCountMap.get(k));
+        memoryUsagesMap.replaceAll((k, v) -> shardCountMap.get(k) > 0 ? v / shardCountMap.get(k) : v);
         return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
     }
 
@@ -336,12 +341,16 @@ public class Coordinator {
         for(Map.Entry<Integer, Integer> entry: shardToPrimaryDataStoreMap.entrySet()) {
             int shardNum = entry.getKey();
             int dsID = entry.getValue();
-            currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+            if (aliveDSIDs.contains(dsID)) {
+                currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+            }
         }
         for(Map.Entry<Integer, List<Integer>> entry: shardToReplicaDataStoreMap.entrySet()) {
             int shardNum = entry.getKey();
             for(int dsID: entry.getValue()) {
-                currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+                if (aliveDSIDs.contains(dsID)) {
+                    currentLocations[dsIDToIndexMap.get(dsID)][shardNumToIndexMap.get(shardNum)] = 1;
+                }
             }
         }
         List<double[]> serverShardRatios = null;
