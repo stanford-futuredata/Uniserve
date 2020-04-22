@@ -59,8 +59,39 @@ public class LoadBalancerTests {
             for(int i = 0; i < numShards; i++) {
                 serverLoad += Rs[i] * shardLoads[i];
             }
-            assertTrue(serverLoad <= averageLoad * 1.1);
+            assertTrue(serverLoad <= averageLoad * 1.05);
         }
+    }
+
+    @Test
+    public void testReplicationFactor() throws IloException {
+        logger.info("testReplicationFactor");
+
+        LoadBalancer.minReplicationFactor = 2;
+        int numShards = 4;
+        int numServers = 2;
+        int[] shardLoads = new int[]{1, 2, 3, 20};
+        int[] memoryUsages = new int[]{1, 1, 1, 1};
+        int[][] currentLocations = new int[][]{new int[]{1, 1, 1, 1}, new int[]{0, 0, 0, 0}};
+        int maxMemory = 10;
+
+        List<double[]> returnR = new LoadBalancer().balanceLoad(numShards, numServers, shardLoads, memoryUsages, currentLocations, new HashMap<>(), maxMemory);
+        logger.info("{} {}", returnR.get(0), returnR.get(1));
+        double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
+        for(double[] Rs: returnR) {
+            double serverLoad = 0;
+            int replicationFactor = 0;
+            for(int i = 0; i < numShards; i++) {
+                serverLoad += Rs[i] * shardLoads[i];
+                if (Rs[i] > 0) {
+                    replicationFactor += 1;
+                }
+            }
+            assertTrue(replicationFactor >= 2);
+            assertTrue(serverLoad <= averageLoad * 1.05);
+        }
+
+        LoadBalancer.minReplicationFactor = 1;
     }
 
     @Test
