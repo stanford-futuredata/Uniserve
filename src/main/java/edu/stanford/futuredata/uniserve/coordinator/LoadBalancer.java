@@ -12,6 +12,7 @@ public class LoadBalancer {
 
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
     public static boolean verbose = true;
+    public static int minReplicationFactor = 1;
 
     List<double[]> lastR;
     List<double[]> lastX;
@@ -196,6 +197,14 @@ public class LoadBalancer {
                 rShardServers[i] = r.get(i)[j];
             }
             cplex.addEq(cplex.sum(rShardServers), 1); // Require sum of r for each shard to be 1.
+        }
+
+        for (int j = 0; j < numShards; j++) {
+            IloNumVar[] xShardServers = new IloNumVar[numServers];
+            for (int i = 0; i < numServers; i++) {
+                xShardServers[i] = x.get(i)[j];
+            }
+            cplex.addGe(cplex.sum(xShardServers), minReplicationFactor); // Require each shard to be replicated N times.
         }
     }
 }

@@ -505,14 +505,9 @@ public class Broker {
                     queryStatus = readQueryResponse.getReturnCode();
                     assert queryStatus != QUERY_FAILURE;
                 } catch (StatusRuntimeException e) {
-                    logger.warn("Read query RPC failed for shard {}", shard);
                     queryStatus = QUERY_RETRY;
                 }
-                if (queryStatus == QUERY_RETRY) {
-                    try {
-                        Thread.sleep(shardMapDaemonSleepDurationMillis);
-                    } catch (Throwable ignored) {}
-                }
+                // TODO:  Maybe don't spin on retries?
             }
             ByteString responseByteString = readQueryResponse.getResponse();
             return Optional.of(responseByteString);
