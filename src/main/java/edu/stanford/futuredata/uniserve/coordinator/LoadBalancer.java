@@ -190,7 +190,6 @@ public class LoadBalancer {
                 cplex.addLe(r.get(i)[j], x.get(i)[j]); // Ensure x_ij is 1 if r_ij is positive.
                 if (minReplicationFactor > 1) {
                     cplex.addLe(x.get(i)[j], cplex.sum(r.get(i)[j], 0.9999));
-                    cplex.addGe(r.get(i)[j], 0.01);
                 }
             }
         }
