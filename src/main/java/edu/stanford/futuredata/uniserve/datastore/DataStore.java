@@ -177,6 +177,10 @@ public class DataStore<R extends Row, S extends Shard> {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());
         }
+        for (Map.Entry<Integer, S> entry: replicaShardMap.entrySet()) {
+            entry.getValue().destroy();
+            replicaShardMap.remove(entry.getKey());
+        }
         zkCurator.close();
         int numQueries = readQueryExecuteTimes.size();
         OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
