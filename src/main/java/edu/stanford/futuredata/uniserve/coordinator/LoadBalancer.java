@@ -173,7 +173,7 @@ public class LoadBalancer {
     private static void setCoreConstraints(IloCplex cplex, List<IloNumVar[]> r, List<IloNumVar[]> x, Integer numShards, Integer numServers,
                                            int[] shardLoads, int[] shardMemoryUsages,
                                            Integer maxMemory) throws IloException {
-
+        int actualReplicationFactor = minReplicationFactor < numServers ? minReplicationFactor : numServers;
         double averageLoad = (double) Arrays.stream(shardLoads).sum() / numServers;
         double epsilon = averageLoad / 20;
 
@@ -188,7 +188,7 @@ public class LoadBalancer {
         for (int i = 0; i < numServers; i++) {
             for (int j = 0; j < numShards; j++) {
                 cplex.addLe(r.get(i)[j], x.get(i)[j]); // Ensure x_ij is 1 if r_ij is positive.
-                if (minReplicationFactor > 1) {
+                if (actualReplicationFactor > 1) {
                     cplex.addLe(x.get(i)[j], cplex.sum(r.get(i)[j], 0.9999));
                 }
             }
@@ -207,7 +207,7 @@ public class LoadBalancer {
             for (int i = 0; i < numServers; i++) {
                 xShardServers[i] = x.get(i)[j];
             }
-            cplex.addGe(cplex.sum(xShardServers), minReplicationFactor); // Require each shard to be replicated N times.
+            cplex.addGe(cplex.sum(xShardServers), actualReplicationFactor); // Require each shard to be replicated N times.
         }
     }
 }

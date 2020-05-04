@@ -14,7 +14,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -56,6 +58,7 @@ public class Coordinator {
     public boolean runLoadBalancerDaemon = true;
     private final LoadBalancerDaemon loadBalancer;
     public static int loadBalancerSleepDurationMillis = 60000;
+    public final Semaphore loadBalancerSemaphore = new Semaphore(0);
 
     // Lock protects shardToPrimaryDataStoreMap, shardToReplicaDataStoreMap, and shardToReplicaRatioMap.
     // Each operation modifying these maps follows this process:  Lock, change the local copies, unlock, perform
@@ -458,6 +461,7 @@ public class Coordinator {
                     removeShard(shardToRemove, dsID);
                 }
             } while (shardToRemove != null);
+            loadBalancerSemaphore.release();
         }
     }
 
@@ -518,7 +522,7 @@ public class Coordinator {
         public void run() {
             while (runLoadBalancerDaemon) {
                 try {
-                    Thread.sleep(loadBalancerSleepDurationMillis);
+                    loadBalancerSemaphore.tryAcquire(loadBalancerSleepDurationMillis, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     return;
                 }
