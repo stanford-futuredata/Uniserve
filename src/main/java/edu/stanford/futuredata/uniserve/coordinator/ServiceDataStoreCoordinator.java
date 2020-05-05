@@ -46,6 +46,9 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.zkCurator.setDSDescription(dsDescription);
         coordinator.dataStoresMap.put(dsID, dsDescription);
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
+        if (cloudID != -1) {
+            coordinator.loadBalancerSemaphore.release();
+        }
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
     }
 
