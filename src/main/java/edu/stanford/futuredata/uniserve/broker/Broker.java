@@ -459,6 +459,9 @@ public class Broker {
                 assert(false);
             }
         }
+        if (intermediates.contains(null)) {
+            return null;
+        }
         long aggStart = System.nanoTime();
         V ret =  readQueryPlan.aggregateShardQueries(intermediates);
         long aggEnd = System.nanoTime();
@@ -480,14 +483,19 @@ public class Broker {
         @Override
         public void run() {
             Optional<ByteString> intermediate = queryShard(this.shardNum);
-            assert(intermediate.isPresent());
-            intermediates.add(intermediate.get());
+            if (intermediate.isPresent()) {
+                intermediates.add(intermediate.get());
+            } else {
+                intermediates.add(null);
+            }
         }
 
         private Optional<ByteString> queryShard(int shard) {
             int queryStatus = QUERY_RETRY;
             ReadQueryResponse readQueryResponse = null;
+            int tries = 0;
             while (queryStatus == QUERY_RETRY) {
+                tries++;
                 Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shard);
                 if (stubOpt.isEmpty()) {
                     logger.warn("Could not find DataStore for shard {}", shard);
@@ -507,7 +515,10 @@ public class Broker {
                 } catch (StatusRuntimeException e) {
                     queryStatus = QUERY_RETRY;
                 }
-                // TODO:  Maybe don't spin on retries?
+                if (tries > 100) {
+                    logger.warn("Query timed out on shard {}", shardNum);
+                    return Optional.empty();
+                }
             }
             ByteString responseByteString = readQueryResponse.getResponse();
             return Optional.of(responseByteString);

@@ -14,14 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class FailureTests {
     private static final Logger logger = LoggerFactory.getLogger(FailureTests.class);
@@ -40,7 +36,7 @@ public class FailureTests {
     }
 
     @Test
-    public void testSingleFailure() {
+    public void testSingleFailure() throws InterruptedException {
         logger.info("testSingleFailure");
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
@@ -76,7 +72,11 @@ public class FailureTests {
 
         ReadQueryPlan<KVShard, Integer>  readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         Integer queryResponse = broker.readQuery(readQueryPlan);
-        assertEquals(Integer.valueOf(55), queryResponse);
+        assertNull(queryResponse);
+        do {
+            queryResponse = broker.readQuery(readQueryPlan);
+        } while (Objects.isNull(queryResponse));
+        assertEquals(queryResponse, 55);
 
         for (int i = 0; i < num_datastores; i++) {
             dataStores.get(i).runPingDaemon = false;
@@ -134,7 +134,7 @@ public class FailureTests {
         for (int i = 1; i < 100; i++) {
             ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(i), queryResponse);
+            assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
 
         coordinator.removeShard(0, 1);
@@ -150,7 +150,7 @@ public class FailureTests {
         for (int i = 1; i < 100; i++) {
             ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
-            assertEquals(Integer.valueOf(i), queryResponse);
+            assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
         coordinator.removeShard(2, 3);
         ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
