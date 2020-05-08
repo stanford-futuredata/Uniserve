@@ -515,6 +515,11 @@ public class Broker {
                 } catch (StatusRuntimeException e) {
                     queryStatus = QUERY_RETRY;
                 }
+                if (queryStatus == QUERY_RETRY && tries == 0) {
+                    try {
+                        Thread.sleep((shardMapDaemonSleepDurationMillis * 12) / 10);
+                    } catch (InterruptedException ignored) { }
+                }
                 if (tries > 100) {
                     logger.warn("Query timed out on shard {}", shardNum);
                     return Optional.empty();
