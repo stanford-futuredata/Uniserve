@@ -515,7 +515,7 @@ public class Broker {
                 } catch (StatusRuntimeException e) {
                     queryStatus = QUERY_RETRY;
                 }
-                if (queryStatus == QUERY_RETRY && tries == 0) {
+                if (queryStatus == QUERY_RETRY && tries == 10) {
                     try {
                         Thread.sleep((shardMapDaemonSleepDurationMillis * 12) / 10);
                     } catch (InterruptedException ignored) { }
