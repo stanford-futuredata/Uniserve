@@ -71,8 +71,7 @@ public class FailureTests {
         dataStores.get(0).shutDown();
 
         ReadQueryPlan<KVShard, Integer>  readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
-        Integer queryResponse = broker.readQuery(readQueryPlan);
-        assertNull(queryResponse);
+        Integer queryResponse;
         do {
             queryResponse = broker.readQuery(readQueryPlan);
         } while (Objects.isNull(queryResponse));
