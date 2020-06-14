@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -128,9 +129,10 @@ public class Broker {
         long txID = ThreadLocalRandom.current().nextLong();
         CountDownLatch queryLatch = new CountDownLatch(shardRowArrayMap.size());
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
+        AtomicBoolean statusWritten = new AtomicBoolean(false);
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
-            WriteQueryThread<R, S> t = new WriteQueryThread<>(shardNum, writeQueryPlan, rowArray, txID, queryLatch, queryStatus);
+            WriteQueryThread<R, S> t = new WriteQueryThread<>(shardNum, writeQueryPlan, rowArray, txID, queryLatch, queryStatus, statusWritten);
             t.start();
             writeQueryThreads.add(t);
         }
@@ -322,14 +324,17 @@ public class Broker {
         private final long txID;
         private CountDownLatch queryLatch;
         private AtomicInteger queryStatus;
+        private AtomicBoolean statusWritten;
 
-        WriteQueryThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID, CountDownLatch queryLatch, AtomicInteger queryStatus) {
+        WriteQueryThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID,
+                         CountDownLatch queryLatch, AtomicInteger queryStatus, AtomicBoolean statusWritten) {
             this.shardNum = shardNum;
             this.writeQueryPlan = writeQueryPlan;
             this.rowArray = rowArray;
             this.txID = txID;
             this.queryLatch = queryLatch;
             this.queryStatus = queryStatus;
+            this.statusWritten = statusWritten;
         }
 
         @Override
@@ -414,6 +419,10 @@ public class Broker {
                 }
                 assert(queryStatus.get() != QUERY_RETRY);
                 if (queryStatus.get() == QUERY_SUCCESS) {
+                    // TODO:  This must finish before any commit message is sent.
+                    if (statusWritten.compareAndSet(false, true)) {
+                        zkCurator.writeTransactionStatus(txID, DataStore.COMMIT);
+                    }
                     WriteQueryMessage commit = WriteQueryMessage.newBuilder()
                             .setWriteState(DataStore.COMMIT)
                             .build();

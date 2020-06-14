@@ -77,7 +77,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             public void onError(Throwable throwable) {
                 logger.warn("DS{} Primary Write RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
                 if (lastState == DataStore.PREPARE) {
-                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    if (dataStore.zkCurator.getTransactionStatus(txID) == DataStore.COMMIT) {
+                        commitWriteQuery(shardNum, txID, writeQueryPlan);
+                    } else {
+                        abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    }
                     t.releaseLock();
                 }
             }
@@ -135,6 +139,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                                     .setRowData(rowData)
                                     .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
                                     .setWriteState(DataStore.COLLECT)
+                                    .setTxID(txID)
                                     .build();
                             observer.onNext(rm);
                         }

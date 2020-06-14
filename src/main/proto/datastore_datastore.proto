@@ -22,6 +22,7 @@ message ReplicaWriteMessage {
     bytes rowData = 3;
     int32 versionNumber = 4;
     int32 writeState = 5;
+    int64 txID = 6;
 }
 
 message ReplicaWriteResponse {

@@ -68,6 +68,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         return new StreamObserver<>() {
             int shardNum;
             int versionNumber;
+            long txID;
             WriteQueryPlan<R, S> writeQueryPlan;
             List<R[]> rowArrayList = new ArrayList<>();
             List<R> rowList;
@@ -81,6 +82,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     assert(lastState == DataStore.COLLECT);
                     versionNumber = replicaWriteMessage.getVersionNumber();
                     shardNum = replicaWriteMessage.getShard();
+                    txID = replicaWriteMessage.getTxID();
                     writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
                     R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
                     rowArrayList.add(rowChunk);
@@ -105,8 +107,13 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             @Override
             public void onError(Throwable throwable) {
                 logger.warn("DS{} Replica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                // TODO:  What if the primary fails after reporting a successful prepare but before the commit?
                 if (lastState == DataStore.PREPARE) {
-                    abortReplicaWrite(shardNum, writeQueryPlan);
+                    if (dataStore.zkCurator.getTransactionStatus(txID) == DataStore.COMMIT) {
+                        commitReplicaWrite(shardNum, writeQueryPlan, rowList);
+                    } else {
+                        abortReplicaWrite(shardNum, writeQueryPlan);
+                    }
                     t.releaseLock();
                 }
             }

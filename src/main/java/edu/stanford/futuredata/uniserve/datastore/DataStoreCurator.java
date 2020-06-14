@@ -11,6 +11,8 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +43,21 @@ class DataStoreCurator {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
+        }
+    }
+
+    int getTransactionStatus(long txID) {
+        try {
+            String path = String.format("/txStatus/%d", txID);
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                return ByteBuffer.wrap(b).getInt();
+            } else {
+                return -1;
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            return -1;
         }
     }
 

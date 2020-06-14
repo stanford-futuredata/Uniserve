@@ -11,6 +11,7 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -40,6 +41,21 @@ public class BrokerCurator {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
+        }
+    }
+
+    void writeTransactionStatus(long txID, int status) {
+        try {
+            String path = String.format("/txStatus/%d", txID);
+            byte[] data = ByteBuffer.allocate(4).putInt(status).array();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
         }
     }
 

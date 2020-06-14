@@ -132,6 +132,7 @@ public class FailureTests {
         Thread.sleep(500);
         broker.shutdown();
         t.join();
+        Thread.sleep(500);
         for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).shutDown();
         }

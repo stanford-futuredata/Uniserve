@@ -52,6 +52,12 @@ class CoordinatorCurator {
             } else {
                 cf.create().forPath(shardMappingPath, new byte[0]);
             }
+            String txStatusPath = "/txStatus";
+            if (cf.checkExists().forPath(txStatusPath) != null) {
+                cf.setData().forPath(txStatusPath, new byte[0]);
+            } else {
+                cf.create().forPath(txStatusPath, new byte[0]);
+            }
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
