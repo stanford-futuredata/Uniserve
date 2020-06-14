@@ -33,7 +33,7 @@ public class DataStore<R extends Row, S extends Shard> {
     // Map from primary shard number to shard data structure.
     public final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>(); // Public for testing.
     // Map from replica shard number to shard data structure.
-    final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
+    public final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
     // Map from shard number to shard version number.
     final Map<Integer, Integer> shardVersionMap = new ConcurrentHashMap<>();
     // Map from primary shard number to last uploaded version number.

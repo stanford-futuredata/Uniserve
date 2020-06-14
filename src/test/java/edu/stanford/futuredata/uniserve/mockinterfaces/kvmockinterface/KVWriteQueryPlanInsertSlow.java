@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class KVWriteQueryPlanInsertSlow implements WriteQueryPlan<KVRow, KVShard> {
 
@@ -10,14 +11,18 @@ public class KVWriteQueryPlanInsertSlow implements WriteQueryPlan<KVRow, KVShard
     public boolean preCommit(KVShard shard, List<KVRow> rows) {
         shard.setRows(rows);
         try {
-            Thread.sleep(100);
+            Thread.sleep(ThreadLocalRandom.current().nextInt(80, 120));
         } catch (InterruptedException ignored) { }
         return true;
     }
 
     @Override
     public void commit(KVShard shard) {
-        shard.insertRows();
+
+        try {
+            shard.insertRows();
+        } catch (NullPointerException ignored) {
+        }
     }
 
     @Override
