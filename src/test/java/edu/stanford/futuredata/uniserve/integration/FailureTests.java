@@ -88,6 +88,58 @@ public class FailureTests {
     }
 
     @Test
+    public void testWriteFailures() throws InterruptedException {
+        logger.info("testWriteFailures");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDataStores = 4;
+        for (int i = 0; i < numDataStores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 10; i++) {
+                WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
+                List<KVRow> rows = new ArrayList<>();
+                for(int d = 0; d < numDataStores; d++) {
+                    rows.add(new KVRow(d, i % 2));
+                }
+                boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+                int num = 0;
+                for (DataStore<KVRow, KVShard> d: dataStores) {
+                    KVShard s = d.primaryShardMap.get(num);
+                    if (writeSuccess) {
+                        assertEquals(Optional.of(i % 2), s.queryKey(num));
+                    } else {
+                        assertEquals(dataStores.get(0).primaryShardMap.get(0).queryKey(0), s.queryKey(num));
+                    }
+                    num += 1;
+                }
+            }
+        });
+        t.start();
+        Thread.sleep(500);
+//        dataStores.get(0).shutDown();
+        t.join();
+        for (int i = 0; i < numDataStores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
     public void testFailureWithChangingReplicas() {
         logger.info("testFailureWithChangingReplicas");
         int numShards = 5;
