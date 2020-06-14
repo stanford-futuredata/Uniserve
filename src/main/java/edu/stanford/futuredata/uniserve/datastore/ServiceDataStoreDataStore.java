@@ -105,7 +105,10 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             @Override
             public void onError(Throwable throwable) {
                 logger.warn("DS{} Replica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
-                assert (false);
+                if (lastState == DataStore.PREPARE) {
+                    abortReplicaWrite(shardNum, writeQueryPlan);
+                    t.releaseLock();
+                }
             }
 
             @Override

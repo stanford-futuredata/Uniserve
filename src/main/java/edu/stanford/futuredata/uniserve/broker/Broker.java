@@ -94,9 +94,9 @@ public class Broker {
             queryStatisticsDaemon.join();
         } catch (InterruptedException ignored) {}
         // TODO:  Synchronize with outstanding queries?
-        ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdown();
+        ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdownNow();
         for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: dsIDToStubMap.values()) {
-            ((ManagedChannel) stub.getChannel()).shutdown();
+            ((ManagedChannel) stub.getChannel()).shutdownNow();
         }
         int numQueries = remoteExecutionTimes.size();
         if (numQueries > 0) {

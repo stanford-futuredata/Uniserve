@@ -169,10 +169,10 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         for (List<ReplicaDescription> replicaDescriptions: replicaDescriptionsMap.values()) {
             for (ReplicaDescription rd: replicaDescriptions) {
-                rd.channel.shutdown();
+                rd.channel.shutdownNow();
             }
         }
-        coordinatorChannel.shutdown();
+        coordinatorChannel.shutdownNow();
         for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
             entry.getValue().destroy();
             primaryShardMap.remove(entry.getKey());

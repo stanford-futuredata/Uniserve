@@ -75,7 +75,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             @Override
             public void onError(Throwable throwable) {
-                assert (false);
+                logger.warn("DS{} Primary Write RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                if (lastState == DataStore.PREPARE) {
+                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    t.releaseLock();
+                }
             }
 
             @Override

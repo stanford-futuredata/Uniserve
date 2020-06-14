@@ -154,7 +154,6 @@ public class FailureTests {
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
             dataStore.runUploadShardDaemon = false;
-            dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -171,7 +170,7 @@ public class FailureTests {
             coordinator.addReplica(i, i + numShards, 0.5);
         }
         Thread t = new Thread(() -> {
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 20; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
                 List<KVRow> rows = new ArrayList<>();
                 for(int d = 0; d < numShards; d++) {
@@ -199,9 +198,12 @@ public class FailureTests {
             }
         });
         t.start();
-        Thread.sleep(800);
+        Thread.sleep(250);
         dataStores.get(1).shutDown();
         t.join();
+        for (int i = 0; i < numDataStores; i++) {
+            dataStores.get(i).runPingDaemon = false;
+        }
         for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).shutDown();
         }
