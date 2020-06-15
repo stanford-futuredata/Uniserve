@@ -65,7 +65,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
     @Override
     public StreamObserver<ReplicaWriteMessage> replicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
-        return new StreamObserver<>() {
+        return new PreemptibleStreamObserver<>() {
             int shardNum;
             int versionNumber;
             long txID;
@@ -88,7 +88,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     rowArrayList.add(rowChunk);
                 } else if (writeState == DataStore.PREPARE) {
                     assert(lastState == DataStore.COLLECT);
-                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
+                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, Integer.MAX_VALUE);
                     t.acquireLock();
                     rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
                     responseObserver.onNext(prepareReplicaWrite(shardNum, writeQueryPlan, rowList, versionNumber));
@@ -121,6 +121,22 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             @Override
             public void onCompleted() {
                 responseObserver.onCompleted();
+            }
+
+
+            @Override
+            public void preempt() {
+
+            }
+
+            @Override
+            public void resume() {
+
+            }
+
+            @Override
+            public long getTXID() {
+                return txID;
             }
         };
     }

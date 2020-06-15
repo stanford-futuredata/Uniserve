@@ -30,7 +30,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     @Override
     public StreamObserver<WriteQueryMessage> writeQuery(StreamObserver<WriteQueryResponse> responseObserver) {
-        return new StreamObserver<>() {
+        return new PreemptibleStreamObserver<>() {
             int shardNum;
             long txID;
             WriteQueryPlan<R, S> writeQueryPlan;
@@ -55,7 +55,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     assert (lastState == DataStore.COLLECT);
                     rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
-                        t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
+                        t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, txID);
                         t.acquireLock();
                         responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
                     } else {
@@ -91,6 +91,21 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 responseObserver.onCompleted();
             }
 
+            @Override
+            public void preempt() {
+
+            }
+
+            @Override
+            public void resume() {
+
+            }
+
+            @Override
+            public long getTXID() {
+                return txID;
+            }
+
 
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.primaryShardMap.containsKey(shardNum)) {
@@ -101,7 +116,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     rowArray = (R[]) rows.toArray(new Row[0]);
                     AtomicBoolean success = new AtomicBoolean(true);
                     Semaphore prepareSemaphore = new Semaphore(0);
-                    for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub: replicaStubs) {
+                    for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub : replicaStubs) {
                         StreamObserver<ReplicaWriteMessage> observer = stub.replicaWrite(new StreamObserver<>() {
                             @Override
                             public void onNext(ReplicaWriteResponse replicaResponse) {
@@ -127,9 +142,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         });
                         replicaObservers.add(observer);
                     }
-                    for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                    for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                         final int STEPSIZE = 10000;
-                        for(int i = 0; i < rowArray.length; i += STEPSIZE) {
+                        for (int i = 0; i < rowArray.length; i += STEPSIZE) {
                             ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                             R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
                             ByteString rowData = Utilities.objectToByteString(rowSlice);
@@ -153,7 +168,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         prepareSemaphore.acquire(numReplicas);
                     } catch (InterruptedException e) {
                         logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
-                        assert(false);
+                        assert (false);
                     }
                     int returnCode;
                     if (primaryWriteSuccess && success.get()) {
@@ -171,7 +186,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private void commitWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 S shard = dataStore.primaryShardMap.get(shardNum);
-                for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.COMMIT)
                             .build();
@@ -187,13 +202,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     commitSemaphore.acquire(replicaObservers.size());
                 } catch (InterruptedException e) {
                     logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
-                    assert(false);
+                    assert (false);
                 }
             }
 
             private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 S shard = dataStore.primaryShardMap.get(shardNum);
-                for (StreamObserver<ReplicaWriteMessage> observer: replicaObservers) {
+                for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.ABORT)
                             .build();
@@ -205,7 +220,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     commitSemaphore.acquire(replicaObservers.size());
                 } catch (InterruptedException e) {
                     logger.error("DS{} Write Query Interrupted Shard {}: {}", dataStore.dsID, shardNum, e.getMessage());
-                    assert(false);
+                    assert (false);
                 }
             }
 

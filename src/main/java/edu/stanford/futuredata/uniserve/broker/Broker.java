@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -58,6 +59,8 @@ public class Broker {
     public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
 
     ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
+
+    AtomicLong txIDs = new AtomicLong(0); // TODO:  Put in ZooKeeper.
 
 
     /*
@@ -126,7 +129,7 @@ public class Broker {
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<WriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
-        long txID = ThreadLocalRandom.current().nextLong();
+        long txID = txIDs.getAndIncrement();
         CountDownLatch queryLatch = new CountDownLatch(shardRowArrayMap.size());
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         AtomicBoolean statusWritten = new AtomicBoolean(false);

@@ -35,6 +35,17 @@ public class ShardLock {
         mode = Mode.WRITE;
     }
 
+    public boolean writerLockTryLock() {
+        systemLock.readLock().lock();
+        if (writerLock.tryLock()) {
+            mode = Mode.WRITE;
+            return true;
+        } else {
+            systemLock.readLock().unlock();
+            return false;
+        }
+    }
+
     public void writerLockUnlock() {
         assert(mode == Mode.WRITE);
         mode = null;
