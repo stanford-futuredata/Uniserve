@@ -465,4 +465,57 @@ public class KVStoreTests {
         coordinator.stopServing();
         broker.shutdown();
     }
+
+    @Test
+    public void testSimultaneousWrites() throws InterruptedException {
+        logger.info("testSimultaneousWrites");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDataStores = 4;
+        for (int i = 0; i < numDataStores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        List<Thread> threads = new ArrayList<>();
+        int numThreads = 1;
+
+        long startTime = System.currentTimeMillis();
+        for (int threadNum = 0; threadNum < numThreads; threadNum++) {
+            int finalThreadNum = threadNum;
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 1000) {
+                    List<KVRow> insertList = new ArrayList<>();
+                    for (int i = 0; i < numShards; i++) {
+                        insertList.add(new KVRow(i, finalThreadNum));
+                    }
+                    WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+
+        for(Thread t: threads) {
+            t.join();
+        }
+
+        for (int i = 0; i < numDataStores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
 }
