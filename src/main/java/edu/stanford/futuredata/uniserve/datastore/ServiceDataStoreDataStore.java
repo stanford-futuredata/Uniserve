@@ -138,38 +138,40 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             public long getTXID() {
                 return txID;
             }
+
+            private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
+                if (dataStore.replicaShardMap.containsKey(shardNum)) {
+                    S shard = dataStore.replicaShardMap.get(shardNum);
+                    assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
+                    boolean success =  writeQueryPlan.preCommit(shard, rows);
+                    if (success) {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
+                    } else {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                    }
+                } else {
+                    logger.warn("DS{} replica got write request for absent shard {}", dataStore.dsID, shardNum);
+                    return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                }
+            }
+
+            private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+                S shard = dataStore.replicaShardMap.get(shardNum);
+                writeQueryPlan.commit(shard);
+                int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+                Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+                shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+                dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+            }
+
+            private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
+                S shard = dataStore.replicaShardMap.get(shardNum);
+                writeQueryPlan.abort(shard);
+            }
         };
     }
 
-    private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
-        if (dataStore.replicaShardMap.containsKey(shardNum)) {
-            S shard = dataStore.replicaShardMap.get(shardNum);
-            assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
-            boolean success =  writeQueryPlan.preCommit(shard, rows);
-            if (success) {
-                return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
-            } else {
-                return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
-            }
-        } else {
-            logger.warn("DS{} replica got write request for absent shard {}", dataStore.dsID, shardNum);
-            return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
-        }
-    }
 
-    private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-        S shard = dataStore.replicaShardMap.get(shardNum);
-        writeQueryPlan.commit(shard);
-        int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
-        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
-        shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
-        dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
-    }
-
-    private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
-        S shard = dataStore.replicaShardMap.get(shardNum);
-        writeQueryPlan.abort(shard);
-    }
 
     @Override
     public void dataStorePing(DataStorePingMessage request, StreamObserver<DataStorePingResponse> responseObserver) {
