@@ -4,10 +4,10 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
 
 // Holds a shard's write lock during 2PC.
 class WriteLockerThread extends Thread {
@@ -31,26 +31,21 @@ class WriteLockerThread extends Thread {
 
     public void run() {
         lock.addWaitingTXID(txID);
-        PreemptibleStreamObserver currentOwner = null;
-        boolean acquired =  false;
-        while (!acquired && currentOwner == null) {
-            acquired = lock.writerLockTryLock(txID);
-            currentOwner = ownerMap.get(ownerID);
-        }
-        if (!acquired) {
-            if (currentOwner.getTXID() < txID) {
-                // If the current transaction has a lower ID, do not preempt.
-                lock.writerLockLock(txID);
-                acquired = true;
-            } else {
-                // If it has a higher ID, preempt it.
+        PreemptibleStreamObserver formerOwner = null;
+        while (true) {  // TODO:  Don't spin.
+            if (lock.writerLockTryLock(txID)) {
+                break;
+            }
+            PreemptibleStreamObserver currentOwner = ownerMap.get(ownerID);
+            if (currentOwner != null && txID < currentOwner.getTXID()) {
                 boolean preempted = currentOwner.preempt();
-                if (!preempted) {
-                    lock.writerLockLock(txID);
-                    acquired = true;
+                if (preempted) {
+                    formerOwner = currentOwner;
+                    break;
                 }
             }
         }
+        ownerMap.put(ownerID, owner);
         lock.removeWaitingTXID(txID);
         acquireLockSemaphore.release();
         try {
@@ -59,10 +54,12 @@ class WriteLockerThread extends Thread {
             logger.error("DS Interrupted while getting lock: {}", e.getMessage());
             assert(false);
         }
-        if (acquired) {
+        if (formerOwner == null) {
+            ownerMap.remove(ownerID);
             lock.writerLockUnlock();
         } else {
-            currentOwner.resume();
+            ownerMap.put(ownerID, formerOwner);
+            formerOwner.resume();
         }
     }
 
@@ -70,7 +67,6 @@ class WriteLockerThread extends Thread {
         this.start();
         try {
             acquireLockSemaphore.acquire();
-            ownerMap.put(ownerID, owner);
         } catch (InterruptedException e) {
             logger.error("DS Interrupted while getting lock: {}", e.getMessage());
             assert(false);
@@ -79,7 +75,6 @@ class WriteLockerThread extends Thread {
 
     public void releaseLock() {
         assert(this.isAlive());
-        ownerMap.remove(ownerID);
         releaseLockSemaphore.release();
         try {
             this.join();

@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
+import jdk.jfr.StackTrace;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -20,6 +21,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -489,7 +493,7 @@ public class KVStoreTests {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
         List<Thread> threads = new ArrayList<>();
-        int numThreads = 2;
+        int numThreads = 10;
 
         long startTime = System.currentTimeMillis();
         for (int threadNum = 0; threadNum < numThreads; threadNum++) {
@@ -506,6 +510,19 @@ public class KVStoreTests {
             });
             t.start();
             threads.add(t);
+        }
+
+        Thread.sleep(2000);
+        ThreadMXBean mbean = ManagementFactory.getThreadMXBean();
+        long[] ds = mbean.findDeadlockedThreads();
+        if (ds != null) {
+            ThreadInfo[] ts = mbean.getThreadInfo(ds);
+            for (ThreadInfo t : ts) {
+                logger.info("{} {} {}", t, t.getThreadState(), t.getStackTrace());
+                for (StackTraceElement e : t.getStackTrace()) {
+                    logger.info("{}", e);
+                }
+            }
         }
 
         for(Thread t: threads) {

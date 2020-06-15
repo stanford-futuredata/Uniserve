@@ -105,7 +105,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             @Override
             public boolean preempt() {
-                preemptionLock.lock();
+                if (!preemptionLock.tryLock()) {
+                    return false;
+                }
                 if (lastState == DataStore.PREPARE) {
                     abortWriteQuery(shardNum, txID, writeQueryPlan);
                     return true;
