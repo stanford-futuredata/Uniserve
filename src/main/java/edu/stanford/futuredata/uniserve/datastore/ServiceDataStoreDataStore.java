@@ -33,7 +33,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
     private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
         int shardNum = request.getShard();
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
+        dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
         Integer replicaVersion = request.getVersionNumber();
         Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
         assert(primaryVersion != null);
@@ -125,8 +125,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
 
             @Override
-            public void preempt() {
-
+            public boolean preempt() {
+                return false;
             }
 
             @Override
@@ -170,8 +170,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
         };
     }
-
-
 
     @Override
     public void dataStorePing(DataStorePingMessage request, StreamObserver<DataStorePingResponse> responseObserver) {

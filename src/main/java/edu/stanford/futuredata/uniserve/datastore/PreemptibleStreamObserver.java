@@ -3,9 +3,9 @@ package edu.stanford.futuredata.uniserve.datastore;
 import io.grpc.stub.StreamObserver;
 
 public interface PreemptibleStreamObserver<V> extends StreamObserver<V> {
-    public void preempt();
+    boolean preempt();
 
-    public void resume();
+    void resume();
 
-    public long getTXID();
+    long getTXID();
 }

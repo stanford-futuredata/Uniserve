@@ -489,7 +489,7 @@ public class KVStoreTests {
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
         List<Thread> threads = new ArrayList<>();
-        int numThreads = 1;
+        int numThreads = 2;
 
         long startTime = System.currentTimeMillis();
         for (int threadNum = 0; threadNum < numThreads; threadNum++) {

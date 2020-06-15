@@ -17,6 +17,8 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
@@ -40,6 +42,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
             Semaphore commitSemaphore = new Semaphore(0);
             WriteLockerThread t;
+            private Lock preemptionLock = new ReentrantLock();
 
             @Override
             public void onNext(WriteQueryMessage writeQueryMessage) {
@@ -56,18 +59,27 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
                         t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, txID);
+                        preemptionLock.lock();
                         t.acquireLock();
                         responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
+                        lastState = writeState;
+                        preemptionLock.unlock();
                     } else {
                         responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
                     }
                 } else if (writeState == DataStore.COMMIT) {
                     assert (lastState == DataStore.PREPARE);
+                    preemptionLock.lock();
                     commitWriteQuery(shardNum, txID, writeQueryPlan);
+                    lastState = writeState;
+                    preemptionLock.unlock();
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert (lastState == DataStore.PREPARE);
+                    preemptionLock.lock();
                     abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    lastState = writeState;
+                    preemptionLock.unlock();
                     t.releaseLock();
                 }
                 lastState = writeState;
@@ -92,13 +104,23 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             @Override
-            public void preempt() {
-
+            public boolean preempt() {
+                preemptionLock.lock();
+                if (lastState == DataStore.PREPARE) {
+                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    return true;
+                } else {
+                    assert(lastState == DataStore.COMMIT || lastState == DataStore.ABORT);
+                    preemptionLock.unlock();
+                    return false;
+                }
             }
 
             @Override
             public void resume() {
-
+                WriteQueryResponse r = prepareWriteQuery(shardNum, txID, writeQueryPlan);
+                assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  What if it fails?
+                preemptionLock.unlock();
             }
 
             @Override
@@ -256,8 +278,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
-            long fullEndtime = System.nanoTime();
-            dataStore.readQueryFullTimes.add((fullEndtime - fullStartTime) / 1000L);
+            long fullEndTime = System.nanoTime();
+            dataStore.readQueryFullTimes.add((fullEndTime - fullStartTime) / 1000L);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
         } else {
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();

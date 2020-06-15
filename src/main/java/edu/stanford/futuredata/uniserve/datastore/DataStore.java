@@ -256,7 +256,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 List<Thread> uploadThreadList = new ArrayList<>();
                 for (Integer shardNum : primaryShardMap.keySet()) {
                     Thread uploadThread = new Thread(() -> {
-                        shardLockMap.get(shardNum).writerLockLock();
+                        shardLockMap.get(shardNum).writerLockLock(-1);
                         if (primaryShardMap.containsKey(shardNum)) {
                             uploadShardToCloud(shardNum);
                         }

@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
 // Holds a shard's write lock during 2PC.
@@ -19,7 +20,7 @@ class WriteLockerThread extends Thread {
     private final Semaphore acquireLockSemaphore = new Semaphore(0);
     private final Semaphore releaseLockSemaphore = new Semaphore(0);
 
-    private final static Map<Pair<Integer, Integer>, PreemptibleStreamObserver> ownerMap = new HashMap<>();
+    private final static Map<Pair<Integer, Integer>, PreemptibleStreamObserver> ownerMap = new ConcurrentHashMap<>();
 
     public WriteLockerThread(ShardLock lock, PreemptibleStreamObserver owner, int dsID, int shardNum, long txID) {
         this.lock = lock;
@@ -29,20 +30,28 @@ class WriteLockerThread extends Thread {
     }
 
     public void run() {
+        lock.addWaitingTXID(txID);
         PreemptibleStreamObserver currentOwner = null;
-        boolean acquired =  lock.writerLockTryLock();
-        if (!acquired) {
+        boolean acquired =  false;
+        while (!acquired && currentOwner == null) {
+            acquired = lock.writerLockTryLock(txID);
             currentOwner = ownerMap.get(ownerID);
-            assert(currentOwner != null);
+        }
+        if (!acquired) {
             if (currentOwner.getTXID() < txID) {
                 // If the current transaction has a lower ID, do not preempt.
-                lock.writerLockLock();
-                currentOwner = null;
+                lock.writerLockLock(txID);
+                acquired = true;
             } else {
                 // If it has a higher ID, preempt it.
-                currentOwner.preempt();
+                boolean preempted = currentOwner.preempt();
+                if (!preempted) {
+                    lock.writerLockLock(txID);
+                    acquired = true;
+                }
             }
         }
+        lock.removeWaitingTXID(txID);
         acquireLockSemaphore.release();
         try {
             releaseLockSemaphore.acquire();
@@ -50,7 +59,7 @@ class WriteLockerThread extends Thread {
             logger.error("DS Interrupted while getting lock: {}", e.getMessage());
             assert(false);
         }
-        if (currentOwner == null) {
+        if (acquired) {
             lock.writerLockUnlock();
         } else {
             currentOwner.resume();
@@ -70,7 +79,7 @@ class WriteLockerThread extends Thread {
 
     public void releaseLock() {
         assert(this.isAlive());
-        ownerMap.put(ownerID, null);
+        ownerMap.remove(ownerID);
         releaseLockSemaphore.release();
         try {
             this.join();
