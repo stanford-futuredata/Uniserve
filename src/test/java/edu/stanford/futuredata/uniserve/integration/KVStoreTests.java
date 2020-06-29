@@ -535,4 +535,86 @@ public class KVStoreTests {
         coordinator.stopServing();
         broker.shutdown();
     }
+
+    @Test
+    public void testSimultaneousWritesReplicas() throws InterruptedException {
+        logger.info("testSimultaneousWritesReplicas");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDataStores = numShards;
+        for (int i = 0; i < numDataStores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        List<Thread> threads = new ArrayList<>();
+        int numThreads = 10;
+
+        List<KVRow> firstList = new ArrayList<>();
+        for (int i = 0; i < numShards; i++) {
+            firstList.add(new KVRow(i, 0));
+        }
+        WriteQueryPlan<KVRow, KVShard> firstPlan = new KVWriteQueryPlanInsert();
+        assertTrue(broker.writeQuery(firstPlan, firstList));
+
+        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
+            for(int shardNum: dataStore.primaryShardMap.keySet()) {
+                dataStore.uploadShardToCloud(shardNum);
+            }
+        }
+        for (int i = 0; i < numShards; i++) {
+            coordinator.addReplica(i, (i + 1) % numShards, 0.5);
+        }
+
+        long startTime = System.currentTimeMillis();
+        for (int threadNum = 0; threadNum < numThreads; threadNum++) {
+            int finalThreadNum = threadNum;
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 1000) {
+                    List<KVRow> insertList = new ArrayList<>();
+                    for (int i = 0; i < numShards; i++) {
+                        insertList.add(new KVRow(i, finalThreadNum));
+                    }
+                    WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+
+        Thread.sleep(2000);
+        ThreadMXBean mbean = ManagementFactory.getThreadMXBean();
+        long[] ds = mbean.findDeadlockedThreads();
+        if (ds != null) {
+            ThreadInfo[] ts = mbean.getThreadInfo(ds);
+            for (ThreadInfo t : ts) {
+                logger.info("{} {} {}", t, t.getThreadState(), t.getStackTrace());
+                for (StackTraceElement e : t.getStackTrace()) {
+                    logger.info("{}", e);
+                }
+            }
+        }
+
+        for(Thread t: threads) {
+            t.join();
+        }
+
+        for (int i = 0; i < numDataStores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
 }

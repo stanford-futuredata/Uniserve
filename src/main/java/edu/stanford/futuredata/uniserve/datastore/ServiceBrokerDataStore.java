@@ -61,9 +61,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, txID);
                         preemptionLock.lock();
                         t.acquireLock();
-                        responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
-                        lastState = writeState;
-                        preemptionLock.unlock();
+                        responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan, false));
+                        assert(!Thread.holdsLock(preemptionLock));
                     } else {
                         responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
                     }
@@ -77,7 +76,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 } else if (writeState == DataStore.ABORT) {
                     assert (lastState == DataStore.PREPARE);
                     preemptionLock.lock();
-                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    abortWriteQuery(shardNum, txID, writeQueryPlan, false);
                     lastState = writeState;
                     preemptionLock.unlock();
                     t.releaseLock();
@@ -92,7 +91,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     if (dataStore.zkCurator.getTransactionStatus(txID) == DataStore.COMMIT) {
                         commitWriteQuery(shardNum, txID, writeQueryPlan);
                     } else {
-                        abortWriteQuery(shardNum, txID, writeQueryPlan);
+                        abortWriteQuery(shardNum, txID, writeQueryPlan, false);
                     }
                     t.releaseLock();
                 }
@@ -109,7 +108,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     return false;
                 }
                 if (lastState == DataStore.PREPARE) {
-                    abortWriteQuery(shardNum, txID, writeQueryPlan);
+                    abortWriteQuery(shardNum, txID, writeQueryPlan, true);
                     return true;
                 } else {
                     assert(lastState == DataStore.COMMIT || lastState == DataStore.ABORT);
@@ -120,7 +119,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             @Override
             public void resume() {
-                WriteQueryResponse r = prepareWriteQuery(shardNum, txID, writeQueryPlan);
+                WriteQueryResponse r = prepareWriteQuery(shardNum, txID, writeQueryPlan, true);
                 assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  What if it fails?
                 preemptionLock.unlock();
             }
@@ -131,10 +130,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
 
-            private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
+            private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
                 if (dataStore.primaryShardMap.containsKey(shardNum)) {
                     S shard = dataStore.primaryShardMap.get(shardNum);
-                    List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs = dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
+                    List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
+                            preempt ? Collections.emptyList() // Do not touch replicas if resuming from a preemption.
+                            : dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
                     int numReplicas = replicaStubs.size();
                     R[] rowArray;
                     rowArray = (R[]) rows.toArray(new Row[0]);
@@ -164,13 +165,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                                 commitSemaphore.release();
                             }
                         });
-                        replicaObservers.add(observer);
-                    }
-                    for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
-                        final int STEPSIZE = 10000;
-                        for (int i = 0; i < rowArray.length; i += STEPSIZE) {
+                        final int stepSize = 10000;
+                        for (int i = 0; i < rowArray.length; i += stepSize) {
                             ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                            R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                            R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + stepSize));
                             ByteString rowData = Utilities.objectToByteString(rowSlice);
                             ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                                     .setShard(shardNum)
@@ -186,8 +184,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                                 .setWriteState(DataStore.PREPARE)
                                 .build();
                         observer.onNext(rm);
+                        replicaObservers.add(observer);
                     }
                     boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
+                    if (!preempt) {
+                        lastState = DataStore.PREPARE;
+                        preemptionLock.unlock();
+                    }
                     try {
                         prepareSemaphore.acquire(numReplicas);
                     } catch (InterruptedException e) {
@@ -203,6 +206,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
                 } else {
                     logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
+                    preemptionLock.unlock();
                     t.releaseLock();
                     return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
                 }
@@ -230,8 +234,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 }
             }
 
-            private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
+            private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
                 S shard = dataStore.primaryShardMap.get(shardNum);
+                if (preempt) {
+                    writeQueryPlan.abort(shard);
+                    return;
+                }
                 for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.ABORT)

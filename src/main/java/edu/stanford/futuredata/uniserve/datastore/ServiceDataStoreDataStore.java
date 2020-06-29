@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -14,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
@@ -74,6 +77,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             List<R> rowList;
             int lastState = DataStore.COLLECT;
             WriteLockerThread t;
+            private Lock preemptionLock = new ReentrantLock();
 
             @Override
             public void onNext(ReplicaWriteMessage replicaWriteMessage) {
@@ -88,17 +92,27 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     rowArrayList.add(rowChunk);
                 } else if (writeState == DataStore.PREPARE) {
                     assert(lastState == DataStore.COLLECT);
-                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, Integer.MAX_VALUE);
-                    t.acquireLock();
                     rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                    responseObserver.onNext(prepareReplicaWrite(shardNum, writeQueryPlan, rowList, versionNumber));
+                    t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum), this, dataStore.dsID, shardNum, txID);
+                    preemptionLock.lock();
+                    t.acquireLock();
+                    // assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
+                    responseObserver.onNext(prepareReplicaWrite(shardNum, writeQueryPlan, rowList));
+                    lastState = writeState;
+                    preemptionLock.unlock();
                 } else if (writeState == DataStore.COMMIT) {
                     assert(lastState == DataStore.PREPARE);
+                    preemptionLock.lock();
                     commitReplicaWrite(shardNum, writeQueryPlan, rowList);
+                    lastState = writeState;
+                    preemptionLock.unlock();
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert(lastState == DataStore.PREPARE);
+                    preemptionLock.lock();
                     abortReplicaWrite(shardNum, writeQueryPlan);
+                    lastState = writeState;
+                    preemptionLock.unlock();
                     t.releaseLock();
                 }
                 lastState = writeState;
@@ -126,12 +140,24 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
             @Override
             public boolean preempt() {
-                return false;
+                if (!preemptionLock.tryLock()) {
+                    return false;
+                }
+                if (lastState == DataStore.PREPARE) {
+                    abortReplicaWrite(shardNum, writeQueryPlan);
+                    return true;
+                } else {
+                    assert(lastState == DataStore.COMMIT || lastState == DataStore.ABORT);
+                    preemptionLock.unlock();
+                    return false;
+                }
             }
 
             @Override
             public void resume() {
-
+                ReplicaWriteResponse r = prepareReplicaWrite(shardNum, writeQueryPlan, rowList);
+                assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  What if it fails?
+                preemptionLock.unlock();
             }
 
             @Override
@@ -139,10 +165,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 return txID;
             }
 
-            private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, int versionNumber) {
+            private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
                 if (dataStore.replicaShardMap.containsKey(shardNum)) {
                     S shard = dataStore.replicaShardMap.get(shardNum);
-                    assert(versionNumber == dataStore.shardVersionMap.get(shardNum));
                     boolean success =  writeQueryPlan.preCommit(shard, rows);
                     if (success) {
                         return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
