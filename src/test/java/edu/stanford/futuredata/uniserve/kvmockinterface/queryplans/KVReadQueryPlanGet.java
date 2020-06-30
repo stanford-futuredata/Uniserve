@@ -1,7 +1,8 @@
-package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
+package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
@@ -23,6 +24,16 @@ public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
     @Override
     public ByteString queryShard(KVShard shard) {
         return Utilities.objectToByteString(shard.queryKey(this.key).get());
+    }
+
+    @Override
+    public ByteString queryShard(KVShard shard, long startTime, long endTime) {
+        return null;
+    }
+
+    @Override
+    public ByteString combineIntermediates(List<ByteString> intermediates) {
+        return null;
     }
 
     @Override

@@ -71,7 +71,7 @@
                         <configuration>
                             <archive>
                                 <manifest>
-                                    <mainClass>edu.stanford.futuredata.uniserve.executable.TestMain</mainClass>
+                                    <mainClass>edu.stanford.futuredata.uniserve.KVExecutable</mainClass>
                                 </manifest>
                             </archive>
                         </configuration>

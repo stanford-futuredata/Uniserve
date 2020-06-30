@@ -1,4 +1,4 @@
-package edu.stanford.futuredata.uniserve.executable;
+package edu.stanford.futuredata.uniserve;
 
 import com.amazonaws.util.EC2MetadataUtils;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
@@ -8,7 +8,9 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
+import edu.stanford.futuredata.uniserve.kvmockinterface.*;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
 import org.apache.commons.cli.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,9 +24,9 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TestMain {
+public class KVExecutable {
 
-    private static final Logger logger = LoggerFactory.getLogger(TestMain.class);
+    private static final Logger logger = LoggerFactory.getLogger(KVExecutable.class);
 
     public static void main(String[] args) throws Exception {
         Options options = new Options();

@@ -7,12 +7,11 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.CoordinatorCloud;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVRow;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVShard;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.KVShardFactory;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

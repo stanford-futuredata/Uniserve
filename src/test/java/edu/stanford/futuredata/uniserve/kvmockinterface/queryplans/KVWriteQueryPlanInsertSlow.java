@@ -1,6 +1,8 @@
-package edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface;
+package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;

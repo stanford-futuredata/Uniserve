@@ -6,7 +6,14 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.mockinterfaces.kvmockinterface.*;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanSumGet;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsertSlow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -17,7 +24,8 @@ import java.nio.file.Path;
 import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class FailureTests {
     private static final Logger logger = LoggerFactory.getLogger(FailureTests.class);
