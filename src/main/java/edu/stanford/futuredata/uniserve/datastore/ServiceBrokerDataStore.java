@@ -72,6 +72,14 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     commitWriteQuery(shardNum, txID, writeQueryPlan);
                     lastState = writeState;
                     preemptionLock.unlock();
+                    long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
+                    long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
+                    long lastExistingTimestamp =
+                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
+                    // Update materialized views.
+                    for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
+                        m.updateView(firstWrittenTimestamp, lastExistingTimestamp);
+                    }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert (lastState == DataStore.PREPARE);
@@ -295,6 +303,56 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
+    }
+
+    @Override
+    public void registerMaterializedView(RegisterMaterializedViewMessage request, StreamObserver<RegisterMaterializedViewResponse> responseObserver) {
+        responseObserver.onNext(registerMaterializedViewHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private RegisterMaterializedViewResponse registerMaterializedViewHandler(RegisterMaterializedViewMessage m) {
+        int shardNum = m.getShard();
+        String name = m.getName();
+        ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
+        S shard = dataStore.primaryShardMap.get(shardNum);
+        if (shard != null) {
+            if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
+                logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
+                dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+                return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+            }
+            Long timestamp = dataStore.shardTimestampMap.get(shardNum);
+            ByteString intermediate = r.queryShard(shard);
+            MaterializedView v = new MaterializedView(r, shard, timestamp, intermediate);
+            dataStore.materializedViewMap.get(shardNum).put(name, v);
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+            return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
+        } else {
+            logger.warn("DS{} Got MV request for absent shard {}", dataStore.dsID, shardNum);
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+            return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
+    }
+
+    @Override
+    public void queryMaterializedView(QueryMaterializedViewMessage request, StreamObserver<QueryMaterializedViewResponse> responseObserver) {
+        responseObserver.onNext(queryMaterializedViewHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private QueryMaterializedViewResponse queryMaterializedViewHandler(QueryMaterializedViewMessage m) {
+        int shardNum = m.getShard();
+        String name = m.getName();
+        if (dataStore.materializedViewMap.containsKey(shardNum) && dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
+            MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
+            ByteString intermediate = v.getLatestView();
+            return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(intermediate).build();
+        } else {
+            logger.warn("DS{} Got MV query for absent shard {} or name {}", dataStore.dsID, shardNum, name);
+            return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
     }
 }

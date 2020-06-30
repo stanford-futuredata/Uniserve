@@ -12,6 +12,10 @@ service BrokerDataStore {
     rpc WriteQuery (stream WriteQueryMessage) returns (WriteQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
+    // Register a materialized view on a DataStore.
+    rpc RegisterMaterializedView (RegisterMaterializedViewMessage) returns (RegisterMaterializedViewResponse);
+    // Query a materialized view.
+    rpc QueryMaterializedView (QueryMaterializedViewMessage) returns (QueryMaterializedViewResponse);
 }
 
 message WriteQueryMessage {
@@ -32,6 +36,26 @@ message ReadQueryMessage {
 }
 
 message ReadQueryResponse {
+    int32 returnCode = 1;
+    bytes response = 2;
+}
+
+message RegisterMaterializedViewMessage {
+    int32 shard = 1;
+    bytes serializedQuery = 2;
+    string name = 3;
+}
+
+message RegisterMaterializedViewResponse {
+    int32 returnCode = 1;
+}
+
+message QueryMaterializedViewMessage {
+    int32 shard = 1;
+    string name = 2;
+}
+
+message QueryMaterializedViewResponse {
     int32 returnCode = 1;
     bytes response = 2;
 }

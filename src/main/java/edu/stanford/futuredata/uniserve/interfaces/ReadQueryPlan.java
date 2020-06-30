@@ -15,7 +15,7 @@ public interface ReadQueryPlan<S extends Shard, T> extends Serializable {
     List<Integer> keysForQuery();
     // This function will execute on each shard containing at least one key from keysForQuery.
     ByteString queryShard(S shard);
-    // For incrementally updated materialized views, query in a time range.
+    // For incrementally updated materialized views, query all rows whose timestamps satisfy startTime < t <= endTime
     ByteString queryShard(S shard, long startTime, long endTime);
     // Combine multiple intermediates into one.
     ByteString combineIntermediates(List<ByteString> intermediates);
