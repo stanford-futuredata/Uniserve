@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class KVShard implements Shard {
 
     private final Map<Integer, Integer> KVMap;
+    private final Map<Integer, Long> timestampMap = new ConcurrentHashMap<>(); // TODO:  Serialize properly.
     private final static AtomicInteger numShards = new AtomicInteger(0);
     private final Integer shardNum;
     private final Path shardPath;
@@ -50,6 +51,17 @@ public class KVShard implements Shard {
         }
     }
 
+    public Integer sumRows(long startStamp, long endStamp) {
+        int sum = 0;
+        for (Integer k: timestampMap.keySet()) {
+            long ts = timestampMap.get(k);
+            if (ts > startStamp && ts <= endStamp) {
+                sum += KVMap.get(k);
+            }
+        }
+        return sum;
+    }
+
     public void setRows(List<KVRow> rows) {
         this.rows = rows;
     }
@@ -57,6 +69,7 @@ public class KVShard implements Shard {
     public void insertRows() {
         for (KVRow row: rows) {
             KVMap.put(row.getKey(), row.getValue());
+            timestampMap.put(row.getKey(), row.getTimeStamp());
         }
     }
 

@@ -7,10 +7,7 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.*;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanNested;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanSumGet;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -612,6 +609,49 @@ public class KVStoreTests {
 
         for(Thread t: threads) {
             t.join();
+        }
+
+        for (int i = 0; i < numDataStores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testMaterializedViews() {
+        logger.info("testMaterializedViews");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
+        int numDataStores = numShards;
+        for (int i = 0; i < numDataStores; i++) {
+            DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+
+        WriteQueryPlan<KVRow, KVShard> w = new KVWriteQueryPlanInsert();
+        broker.writeQuery(w, Collections.singletonList(new KVRow(0, 0, 0)));
+
+        ReadQueryPlan<KVShard, Integer> r = new KVMaterializedViewSum();
+        broker.registerMaterializedView(r, "rmv");
+
+        int sum = 0;
+        for (int i = 0; i < 100; i++) {
+            broker.writeQuery(w, Collections.singletonList(new KVRow(i, i, i)));
+            sum += i;
+            Integer v = broker.queryMaterializedView(r, "rmv");
+            assertEquals(sum, v);
         }
 
         for (int i = 0; i < numDataStores; i++) {

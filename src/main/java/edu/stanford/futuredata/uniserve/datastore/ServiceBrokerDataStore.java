@@ -324,7 +324,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 dataStore.shardLockMap.get(shardNum).writerLockUnlock();
                 return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
             }
-            Long timestamp = dataStore.shardTimestampMap.get(shardNum);
+            Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
             ByteString intermediate = r.queryShard(shard);
             MaterializedView v = new MaterializedView(r, shard, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);

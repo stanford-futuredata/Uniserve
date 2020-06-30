@@ -191,6 +191,58 @@ public class Broker {
         return (V) executedQueryPlans.get(readQueryPlan);
     }
 
+    public <S extends Shard, V> boolean registerMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
+        List<Integer> partitionKeys = readQueryPlan.keysForQuery();
+        List<Integer> shardNums;
+        if (partitionKeys.contains(-1)) {
+            // -1 is a wildcard--run on all shards.
+            shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+        } else {
+            shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+        }
+        for (int shardNum: shardNums) {
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+            if (stubOpt.isEmpty()) {
+                logger.error("Could not find DataStore for shard {}", shardNum);
+                assert(false);
+            }
+            ByteString serializedQuery = Utilities.objectToByteString(readQueryPlan);
+            RegisterMaterializedViewMessage m = RegisterMaterializedViewMessage.newBuilder().
+                    setShard(shardNum).setName(name).setSerializedQuery(serializedQuery).build();
+            RegisterMaterializedViewResponse r = stubOpt.get().registerMaterializedView(m);
+            if (r.getReturnCode() != Broker.QUERY_SUCCESS) {
+                // TODO:  Handle retries and do full rollbacks on failure.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public <S extends Shard, V> V queryMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
+        List<Integer> partitionKeys = readQueryPlan.keysForQuery();
+        List<Integer> shardNums;
+        if (partitionKeys.contains(-1)) {
+            // -1 is a wildcard--run on all shards.
+            shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+        } else {
+            shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+        }
+        List<ByteString> intermediates = new ArrayList<>();
+        for (int shardNum: shardNums) {
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+            if (stubOpt.isEmpty()) {
+                logger.error("Could not find DataStore for shard {}", shardNum);
+                assert(false);
+            }
+            QueryMaterializedViewMessage m = QueryMaterializedViewMessage.newBuilder().
+                    setShard(shardNum).setName(name).build();
+            QueryMaterializedViewResponse r = stubOpt.get().queryMaterializedView(m);
+            assert r.getReturnCode() == Broker.QUERY_SUCCESS; // TODO:  Handle retries and failures.
+            intermediates.add(r.getResponse());
+        }
+        return readQueryPlan.aggregateShardQueries(intermediates);
+    }
+
     /*
      * PRIVATE FUNCTIONS
      */
