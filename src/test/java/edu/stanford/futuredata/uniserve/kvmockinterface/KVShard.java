@@ -13,15 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class KVShard implements Shard {
 
     private final Map<Integer, Integer> KVMap;
-    private final Map<Integer, Long> timestampMap = new ConcurrentHashMap<>(); // TODO:  Serialize properly.
+    private final Map<Integer, Long> timestampMap;
     private final static AtomicInteger numShards = new AtomicInteger(0);
-    private final Integer shardNum;
     private final Path shardPath;
 
     List<KVRow> rows;
 
     public KVShard(Path shardPath, boolean shardExists) throws IOException, ClassNotFoundException {
-        this.shardNum = numShards.getAndIncrement();
         if (shardExists) {
             Path mapFile = Path.of(shardPath.toString(), "map.obj");
             FileInputStream f = new FileInputStream(mapFile.toFile());
@@ -29,8 +27,15 @@ public class KVShard implements Shard {
             this.KVMap = (ConcurrentHashMap<Integer, Integer>) o.readObject();
             o.close();
             f.close();
+            Path tsFile = Path.of(shardPath.toString(), "ts.obj");
+            f = new FileInputStream(tsFile.toFile());
+            o = new ObjectInputStream(f);
+            this.timestampMap = (ConcurrentHashMap<Integer, Long>) o.readObject();
+            o.close();
+            f.close();
         } else {
             this.KVMap = new ConcurrentHashMap<>();
+            this.timestampMap = new ConcurrentHashMap<>();
         }
         this.shardPath = shardPath;
     }
@@ -76,10 +81,16 @@ public class KVShard implements Shard {
     @Override
     public Optional<Path> shardToData() {
         Path mapFile = Path.of(shardPath.toString(), "map.obj");
+        Path tsFile = Path.of(shardPath.toString(), "ts.obj");
         try {
             FileOutputStream f = new FileOutputStream(mapFile.toFile());
             ObjectOutputStream o = new ObjectOutputStream(f);
             o.writeObject(KVMap);
+            o.close();
+            f.close();
+            f = new FileOutputStream(tsFile.toFile());
+            o = new ObjectOutputStream(f);
+            o.writeObject(timestampMap);
             o.close();
             f.close();
         } catch (IOException e) {
