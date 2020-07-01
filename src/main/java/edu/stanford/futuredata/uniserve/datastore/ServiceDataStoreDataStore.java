@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -202,6 +204,37 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 writeQueryPlan.abort(shard);
             }
         };
+    }
+
+    @Override
+    public void replicaRegisterMV(ReplicaRegisterMVMessage request, StreamObserver<ReplicaRegisterMVResponse> responseObserver) {
+        responseObserver.onNext(registerReplicaMVHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ReplicaRegisterMVResponse registerReplicaMVHandler(ReplicaRegisterMVMessage m) {
+        int shardNum = m.getShard();
+        String name = m.getName();
+        ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
+        S shard = dataStore.replicaShardMap.get(shardNum);
+        if (shard != null) {
+            if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
+                logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
+                dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+                return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+            }
+            Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
+            ByteString intermediate = r.queryShard(shard);
+            MaterializedView v = new MaterializedView(r, timestamp, intermediate);
+            dataStore.materializedViewMap.get(shardNum).put(name, v);
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+            return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
+        } else {
+            logger.warn("DS{} Got MV request for absent shard {}", dataStore.dsID, shardNum);
+            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+            return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
     }
 
     @Override

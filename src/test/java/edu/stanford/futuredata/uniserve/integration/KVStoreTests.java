@@ -649,12 +649,18 @@ public class KVStoreTests {
         dataStores.get(0).uploadShardToCloud(0);
         coordinator.addReplica(0, 1, 0.5);
 
+        broker.writeQuery(w, Collections.singletonList(new KVRow(numShards, numShards, numShards)));
+
+        broker.registerMaterializedView(r, "rmv2");
+
         Integer v;
-        int sum = 0;
-        for (int i = 0; i < 100; i++) {
+        int sum = numShards;
+        for (int i = numShards + 1; i < 100; i++) {
             broker.writeQuery(w, Collections.singletonList(new KVRow(i, i, i)));
             sum += i;
             v = broker.queryMaterializedView(r, "rmv");
+            assertEquals(sum, v);
+            v = broker.queryMaterializedView(r, "rmv2");
             assertEquals(sum, v);
         }
 

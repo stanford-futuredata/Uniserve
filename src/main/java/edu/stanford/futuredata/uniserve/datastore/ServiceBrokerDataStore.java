@@ -329,6 +329,14 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             MaterializedView v = new MaterializedView(r, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+            List<DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub> replicaStubs =
+                    dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> DataStoreDataStoreGrpc.newBlockingStub(i.channel)).collect(Collectors.toList());
+            for (DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub : replicaStubs) {
+                ReplicaRegisterMVResponse response =
+                        stub.replicaRegisterMV(ReplicaRegisterMVMessage.newBuilder().setShard(shardNum).setName(name).
+                        setSerializedQuery(m.getSerializedQuery()).build());
+                assert (response.getReturnCode() == Broker.QUERY_SUCCESS);
+            }
             return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         } else {
             logger.warn("DS{} Got MV request for absent shard {}", dataStore.dsID, shardNum);

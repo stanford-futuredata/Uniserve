@@ -14,6 +14,8 @@ service DataStoreDataStore {
     rpc ReplicaWrite (stream ReplicaWriteMessage) returns (stream ReplicaWriteResponse) {}
     // DataStorePing a datastore to see if it's alive.
     rpc DataStorePing (DataStorePingMessage) returns (DataStorePingResponse) {}
+    // Register a materialized view on a replica.
+    rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
 }
 
 message ReplicaWriteMessage {
@@ -45,3 +47,13 @@ message BootstrapReplicaResponse {
 message DataStorePingMessage {}
 
 message DataStorePingResponse {}
+
+message ReplicaRegisterMVMessage {
+    int32 shard = 1;
+    bytes serializedQuery = 2;
+    string name = 3;
+}
+
+message ReplicaRegisterMVResponse {
+    int32 returnCode = 1;
+}
