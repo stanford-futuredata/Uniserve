@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 public class MaterializedView {
+    // TODO:  Define a cache eviction policy.
     private final Map<Long, ByteString> cachedIntermediates = new HashMap<>();
     private final ReadQueryPlan r;
     private final Shard s;

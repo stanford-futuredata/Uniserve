@@ -646,13 +646,23 @@ public class KVStoreTests {
         ReadQueryPlan<KVShard, Integer> r = new KVMaterializedViewSum();
         broker.registerMaterializedView(r, "rmv");
 
+        Integer v;
         int sum = 0;
         for (int i = 0; i < 100; i++) {
             broker.writeQuery(w, Collections.singletonList(new KVRow(i, i, i)));
             sum += i;
-            Integer v = broker.queryMaterializedView(r, "rmv");
+            v = broker.queryMaterializedView(r, "rmv");
             assertEquals(sum, v);
         }
+
+        broker.writeQuery(w, Collections.singletonList(new KVRow(500, 500, 105)));
+        sum += 500;
+        v = broker.queryMaterializedView(r, "rmv");
+        assertEquals(sum, v);
+        broker.writeQuery(w, Collections.singletonList(new KVRow(400, 400, 103)));
+        sum += 400;
+        v = broker.queryMaterializedView(r, "rmv");
+        assertEquals(sum, v);
 
         for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).shutDown();
