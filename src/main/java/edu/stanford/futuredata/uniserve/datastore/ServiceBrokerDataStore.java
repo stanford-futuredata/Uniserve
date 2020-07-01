@@ -78,7 +78,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                             dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
                     // Update materialized views.
                     for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                        m.updateView(firstWrittenTimestamp, lastExistingTimestamp);
+                        m.updateView(dataStore.primaryShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
                     }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
@@ -326,7 +326,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
             Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
             ByteString intermediate = r.queryShard(shard);
-            MaterializedView v = new MaterializedView(r, shard, timestamp, intermediate);
+            MaterializedView v = new MaterializedView(r, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();

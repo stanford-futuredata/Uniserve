@@ -106,6 +106,14 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     commitReplicaWrite(shardNum, writeQueryPlan, rowList);
                     lastState = writeState;
                     preemptionLock.unlock();
+                    long firstWrittenTimestamp = rowList.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
+                    long lastWrittenTimestamp = rowList.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
+                    long lastExistingTimestamp =
+                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
+                    // Update materialized views.
+                    for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
+                        m.updateView(dataStore.replicaShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
+                    }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert(lastState == DataStore.PREPARE);

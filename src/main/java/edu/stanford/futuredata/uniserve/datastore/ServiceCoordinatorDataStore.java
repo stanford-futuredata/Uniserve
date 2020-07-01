@@ -146,6 +146,14 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                     List<R> rows = Arrays.asList(rowsList.get(i));
                     assert(query.preCommit(shard, rows));
                     query.commit(shard);
+                    // Update all materialized views.
+                    long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
+                    long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
+                    long lastExistingTimestamp =
+                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
+                    for (MaterializedView mv: dataStore.materializedViewMap.get(shardNum).values()) {
+                        mv.updateView(shard, firstWrittenTimestamp, lastExistingTimestamp);
+                    }
                 }
                 replicaVersion = r.getVersionNumber();
             }
@@ -157,7 +165,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             dataStore.lastUploadedVersionMap.put(shardNum, replicaVersion);
             dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
         }
-        dataStore.materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardLockMap.get(shardNum).systemLockUnlock();
         if (request.getIsReplacementPrimary()) {
             logger.info("DS{} Loaded replacement primary shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);

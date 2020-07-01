@@ -229,7 +229,7 @@ public class Broker {
         }
         List<ByteString> intermediates = new ArrayList<>();
         for (int shardNum: shardNums) {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
+            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shardNum);
             if (stubOpt.isEmpty()) {
                 logger.error("Could not find DataStore for shard {}", shardNum);
                 assert(false);

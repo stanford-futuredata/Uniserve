@@ -11,8 +11,7 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -198,6 +197,15 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
+    public void serializeMaterializedViews(int shardNum, Path dir) throws IOException {
+        Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
+        FileOutputStream f = new FileOutputStream(mvFile.toFile());
+        ObjectOutputStream o = new ObjectOutputStream(f);
+        o.writeObject(new Pair<>(materializedViewMap.get(shardNum), shardTimestampMap.get(shardNum)));
+        o.close();
+        f.close();
+    }
+
     /** Synchronously upload a shard to the cloud, returning its name and version number. **/
     /** Assumes read lock is held **/
     // TODO:  Safely delete old versions.
@@ -212,6 +220,12 @@ public class DataStore<R extends Row, S extends Shard> {
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
             logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
+            return;
+        }
+        try {
+            serializeMaterializedViews(shardNum, shardDirectory.get());
+        } catch (IOException e) {
+            logger.warn("DS{} Shard {} MV serialization failed", dsID, shardNum);
             return;
         }
         // Upload the shard's data.
@@ -233,6 +247,17 @@ public class DataStore<R extends Row, S extends Shard> {
         logger.warn("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }
 
+    public void deserializeMaterializedViews(int shardNum, Path dir) throws IOException, ClassNotFoundException {
+        Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
+        FileInputStream f = new FileInputStream(mvFile.toFile());
+        ObjectInputStream o = new ObjectInputStream(f);
+        Pair<ConcurrentHashMap<String, MaterializedView>, Long> mv = (Pair<ConcurrentHashMap<String, MaterializedView>, Long>) o.readObject();
+        o.close();
+        f.close();
+        materializedViewMap.put(shardNum, mv.getValue0());
+        shardTimestampMap.put(shardNum, mv.getValue1());
+    }
+
     /** Synchronously download a shard from the cloud **/
     public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber) {
         Path downloadDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber));
@@ -250,7 +275,17 @@ public class DataStore<R extends Row, S extends Shard> {
             return Optional.empty();
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
-        return shardFactory.createShardFromDir(targetDirectory, shardNum);
+        Optional<S> shard = shardFactory.createShardFromDir(targetDirectory, shardNum);
+        if (shard.isPresent()) {
+            try {
+                deserializeMaterializedViews(shardNum, targetDirectory);
+            } catch (IOException | ClassNotFoundException e) {
+                logger.warn("DS{} Shard {} MV deserialization failed", dsID, shardNum);
+                shard.get().destroy();
+                return Optional.empty();
+            }
+        }
+        return shard;
     }
 
     private class UploadShardDaemon extends Thread {

@@ -646,6 +646,9 @@ public class KVStoreTests {
         ReadQueryPlan<KVShard, Integer> r = new KVMaterializedViewSum();
         broker.registerMaterializedView(r, "rmv");
 
+        dataStores.get(0).uploadShardToCloud(0);
+        coordinator.addReplica(0, 1, 0.5);
+
         Integer v;
         int sum = 0;
         for (int i = 0; i < 100; i++) {
