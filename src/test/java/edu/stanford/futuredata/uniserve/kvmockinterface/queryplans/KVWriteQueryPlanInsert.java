@@ -9,6 +9,11 @@ import java.util.List;
 public class KVWriteQueryPlanInsert implements WriteQueryPlan<KVRow, KVShard> {
 
     @Override
+    public String getQueriedTable() {
+        return "table";
+    }
+
+    @Override
     public boolean preCommit(KVShard shard, List<KVRow> rows) {
         for (KVRow row: rows) {
             if (row.getKey() == 123123123) {

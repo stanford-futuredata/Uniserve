@@ -20,6 +20,11 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
+    public String getQueriedTable() {
+        return "table";
+    }
+
+    @Override
     public List<Integer> keysForQuery() {
         return Collections.singletonList(this.innerKeyValue);
     }

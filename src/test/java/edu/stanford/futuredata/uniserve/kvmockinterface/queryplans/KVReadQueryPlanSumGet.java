@@ -18,6 +18,11 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
+    public String getQueriedTable() {
+        return "table";
+    }
+
+    @Override
     public List<Integer> keysForQuery() {
         return this.keys;
     }

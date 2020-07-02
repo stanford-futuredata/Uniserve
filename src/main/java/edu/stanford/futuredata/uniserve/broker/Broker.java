@@ -38,6 +38,8 @@ public class Broker {
     private final Map<Integer, List<Double>> replicaShardToRatioMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
+    // Map from table names to IDs.
+    final Map<String, Integer> tablesMap = new ConcurrentHashMap<>();
     // Maximum number of shards.
     private static int numShards;
 
@@ -55,6 +57,8 @@ public class Broker {
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;
     public static final int QUERY_RETRY = 2;
+
+    public static final int SHARDS_PER_TABLE = 1000000;
 
     public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
 
@@ -120,10 +124,11 @@ public class Broker {
 
     public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
+        int tableID = tableToID(writeQueryPlan.getQueriedTable());
         for (R row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
-            int shard = keyToShard(partitionKey);
+            int shard = keyToShard(tableID, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
@@ -194,11 +199,12 @@ public class Broker {
     public <S extends Shard, V> boolean registerMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
+        int tableID = tableToID(readQueryPlan.getQueriedTable());
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
         }
         for (int shardNum: shardNums) {
             Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
@@ -221,11 +227,12 @@ public class Broker {
     public <S extends Shard, V> V queryMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
+        int tableID = tableToID(readQueryPlan.getQueriedTable());
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
         }
         List<ByteString> intermediates = new ArrayList<>();
         for (int shardNum: shardNums) {
@@ -247,8 +254,19 @@ public class Broker {
      * PRIVATE FUNCTIONS
      */
 
-    private static int keyToShard(int partitionKey) {
-        return partitionKey % Broker.numShards;
+    private int tableToID(String tableName) {
+        if (tablesMap.containsKey(tableName)) {
+            return tablesMap.get(tableName);
+        } else {
+            int tableID = coordinatorBlockingStub.
+                    tableID(TableIDMessage.newBuilder().setTableName(tableName).build()).getId();
+            tablesMap.put(tableName, tableID);
+            return tableID;
+        }
+    }
+
+    private static int keyToShard(int tableID, int partitionKey) {
+        return tableID * SHARDS_PER_TABLE + (partitionKey % Broker.numShards);
     }
 
     private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub createDataStoreStub(DataStoreDescription dsDescription) {
@@ -503,11 +521,12 @@ public class Broker {
     private <S extends Shard, V> V executeReadQueryStage(ReadQueryPlan<S, V> readQueryPlan) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
+        int tableID = tableToID(readQueryPlan.getQueriedTable());
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(Broker::keyToShard).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
         }
         queryStatistics.merge(new HashSet<>(shardNums), 1, Integer::sum);
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();

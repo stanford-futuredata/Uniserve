@@ -8,6 +8,8 @@ public interface WriteQueryPlan<R extends Row, S extends Shard> extends Serializ
      Execute a write query.
      */
 
+    // What table is being queried?
+    String getQueriedTable();
     // Stage a write query on the rows.  Return true if ready to commit, false if must abort.
     boolean preCommit(S shard, List<R> rows);
     // Commit the query.

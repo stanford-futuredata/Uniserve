@@ -10,6 +10,7 @@ package brokercoordinator;
 service BrokerCoordinator {
     rpc ShardLocation (ShardLocationMessage) returns (ShardLocationResponse) {}
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
+    rpc TableID (TableIDMessage) returns (TableIDResponse) {}
 }
 
 message ShardLocationMessage {
@@ -28,3 +29,11 @@ message QueryStatisticsMessage {
 }
 
 message QueryStatisticsResponse {}
+
+message TableIDMessage {
+    string tableName = 1;
+}
+
+message TableIDResponse {
+    int32 id = 1;
+}

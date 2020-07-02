@@ -11,6 +11,11 @@ import java.util.List;
 public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
+    public String getQueriedTable() {
+        return "table";
+    }
+
+    @Override
     public List<Integer> keysForQuery() {
         return Collections.singletonList(-1);
     }

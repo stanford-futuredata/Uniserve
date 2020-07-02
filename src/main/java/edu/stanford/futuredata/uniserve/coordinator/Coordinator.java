@@ -38,6 +38,10 @@ public class Coordinator {
     final AtomicInteger dataStoreNumber = new AtomicInteger(0);
     // Map from datastore IDs to their descriptions.
     final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
+    // Used to assign each table a unique incremental ID.
+    final AtomicInteger tableNumber = new AtomicInteger(0);
+    // Map from table names to IDs.
+    final Map<String, Integer> tablesMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their channels.
     final Map<Integer, ManagedChannel> dataStoreChannelsMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their stubs.

@@ -80,4 +80,23 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         coordinator.statisticsLock.unlock();
         return QueryStatisticsResponse.newBuilder().build();
     }
+
+    @Override
+    public void tableID(TableIDMessage request, StreamObserver<TableIDResponse> responseObserver) {
+        responseObserver.onNext(tableIDHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private TableIDResponse tableIDHandler(TableIDMessage m) {
+        String tableName = m.getTableName();
+        int tableID;
+        if (coordinator.tablesMap.containsKey(tableName)) {
+            tableID = coordinator.tablesMap.get(tableName);
+        } else {
+            tableID = coordinator.tableNumber.getAndIncrement();
+            Integer placedID = coordinator.tablesMap.putIfAbsent(tableName, tableID);
+            tableID = placedID == null ? tableID : placedID;
+        }
+        return TableIDResponse.newBuilder().setId(tableID).build();
+    }
 }

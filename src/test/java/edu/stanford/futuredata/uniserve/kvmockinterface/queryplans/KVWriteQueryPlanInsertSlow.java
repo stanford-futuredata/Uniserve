@@ -10,6 +10,11 @@ import java.util.concurrent.ThreadLocalRandom;
 public class KVWriteQueryPlanInsertSlow implements WriteQueryPlan<KVRow, KVShard> {
 
     @Override
+    public String getQueriedTable() {
+        return "table";
+    }
+
+    @Override
     public boolean preCommit(KVShard shard, List<KVRow> rows) {
         shard.setRows(rows);
         try {
