@@ -11,6 +11,7 @@ service BrokerCoordinator {
     rpc ShardLocation (ShardLocationMessage) returns (ShardLocationResponse) {}
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
     rpc TableID (TableIDMessage) returns (TableIDResponse) {}
+    rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
 }
 
 message ShardLocationMessage {
@@ -35,5 +36,16 @@ message TableIDMessage {
 }
 
 message TableIDResponse {
-    int32 id = 1;
+    int32 returnCode = 1;
+    int32 id = 2;
+    int32 numShards = 3;
+}
+
+message CreateTableMessage {
+    string tableName = 1;
+    int32 numShards = 2;
+}
+
+message CreateTableResponse {
+    int32 returnCode = 1;
 }

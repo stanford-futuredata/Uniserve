@@ -61,7 +61,8 @@ public class FailureTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));
@@ -115,7 +116,8 @@ public class FailureTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
         Thread t = new Thread(() -> {
             for (int i = 0; i < 10; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
@@ -167,7 +169,8 @@ public class FailureTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
         List<KVRow> startRows = new ArrayList<>();
         for(int d = 0; d < numShards; d++) {
             startRows.add(new KVRow(d, 0));
@@ -239,7 +242,8 @@ public class FailureTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));

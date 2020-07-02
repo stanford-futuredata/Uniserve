@@ -150,7 +150,8 @@ public class LoadBalancerTests {
             assertEquals(0, d_r);
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
         broker.runQueryStatisticsDaemon = false;
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {

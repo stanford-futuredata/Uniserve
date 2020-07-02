@@ -39,15 +39,15 @@ public class Broker {
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Map from table names to IDs.
-    final Map<String, Integer> tablesMap = new ConcurrentHashMap<>();
-    // Maximum number of shards.
-    private static int numShards;
+    private final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
+    // Maximum number of shards in each table.
+    private final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
 
-    private ShardMapUpdateDaemon shardMapUpdateDaemon;
+    private final ShardMapUpdateDaemon shardMapUpdateDaemon;
     public boolean runShardMapUpdateDaemon = true;
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
-    private QueryStatisticsDaemon queryStatisticsDaemon;
+    private final QueryStatisticsDaemon queryStatisticsDaemon;
     public boolean runQueryStatisticsDaemon = true;
     public static int queryStatisticsDaemonSleepDurationMillis = 10000;
 
@@ -71,9 +71,8 @@ public class Broker {
      * CONSTRUCTOR/TEARDOWN
      */
 
-    public Broker(String zkHost, int zkPort, QueryEngine queryEngine, int numShards) {
+    public Broker(String zkHost, int zkPort, QueryEngine queryEngine) {
         this.queryEngine = queryEngine;
-        Broker.numShards = numShards;
         this.zkCurator = new BrokerCurator(zkHost, zkPort);
         Optional<Pair<String, Integer>> masterHostPort = zkCurator.getMasterLocation();
         String masterHost = null;
@@ -122,13 +121,21 @@ public class Broker {
      * PUBLIC FUNCTIONS
      */
 
+    public boolean createTable(String tableName, int numShards) {
+        CreateTableMessage m = CreateTableMessage.newBuilder().setTableName(tableName).setNumShards(numShards).build();
+        CreateTableResponse r = coordinatorBlockingStub.createTable(m);
+        return r.getReturnCode() == QUERY_SUCCESS;
+    }
+
     public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
-        int tableID = tableToID(writeQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(writeQueryPlan.getQueriedTable());
+        int tableID = idAndShards.getValue0();
+        int numShards = idAndShards.getValue1();
         for (R row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
-            int shard = keyToShard(tableID, partitionKey);
+            int shard = keyToShard(tableID, numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
@@ -199,12 +206,14 @@ public class Broker {
     public <S extends Shard, V> boolean registerMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        int tableID = tableToID(readQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
+        int tableID = idAndShards.getValue0();
+        int numShards = idAndShards.getValue1();
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
-            shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+            shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
         }
         for (int shardNum: shardNums) {
             Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
@@ -227,12 +236,14 @@ public class Broker {
     public <S extends Shard, V> V queryMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        int tableID = tableToID(readQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
+        int tableID = idAndShards.getValue0();
+        int numShards = idAndShards.getValue1();
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
-            shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+            shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
         }
         List<ByteString> intermediates = new ArrayList<>();
         for (int shardNum: shardNums) {
@@ -254,19 +265,23 @@ public class Broker {
      * PRIVATE FUNCTIONS
      */
 
-    private int tableToID(String tableName) {
-        if (tablesMap.containsKey(tableName)) {
-            return tablesMap.get(tableName);
+    private Pair<Integer, Integer> getTableInfo(String tableName) {
+        if (tableIDMap.containsKey(tableName)) {
+            return new Pair<>(tableIDMap.get(tableName), tableNumShardsMap.get(tableName));
         } else {
-            int tableID = coordinatorBlockingStub.
-                    tableID(TableIDMessage.newBuilder().setTableName(tableName).build()).getId();
-            tablesMap.put(tableName, tableID);
-            return tableID;
+            TableIDResponse r = coordinatorBlockingStub.
+                    tableID(TableIDMessage.newBuilder().setTableName(tableName).build());
+            assert(r.getReturnCode() == QUERY_SUCCESS);
+            int tableID = r.getId();
+            int numShards = r.getNumShards();
+            tableNumShardsMap.put(tableName, numShards);
+            tableIDMap.put(tableName, tableID);
+            return new Pair<>(tableID, numShards);
         }
     }
 
-    private static int keyToShard(int tableID, int partitionKey) {
-        return tableID * SHARDS_PER_TABLE + (partitionKey % Broker.numShards);
+    private static int keyToShard(int tableID, int numShards, int partitionKey) {
+        return tableID * SHARDS_PER_TABLE + (partitionKey % numShards);
     }
 
     private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub createDataStoreStub(DataStoreDescription dsDescription) {
@@ -521,12 +536,14 @@ public class Broker {
     private <S extends Shard, V> V executeReadQueryStage(ReadQueryPlan<S, V> readQueryPlan) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        int tableID = tableToID(readQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
+        int tableID = idAndShards.getValue0();
+        int numShards = idAndShards.getValue1();
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
-            shardNums = IntStream.range(0, numShards).boxed().collect(Collectors.toList());
+            shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
         } else {
-            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, i)).distinct().collect(Collectors.toList());
+            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
         }
         queryStatistics.merge(new HashSet<>(shardNums), 1, Integer::sum);
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();

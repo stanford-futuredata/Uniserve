@@ -8,10 +8,16 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.kvmockinterface.*;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
-import org.apache.commons.cli.*;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,9 +26,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class KVExecutable {
 
@@ -90,7 +93,8 @@ public class KVExecutable {
     }
 
     private static void runBroker(String zkHost, int zkPort) {
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), 1);
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", 1);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assert(writeSuccess);

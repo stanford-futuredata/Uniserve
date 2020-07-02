@@ -41,7 +41,9 @@ public class Coordinator {
     // Used to assign each table a unique incremental ID.
     final AtomicInteger tableNumber = new AtomicInteger(0);
     // Map from table names to IDs.
-    final Map<String, Integer> tablesMap = new ConcurrentHashMap<>();
+    final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
+    // Maximum number of shards in each table.
+    final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their channels.
     final Map<Integer, ManagedChannel> dataStoreChannelsMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their stubs.
