@@ -87,13 +87,17 @@ public class KVStoreTests {
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine(), numShards);
 
-        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
-        assertTrue(writeSuccess);
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
 
-        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
-        Integer queryResponse = broker.readQuery(readQueryPlan);
-        assertEquals(Integer.valueOf(2), queryResponse);
+        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet("table1", 1);
+        assertEquals(Integer.valueOf(2), broker.readQuery(readQueryPlan));
+
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
+        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3))));
+
+        ReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVReadQueryPlanGet("table2", 1);
+        assertEquals(Integer.valueOf(3), broker.readQuery(readQueryPlan2));
 
         dataStore.shutDown();
         coordinator.stopServing();

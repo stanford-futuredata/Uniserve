@@ -10,15 +10,23 @@ import java.util.List;
 
 public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
 
+    private final String tableName;
+
     private final Integer key;
 
     public KVReadQueryPlanGet(Integer key) {
         this.key = key;
+        this.tableName = "table";
+    }
+
+    public KVReadQueryPlanGet(String tableName, Integer key) {
+        this.key = key;
+        this.tableName = tableName;
     }
 
     @Override
     public String getQueriedTable() {
-        return "table";
+        return tableName;
     }
 
     @Override

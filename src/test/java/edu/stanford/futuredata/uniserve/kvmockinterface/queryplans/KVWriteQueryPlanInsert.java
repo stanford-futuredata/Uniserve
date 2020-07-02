@@ -8,9 +8,19 @@ import java.util.List;
 
 public class KVWriteQueryPlanInsert implements WriteQueryPlan<KVRow, KVShard> {
 
+    private final String tableName;
+
+    public KVWriteQueryPlanInsert() {
+        this.tableName = "table";
+    }
+
+    public KVWriteQueryPlanInsert(String tableName) {
+        this.tableName = tableName;
+    }
+
     @Override
     public String getQueriedTable() {
-        return "table";
+        return tableName;
     }
 
     @Override
