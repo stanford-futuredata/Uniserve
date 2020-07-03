@@ -206,7 +206,7 @@ public class Broker {
     public <S extends Shard, V> boolean registerMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
         int tableID = idAndShards.getValue0();
         int numShards = idAndShards.getValue1();
         if (partitionKeys.contains(-1)) {
@@ -236,7 +236,7 @@ public class Broker {
     public <S extends Shard, V> V queryMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
+        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
         int tableID = idAndShards.getValue0();
         int numShards = idAndShards.getValue1();
         if (partitionKeys.contains(-1)) {
@@ -536,9 +536,9 @@ public class Broker {
     private <S extends Shard, V> V executeReadQueryStage(ReadQueryPlan<S, V> readQueryPlan) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery();
         List<Integer> shardNums;
-        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTable());
-        int tableID = idAndShards.getValue0();
-        int numShards = idAndShards.getValue1();
+        List<Pair<Integer, Integer>> idAndShards = readQueryPlan.getQueriedTables().stream().map(this::getTableInfo).collect(Collectors.toList());
+        int tableID = idAndShards.get(0).getValue0(); // TODO: Choose the shard more intelligently.
+        int numShards = idAndShards.get(0).getValue1();
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());

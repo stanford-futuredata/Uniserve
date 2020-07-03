@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class KVShard implements Shard {
 
-    private final Map<Integer, Integer> KVMap;
+    public final Map<Integer, Integer> KVMap;
     private final Map<Integer, Long> timestampMap;
     private final static AtomicInteger numShards = new AtomicInteger(0);
     private final Path shardPath;

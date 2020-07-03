@@ -154,6 +154,49 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
+
+    @Test
+    public void testBroadcastJoin() {
+        logger.info("testSingleKey");
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int num_datastores = 4;
+        for (int i = 0; i < num_datastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runUploadShardDaemon = false;
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        assertTrue(broker.createTable("table1", 2));
+        assertTrue(broker.createTable("table2", 1));
+
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 1))));
+
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
+        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 4))));
+
+        dataStores.get(0).uploadShardToCloud(1000000);
+        dataStores.get(1).uploadShardToCloud(1);
+
+        ReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVPseudoBroadcastJoin("table1", "table2");
+        assertEquals(Integer.valueOf(5), broker.readQuery(readQueryPlan2));
+
+        for (int i = 0; i < num_datastores; i++) {
+            dataStores.get(i).shutDown();
+        }
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
     @Test
     public void testBasicNestedQuery() {
         logger.info("testBasicNestedQuery");
@@ -476,7 +519,7 @@ public class KVStoreTests {
         assertTrue(writeSuccess);
 
         dataStore.uploadShardToCloud(0);
-        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1);
+        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1, true);
         assertTrue(shard.isPresent());
 
         dataStore.shutDown();

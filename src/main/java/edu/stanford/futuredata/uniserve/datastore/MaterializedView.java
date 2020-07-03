@@ -5,6 +5,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ public class MaterializedView implements Serializable {
         long mostRecentUsableTimestamp = cachedIntermediates.keySet().stream().mapToLong(i -> i).filter(i -> i < writeStartStamp).max().orElse(-1);
         ByteString newIntermediate;
         if (mostRecentUsableTimestamp == -1) {
-            newIntermediate = r.queryShard(s);
+            newIntermediate = r.queryShard(Collections.singletonList(s));
         } else {
             ByteString oldIntermediate = cachedIntermediates.get(mostRecentUsableTimestamp);
             ByteString incrementalUpdate = r.queryShard(s, mostRecentUsableTimestamp, lastExistingStamp);

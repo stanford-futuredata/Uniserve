@@ -8,6 +8,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -290,10 +291,49 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ByteString serializedQuery = readQuery.getSerializedQuery();
             ReadQueryPlan<S, Object> readQueryPlan;
             readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
+            int numTables = readQueryPlan.getQueriedTables().size();
+            List<S> shards = new ArrayList<>();
+            boolean[] toDestroy = new boolean[numTables];
+            shards.add(shard); // TODO:  Ordering.
+            for (int i = 1; i < numTables; i++) {
+                String tableName = readQueryPlan.getQueriedTables().get(i);
+                Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
+                int tableID = tableInfo.getValue0();
+                int numShards = tableInfo.getValue1();
+                assert(numShards == 1); // TODO:  Support non-broadcast joins.
+                int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
+                if (dataStore.shardLockMap.containsKey(joinedShard)) {
+                    dataStore.shardLockMap.get(joinedShard).readerLockLock();
+                }
+                if (dataStore.primaryShardMap.containsKey(joinedShard)) {
+                    shards.add(dataStore.primaryShardMap.get(joinedShard));
+                } else if (dataStore.replicaShardMap.containsKey(joinedShard)) {
+                    shards.add(dataStore.replicaShardMap.get(joinedShard));
+                } else {
+                    ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(joinedShard);
+                    String cloudName = zkShardDescription.cloudName;
+                    int replicaVersion = zkShardDescription.versionNumber;
+                    // Download the shard.
+                    Optional<S> loadedShard = dataStore.downloadShardFromCloud(joinedShard, cloudName, replicaVersion, false);
+                    assert (loadedShard.isPresent()); // TODO:  Error handling.
+                    shards.add(loadedShard.get());
+                    toDestroy[i] = true;
+                }
+            }
             long executeStartTime = System.nanoTime();
-            ByteString queryResponse = readQueryPlan.queryShard(shard);
+            ByteString queryResponse = readQueryPlan.queryShard(shards);
             long executeEndTime = System.nanoTime();
             dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
+            for (int i = 1; i < numTables; i++) {
+                String tableName = readQueryPlan.getQueriedTables().get(i);
+                int joinedShard = Broker.SHARDS_PER_TABLE * dataStore.getTableInfo(tableName).getValue0();
+                if (dataStore.shardLockMap.containsKey(joinedShard)) {
+                    dataStore.shardLockMap.get(joinedShard).readerLockLock();
+                }
+                if (toDestroy[i]) {
+                    shards.get(i).destroy();
+                }
+            }
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
             long fullEndTime = System.nanoTime();
@@ -325,7 +365,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
             }
             Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
-            ByteString intermediate = r.queryShard(shard);
+            ByteString intermediate = r.queryShard(Collections.singletonList(shard));
             MaterializedView v = new MaterializedView(r, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();

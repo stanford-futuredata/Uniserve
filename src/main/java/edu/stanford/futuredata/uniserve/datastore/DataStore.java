@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
@@ -49,6 +50,10 @@ public class DataStore<R extends Row, S extends Shard> {
     final Map<Integer, Map<Long, Integer>> QPSMap = new ConcurrentHashMap<>();
     // Map from tuples of name and shard to materialized view.
     final Map<Integer, Map<String, MaterializedView>> materializedViewMap = new ConcurrentHashMap<>();
+    // Map from table names to IDs.
+    private final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
+    // Maximum number of shards in each table.
+    private final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
 
     private final Server server;
     final DataStoreCurator zkCurator;
@@ -259,7 +264,7 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     /** Synchronously download a shard from the cloud **/
-    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber) {
+    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber, boolean materializedViews) {
         Path downloadDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber));
         File downloadDirFile = downloadDirectory.toFile();
         if (!downloadDirFile.exists()) {
@@ -276,7 +281,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
         Optional<S> shard = shardFactory.createShardFromDir(targetDirectory, shardNum);
-        if (shard.isPresent()) {
+        if (shard.isPresent() && materializedViews) {
             try {
                 deserializeMaterializedViews(shardNum, targetDirectory);
             } catch (IOException | ClassNotFoundException e) {
@@ -286,6 +291,21 @@ public class DataStore<R extends Row, S extends Shard> {
             }
         }
         return shard;
+    }
+
+    Pair<Integer, Integer> getTableInfo(String tableName) {
+        if (tableIDMap.containsKey(tableName)) {
+            return new Pair<>(tableIDMap.get(tableName), tableNumShardsMap.get(tableName));
+        } else {
+            DTableIDResponse r = coordinatorStub.
+                    tableID(DTableIDMessage.newBuilder().setTableName(tableName).build());
+            assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+            int tableID = r.getId();
+            int numShards = r.getNumShards();
+            tableNumShardsMap.put(tableName, numShards);
+            tableIDMap.put(tableName, tableID);
+            return new Pair<>(tableID, numShards);
+        }
     }
 
     private class UploadShardDaemon extends Thread {

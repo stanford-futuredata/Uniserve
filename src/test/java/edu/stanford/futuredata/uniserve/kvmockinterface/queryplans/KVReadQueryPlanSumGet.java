@@ -18,8 +18,8 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public String getQueriedTable() {
-        return "table";
+    public List<String> getQueriedTables() {
+        return Collections.singletonList("table");
     }
 
     @Override
@@ -28,11 +28,10 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString queryShard(KVShard shard) {
-        Integer sum = 0;
-        KVShard kvShard = shard;
+    public ByteString queryShard(List<KVShard> shard) {
+        int sum = 0;
         for (Integer key : keys) {
-            Optional<Integer> value = kvShard.queryKey(key);
+            Optional<Integer> value = shard.get(0).queryKey(key);
             if (value.isPresent()) {
                 sum += value.get();
             }

@@ -8,35 +8,35 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import java.util.Collections;
 import java.util.List;
 
-public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
+public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
 
-    private final String tableName;
+    private final List<String> tables;
 
-    private final Integer key;
-
-    public KVReadQueryPlanGet(Integer key) {
-        this.key = key;
-        this.tableName = "table";
-    }
-
-    public KVReadQueryPlanGet(String tableName, Integer key) {
-        this.key = key;
-        this.tableName = tableName;
+    public KVPseudoBroadcastJoin(String tableOne, String tableTwo) {
+        this.tables = List.of(tableOne, tableTwo);
     }
 
     @Override
     public List<String> getQueriedTables() {
-        return Collections.singletonList(tableName);
+        return tables;
     }
 
     @Override
     public List<Integer> keysForQuery() {
-        return Collections.singletonList(this.key);
+        return Collections.singletonList(-1);
     }
 
     @Override
     public ByteString queryShard(List<KVShard> shard) {
-        return Utilities.objectToByteString(shard.get(0).queryKey(this.key).get());
+        int sum = 0;
+        KVShard shardOne = shard.get(0);
+        KVShard shardTwo = shard.get(1);
+        for (int k : shardOne.KVMap.keySet()) {
+            if (shardTwo.KVMap.containsKey(k)) {
+                sum += shardOne.KVMap.get(k) + shardTwo.KVMap.get(k);
+            }
+        }
+        return Utilities.objectToByteString(sum);
     }
 
     @Override
@@ -51,7 +51,7 @@ public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
     public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
+        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
     @Override

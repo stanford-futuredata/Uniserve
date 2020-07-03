@@ -20,8 +20,8 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public String getQueriedTable() {
-        return "table";
+    public List<String> getQueriedTables() {
+        return Collections.singletonList("table");
     }
 
     @Override
@@ -30,8 +30,8 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString queryShard(KVShard shard) {
-        return Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get());
+    public ByteString queryShard(List<KVShard> shard) {
+        return Utilities.objectToByteString(shard.get(0).queryKey(this.innerKeyValue).get());
     }
 
     @Override

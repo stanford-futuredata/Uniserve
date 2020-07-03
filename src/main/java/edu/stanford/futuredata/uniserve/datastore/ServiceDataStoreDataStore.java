@@ -225,7 +225,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
             }
             Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
-            ByteString intermediate = r.queryShard(shard);
+            ByteString intermediate = r.queryShard(Collections.singletonList(shard));
             MaterializedView v = new MaterializedView(r, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();

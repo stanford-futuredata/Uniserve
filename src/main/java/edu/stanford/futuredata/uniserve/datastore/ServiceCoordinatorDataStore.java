@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
@@ -86,7 +85,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         int replicaVersion = zkShardDescription.versionNumber;
         int primaryDSID = zkShardDescription.primaryDSID;
         // Download the shard.
-        Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion);
+        Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion, true);
         if (loadedShard.isEmpty()) {
             logger.error("DS{} Shard load failed {}", dataStore.dsID, shardNum);
             return LoadShardReplicaResponse.newBuilder().setReturnCode(1).build();

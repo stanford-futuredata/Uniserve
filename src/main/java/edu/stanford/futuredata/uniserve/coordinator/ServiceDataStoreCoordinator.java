@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -86,5 +87,24 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
             coordinator.killDataStore(dsID);
         }
         return PotentialDSFailureResponse.newBuilder().build();
+    }
+
+    @Override
+    public void tableID(DTableIDMessage request, StreamObserver<DTableIDResponse> responseObserver) {
+        responseObserver.onNext(tableIDHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private DTableIDResponse tableIDHandler(DTableIDMessage m) {
+        String tableName = m.getTableName();
+        if (coordinator.tableIDMap.containsKey(tableName)) {
+            int tableID = coordinator.tableIDMap.get(tableName);
+            int numShards = coordinator.tableNumShardsMap.get(tableName);
+            return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
+                    .setId(tableID)
+                    .setNumShards(numShards).build();
+        } else {
+            return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+        }
     }
 }

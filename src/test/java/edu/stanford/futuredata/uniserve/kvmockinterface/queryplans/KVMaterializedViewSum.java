@@ -11,8 +11,8 @@ import java.util.List;
 public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
-    public String getQueriedTable() {
-        return "table";
+    public List<String> getQueriedTables() {
+        return Collections.singletonList("table");
     }
 
     @Override
@@ -21,8 +21,8 @@ public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString queryShard(KVShard shard) {
-        return Utilities.objectToByteString(shard.sumRows(Long.MIN_VALUE, Long.MAX_VALUE));
+    public ByteString queryShard(List<KVShard> shard) {
+        return Utilities.objectToByteString(shard.get(0).sumRows(Long.MIN_VALUE, Long.MAX_VALUE));
     }
 
     @Override
