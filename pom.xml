@@ -157,16 +157,6 @@
             <artifactId>commons-io</artifactId>
             <version>2.6</version>
         </dependency>
-
-        <dependency>
-            <groupId>cplex</groupId>
-            <artifactId>cplex</artifactId>
-            <version>12.10.0</version>
-            <scope>system</scope>
-            <systemPath>/opt/ibm/ILOG/CPLEX_Studio1210/cplex/lib/cplex.jar</systemPath>
-        </dependency>
-
-
     </dependencies>
 
 
