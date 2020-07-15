@@ -4,6 +4,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
@@ -33,42 +34,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     }
 
     @Override
-    public void createNewShard(CreateNewShardMessage request, StreamObserver<CreateNewShardResponse> responseObserver) {
-        responseObserver.onNext(createNewShardHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private CreateNewShardResponse createNewShardHandler(CreateNewShardMessage request) {
-        int shardNum = request.getShard();
-        assert (!dataStore.primaryShardMap.containsKey(shardNum));
-        assert (!dataStore.replicaShardMap.containsKey(shardNum));
-        Path shardPath = Path.of(dataStore.baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
-        File shardPathFile = shardPath.toFile();
-        if (!shardPathFile.exists()) {
-            boolean mkdirs = shardPathFile.mkdirs();
-            if (!mkdirs) {
-                logger.error("DS{} Shard directory creation failed {}", dataStore.dsID, shardNum);
-                return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
-            }
-        }
-        Optional<S> shard = dataStore.shardFactory.createNewShard(shardPath, shardNum);
-        if (shard.isEmpty()) {
-            logger.error("DS{} Shard creation failed {}", dataStore.dsID, shardNum);
-            return CreateNewShardResponse.newBuilder().setReturnCode(1).build();
-        }
-        dataStore.shardLockMap.put(shardNum, new ShardLock());
-        dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
-        dataStore.shardVersionMap.put(shardNum, 0);
-        dataStore.lastUploadedVersionMap.put(shardNum, 0);
-        dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
-        dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
-        dataStore.primaryShardMap.put(shardNum, shard.get());
-        dataStore.materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
-        logger.info("DS{} Created new primary shard {}", dataStore.dsID, shardNum);
-        return CreateNewShardResponse.newBuilder().setReturnCode(0).build();
-    }
-
-    @Override
     public void loadShardReplica(LoadShardReplicaMessage request, StreamObserver<LoadShardReplicaResponse> responseObserver) {
         responseObserver.onNext(loadShardReplicaHandler(request));
         responseObserver.onCompleted();
@@ -83,7 +48,8 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
         String cloudName = zkShardDescription.cloudName;
         int replicaVersion = zkShardDescription.versionNumber;
-        int primaryDSID = zkShardDescription.primaryDSID;
+        ConsistentHash c = dataStore.zkCurator.getConsistentHashFunction();
+        int primaryDSID = c.getBucket(shardNum);
         // Download the shard.
         Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion, true);
         if (loadedShard.isEmpty()) {
@@ -195,7 +161,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.lastUploadedVersionMap.put(shardNum, zkShardDescription.versionNumber);
         assert(!dataStore.replicaDescriptionsMap.containsKey(shardNum));
         dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
-        Optional<List<DataStoreDescription>> replicaDescriptions = dataStore.zkCurator.getShardReplicaDSDescriptions(shardNum);
+        Optional<List<DataStoreDescription>> replicaDescriptions = Optional.empty(); // TODO:  Are they?
         if (replicaDescriptions.isPresent()) {
             for (DataStoreDescription dsDescription: replicaDescriptions.get()) {
                 if (dsDescription.dsID != dataStore.dsID) {

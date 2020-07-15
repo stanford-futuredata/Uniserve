@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Map;
 
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
 
@@ -46,30 +45,13 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.dataStoreStubsMap.put(dsID, stub);
         coordinator.zkCurator.setDSDescription(dsDescription);
         coordinator.dataStoresMap.put(dsID, dsDescription);
+        coordinator.consistentHash.addBucket(dsID);
+        coordinator.zkCurator.setConsistentHashFunction(coordinator.consistentHash);
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
         if (cloudID != -1) {
             coordinator.loadBalancerSemaphore.release();
         }
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
-    }
-
-    @Override
-    public void shardUpdate(ShardUpdateMessage request, StreamObserver<ShardUpdateResponse> responseObserver) {
-        responseObserver.onNext(shardUpdateHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private ShardUpdateResponse shardUpdateHandler(ShardUpdateMessage m) {
-        int shardNum = m.getShardNum();
-        String cloudName = m.getShardCloudName();
-        int versionNumber = m.getVersionNumber();
-        coordinator.shardMapLock.lock();
-        int dsID = coordinator.shardToPrimaryDataStoreMap.get(shardNum);
-        List<Integer> replicaDSIDs = coordinator.shardToReplicaDataStoreMap.get(shardNum);
-        List<Double> replicaRatios = coordinator.shardToReplicaRatioMap.get(shardNum);
-        coordinator.zkCurator.setZKShardDescription(shardNum, dsID, cloudName, versionNumber, replicaDSIDs, replicaRatios);
-        coordinator.shardMapLock.unlock();
-        return ShardUpdateResponse.newBuilder().setReturnCode(0).build();
     }
 
     @Override
@@ -84,7 +66,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         try {
             CoordinatorPingResponse alwaysEmpty = coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
         } catch (StatusRuntimeException e) {
-            coordinator.killDataStore(dsID);
+            logger.error("Found failure, TODO actually fix it.");
         }
         return PotentialDSFailureResponse.newBuilder().build();
     }

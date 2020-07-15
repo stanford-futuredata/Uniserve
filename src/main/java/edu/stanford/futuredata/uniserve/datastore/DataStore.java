@@ -202,6 +202,35 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
+    boolean createNewShard(int shardNum) {
+        assert (!primaryShardMap.containsKey(shardNum));
+        assert (!replicaShardMap.containsKey(shardNum));
+        Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
+        File shardPathFile = shardPath.toFile();
+        if (!shardPathFile.exists()) {
+            boolean mkdirs = shardPathFile.mkdirs();
+            if (!mkdirs) {
+                logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
+                return false;
+            }
+        }
+        Optional<S> shard = shardFactory.createNewShard(shardPath, shardNum);
+        if (shard.isEmpty()) {
+            logger.error("DS{} Shard creation failed {}", dsID, shardNum);
+            return false;
+        }
+        shardLockMap.put(shardNum, new ShardLock());
+        QPSMap.put(shardNum, new ConcurrentHashMap<>());
+        shardVersionMap.put(shardNum, 0);
+        lastUploadedVersionMap.put(shardNum, 0);
+        writeLog.put(shardNum, new ConcurrentHashMap<>());
+        replicaDescriptionsMap.put(shardNum, new ArrayList<>());
+        primaryShardMap.put(shardNum, shard.get());
+        materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
+        logger.info("DS{} Created new primary shard {}", dsID, shardNum);
+        return true;
+    }
+
     public void serializeMaterializedViews(int shardNum, Path dir) throws IOException {
         Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
         FileOutputStream f = new FileOutputStream(mvFile.toFile());
@@ -240,14 +269,7 @@ public class DataStore<R extends Row, S extends Shard> {
             return;
         }
         // Notify the coordinator about the upload.
-        ShardUpdateMessage shardUpdateMessage = ShardUpdateMessage.newBuilder().setShardNum(shardNum).setShardCloudName(cloudName.get())
-                .setVersionNumber(versionNumber).build();
-        try {
-            ShardUpdateResponse shardUpdateResponse = coordinatorStub.shardUpdate(shardUpdateMessage);
-            assert (shardUpdateResponse.getReturnCode() == 0);
-        } catch (StatusRuntimeException e) {
-            logger.warn("DS{} ShardUpdateResponse RPC Failure {}", dsID, e.getMessage());
-        }
+        zkCurator.setZKShardDescription(shardNum, cloudName.get(), versionNumber);
         lastUploadedVersionMap.put(shardNum, versionNumber);
         logger.warn("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }

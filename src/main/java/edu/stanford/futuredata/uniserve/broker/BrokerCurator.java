@@ -1,8 +1,9 @@
 package edu.stanford.futuredata.uniserve.broker;
 
+import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -12,9 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class BrokerCurator {
     // TODO:  Figure out what to actually do when ZK fails.
@@ -59,43 +58,6 @@ public class BrokerCurator {
         }
     }
 
-    Optional<DataStoreDescription> getShardPrimaryDSDescription(int shard) {
-        try {
-            String path = String.format("/shardMapping/%d", shard);
-            if (cf.checkExists().forPath(path) != null) {
-                byte[] b = cf.getData().forPath(path);
-                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                return Optional.of(getDSDescriptionFromDSID(zkShardDescription.primaryDSID));
-            } else {
-                return Optional.empty();
-            }
-        } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
-            assert(false);
-            return null;
-        }
-    }
-
-    Optional<Pair<List<DataStoreDescription>, List<Double>>> getShardReplicaDSDescriptions(int shard) {
-        try {
-            String path = String.format("/shardMapping/%d", shard);
-            if (cf.checkExists().forPath(path) != null) {
-                byte[] b = cf.getData().forPath(path);
-                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                List<DataStoreDescription> replicaDecriptions =
-                        zkShardDescription.replicaDSIDs.stream().map(this::getDSDescriptionFromDSID).collect(Collectors.toList());
-                List<Double> replicaRatios = zkShardDescription.replicaRatios;
-                return Optional.of(new Pair<>(replicaDecriptions, replicaRatios));
-            } else {
-                return Optional.empty();
-            }
-        } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
-            assert(false);
-            return null;
-        }
-    }
-
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
@@ -108,6 +70,18 @@ public class BrokerCurator {
             }
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
+    ConsistentHash getConsistentHashFunction() {
+        try {
+            String path = "/consistentHash";
+            byte[] b = cf.getData().forPath(path);
+            return (ConsistentHash) Utilities.byteStringToObject(ByteString.copyFrom(b));
+        } catch (Exception e) {
+            logger.error("getConsistentHash Error: {}", e.getMessage());
             assert(false);
             return null;
         }

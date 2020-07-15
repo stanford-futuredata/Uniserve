@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
@@ -30,12 +31,6 @@ public class Broker {
     private static final Logger logger = LoggerFactory.getLogger(Broker.class);
     // Map from dsIDs to stubs.
     private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> dsIDToStubMap = new ConcurrentHashMap<>();
-    // Map from shards to the primary's DataStoreBlockingStubs.
-    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> shardToPrimaryStubMap = new ConcurrentHashMap<>();
-    // Map from shards to the replicas' DataStoreBlockingStubs.
-    private final Map<Integer, List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub>> shardToReplicaStubMap = new ConcurrentHashMap<>();
-    // Map from shards to the replicas' ratios.
-    private final Map<Integer, List<Double>> replicaShardToRatioMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Map from table names to IDs.
@@ -66,6 +61,8 @@ public class Broker {
 
     AtomicLong txIDs = new AtomicLong(0); // TODO:  Put in ZooKeeper.
 
+    private ConsistentHash consistentHash;
+
 
     /*
      * CONSTRUCTOR/TEARDOWN
@@ -85,6 +82,7 @@ public class Broker {
         }
         ManagedChannel channel = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext().build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
+        consistentHash = zkCurator.getConsistentHashFunction();
         shardMapUpdateDaemon = new ShardMapUpdateDaemon();
         shardMapUpdateDaemon.start();
         queryStatisticsDaemon = new QueryStatisticsDaemon();
@@ -216,15 +214,11 @@ public class Broker {
             shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
         }
         for (int shardNum: shardNums) {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
-            if (stubOpt.isEmpty()) {
-                logger.error("Could not find DataStore for shard {}", shardNum);
-                assert(false);
-            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = getStubForShard(shardNum);
             ByteString serializedQuery = Utilities.objectToByteString(readQueryPlan);
             RegisterMaterializedViewMessage m = RegisterMaterializedViewMessage.newBuilder().
                     setShard(shardNum).setName(name).setSerializedQuery(serializedQuery).build();
-            RegisterMaterializedViewResponse r = stubOpt.get().registerMaterializedView(m);
+            RegisterMaterializedViewResponse r = stub.registerMaterializedView(m);
             if (r.getReturnCode() != Broker.QUERY_SUCCESS) {
                 // TODO:  Handle retries and do full rollbacks on failure.
                 return false;
@@ -247,14 +241,10 @@ public class Broker {
         }
         List<ByteString> intermediates = new ArrayList<>();
         for (int shardNum: shardNums) {
-            Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shardNum);
-            if (stubOpt.isEmpty()) {
-                logger.error("Could not find DataStore for shard {}", shardNum);
-                assert(false);
-            }
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = getStubForShard(shardNum);
             QueryMaterializedViewMessage m = QueryMaterializedViewMessage.newBuilder().
                     setShard(shardNum).setName(name).build();
-            QueryMaterializedViewResponse r = stubOpt.get().queryMaterializedView(m);
+            QueryMaterializedViewResponse r = stub.queryMaterializedView(m);
             assert r.getReturnCode() == Broker.QUERY_SUCCESS; // TODO:  Handle retries and failures.
             intermediates.add(r.getResponse());
         }
@@ -284,9 +274,12 @@ public class Broker {
         return tableID * SHARDS_PER_TABLE + (partitionKey % numShards);
     }
 
-    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub createDataStoreStub(DataStoreDescription dsDescription) {
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = dsIDToStubMap.getOrDefault(dsDescription.dsID, null);
+    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubForShard(int shard) {
+        int dsID = consistentHash.getBucket(shard);
+        // First, check the local shard-to-server map.
+        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = dsIDToStubMap.getOrDefault(dsID, null);
         if (stub == null) {
+            DataStoreDescription dsDescription = zkCurator.getDSDescriptionFromDSID(dsID);
             ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
             stub = dsIDToStubMap.putIfAbsent(dsDescription.dsID, BrokerDataStoreGrpc.newBlockingStub(channel));
             if (stub == null) {
@@ -296,57 +289,6 @@ public class Broker {
             }
         }
         return stub;
-    }
-
-    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getPrimaryStubForShard(int shard) {
-        // First, check the local shard-to-server map.
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = shardToPrimaryStubMap.getOrDefault(shard, null);
-        if (stub == null) {
-            // TODO:  This is thread-safe, but might make many redundant requests.
-            DataStoreDescription dsDescription;
-            // Then, try to pull it from ZooKeeper.
-            Optional<DataStoreDescription> dsDescriptionOpt = zkCurator.getShardPrimaryDSDescription(shard);
-            if (dsDescriptionOpt.isPresent()) {
-                dsDescription = dsDescriptionOpt.get();
-            } else {
-                // Otherwise, ask the coordinator.
-                ShardLocationMessage m = ShardLocationMessage.newBuilder().setShard(shard).build();
-                ShardLocationResponse r;
-                try {
-                    r = coordinatorBlockingStub.shardLocation(m);
-                } catch (StatusRuntimeException e) {
-                    logger.warn("RPC failed: {}", e.getStatus());
-                    return Optional.empty();
-                }
-                dsDescription = new DataStoreDescription(r.getDsID(), DataStoreDescription.ALIVE, r.getHost(), r.getPort());
-            }
-            stub = createDataStoreStub(dsDescription);
-            shardToPrimaryStubMap.putIfAbsent(shard, stub);
-            stub = shardToPrimaryStubMap.get(shard);
-        }
-        return Optional.of(stub);
-    }
-
-    private Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> getAnyStubForShard(int shard) {
-        // If replicas are known, return a random replica.
-        List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubs = shardToReplicaStubMap.getOrDefault(shard, null);
-        if (stubs != null && stubs.size() > 0) {
-            // If replicas exist, randomly choose a replica with probability equal to its ratio.
-            List<Double> ratios = replicaShardToRatioMap.get(shard);
-            assert(ratios.size() == stubs.size());
-            // Sum of ratios is <= 1.0, if no replica is chosen then read from the primary.
-            assert(ratios.stream().mapToDouble(i -> i).sum() <= 1.0);
-            double r = ThreadLocalRandom.current().nextDouble(0.0, 1.0);
-            double countWeight = 0.0;
-            for (int i = 0; i < ratios.size(); i++) {
-                countWeight += ratios.get(i);
-                if (countWeight >= r) {
-                    return Optional.of(stubs.get(i));
-                }
-            }
-        }
-        // Otherwise, return the primary if it is known.
-        return getPrimaryStubForShard(shard);
     }
 
     public void sendStatisticsToCoordinator() {
@@ -374,28 +316,7 @@ public class Broker {
         @Override
         public void run() {
             while (runShardMapUpdateDaemon) {
-                for (Integer shardNum : shardToPrimaryStubMap.keySet()) {
-                    Optional<DataStoreDescription> primaryDSDescriptionsOpt =
-                            zkCurator.getShardPrimaryDSDescription(shardNum);
-                    Optional<Pair<List<DataStoreDescription>, List<Double>>> replicaDSDescriptionsOpt =
-                            zkCurator.getShardReplicaDSDescriptions(shardNum);
-                    if (primaryDSDescriptionsOpt.isEmpty() || replicaDSDescriptionsOpt.isEmpty()) {
-                        logger.error("ZK has lost information on Shard {}", shardNum);
-                        continue;
-                    }
-                    DataStoreDescription primaryDSDescription = primaryDSDescriptionsOpt.get();
-                    List<DataStoreDescription> replicaDSDescriptions = replicaDSDescriptionsOpt.get().getValue0();
-                    List<Double> replicaRatios = replicaDSDescriptionsOpt.get().getValue1();
-                    BrokerDataStoreGrpc.BrokerDataStoreBlockingStub primaryStub =
-                            createDataStoreStub(primaryDSDescription);
-                    List<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> replicaStubs = new ArrayList<>();
-                    for (DataStoreDescription replicaDSDescription: replicaDSDescriptions) {
-                        replicaStubs.add(createDataStoreStub(replicaDSDescription));
-                    }
-                    shardToPrimaryStubMap.put(shardNum, primaryStub);
-                    shardToReplicaStubMap.put(shardNum, replicaStubs);
-                    replicaShardToRatioMap.put(shardNum, replicaRatios);
-                }
+                consistentHash = zkCurator.getConsistentHashFunction();
                 try {
                     Thread.sleep(shardMapDaemonSleepDurationMillis);
                 } catch (InterruptedException e) {
@@ -431,12 +352,8 @@ public class Broker {
         private void writeQuery() {
             AtomicInteger subQueryStatus = new AtomicInteger(QUERY_RETRY);
             while (subQueryStatus.get() == QUERY_RETRY) {
-                Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getPrimaryStubForShard(shardNum);
-                if (stubOpt.isEmpty()) {
-                    logger.error("Could not find DataStore for shard {}", shardNum);
-                    assert(false);
-                }
-                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(stubOpt.get().getChannel());
+                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub blockingStub = getStubForShard(shardNum);
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(blockingStub.getChannel());
                 final CountDownLatch prepareLatch = new CountDownLatch(1);
                 final CountDownLatch finishLatch = new CountDownLatch(1);
                 StreamObserver<WriteQueryMessage> observer =
@@ -598,12 +515,7 @@ public class Broker {
             int tries = 0;
             while (queryStatus == QUERY_RETRY) {
                 tries++;
-                Optional<BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> stubOpt = getAnyStubForShard(shard);
-                if (stubOpt.isEmpty()) {
-                    logger.warn("Could not find DataStore for shard {}", shard);
-                    return Optional.empty();
-                }
-                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = stubOpt.get();
+                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = getStubForShard(shard);
                 ByteString serializedQuery;
                 serializedQuery = Utilities.objectToByteString(readQueryPlan);
                 ReadQueryMessage readQuery = ReadQueryMessage.newBuilder().setShard(shard).setSerializedQuery(serializedQuery).build();

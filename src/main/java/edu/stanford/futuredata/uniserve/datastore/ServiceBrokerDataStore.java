@@ -51,6 +51,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 if (writeState == DataStore.COLLECT) {
                     assert (lastState == DataStore.COLLECT);
                     shardNum = writeQueryMessage.getShard();
+                    // Create shard.
+                    if (!dataStore.primaryShardMap.containsKey(shardNum)) {
+                        dataStore.createNewShard(shardNum); // TODO:  Synchronize this.
+                    }
                     txID = writeQueryMessage.getTxID();
                     writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
                     R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
@@ -140,8 +144,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
 
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
-                if (dataStore.primaryShardMap.containsKey(shardNum)) {
+                if (true) { // TODO:  Check consistent hash function.
                     S shard = dataStore.primaryShardMap.get(shardNum);
+                    assert(shard != null);
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
                             preempt ? Collections.emptyList() // Do not touch replicas if resuming from a preemption.
                             : dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
@@ -356,6 +361,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         int shardNum = m.getShard();
         String name = m.getName();
         ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        // Create shard.
+        if (!dataStore.primaryShardMap.containsKey(shardNum)) {
+            dataStore.createNewShard(shardNum); // TODO:  Synchronize this.
+        }
         dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
         S shard = dataStore.primaryShardMap.get(shardNum);
         if (shard != null) {

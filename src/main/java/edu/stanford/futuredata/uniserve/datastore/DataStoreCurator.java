@@ -1,5 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
@@ -90,6 +92,34 @@ class DataStoreCurator {
         }
     }
 
+    void setZKShardDescription(int shard, String cloudName, int versionNumber) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            ZKShardDescription zkShardDescription = new ZKShardDescription(cloudName, versionNumber);
+            byte[] data = zkShardDescription.stringSummary.getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+        }
+    }
+
+    ConsistentHash getConsistentHashFunction() {
+        try {
+            String path = "/consistentHash";
+            byte[] b = cf.getData().forPath(path);
+            return (ConsistentHash) Utilities.byteStringToObject(ByteString.copyFrom(b));
+        } catch (Exception e) {
+            logger.error("getConsistentHash Error: {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
     List<DataStoreDescription> getOtherDSDescriptions(int dsID) {
         int i = 0;
         List<DataStoreDescription> connectInfoList = new ArrayList<>();
@@ -113,25 +143,4 @@ class DataStoreCurator {
         }
         return connectInfoList;
     }
-
-
-    Optional<List<DataStoreDescription>> getShardReplicaDSDescriptions(int shard) {
-        try {
-            String path = String.format("/shardMapping/%d", shard);
-            if (cf.checkExists().forPath(path) != null) {
-                byte[] b = cf.getData().forPath(path);
-                ZKShardDescription zkShardDescription = new ZKShardDescription(new String(b));
-                List<DataStoreDescription> replicaDecriptions =
-                        zkShardDescription.replicaDSIDs.stream().map(this::getDSDescription).collect(Collectors.toList());
-                return Optional.of(replicaDecriptions);
-            } else {
-                return Optional.empty();
-            }
-        } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
-            assert(false);
-            return null;
-        }
-    }
-
 }

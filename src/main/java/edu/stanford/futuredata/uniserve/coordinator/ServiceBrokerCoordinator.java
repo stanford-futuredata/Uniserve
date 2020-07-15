@@ -25,50 +25,6 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     }
 
     @Override
-    public void shardLocation(ShardLocationMessage request,
-                              StreamObserver<ShardLocationResponse> responseObserver) {
-        responseObserver.onNext(shardLocationHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private ShardLocationResponse shardLocationHandler(ShardLocationMessage m) {
-        int shardNum = m.getShard();
-        coordinator.shardMapLock.lock();
-        // Check if the shard's location is known.
-        Integer dsID = coordinator.shardToPrimaryDataStoreMap.getOrDefault(shardNum, null);
-        if (dsID != null) {
-            DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
-            coordinator.shardMapLock.unlock();
-            return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
-        }
-        // If not, assign it to a DataStore.
-        dsID = coordinator.assignShardToDataStore(shardNum);
-        coordinator.shardToPrimaryDataStoreMap.put(shardNum, dsID);
-        coordinator.shardToReplicaDataStoreMap.put(shardNum, new ArrayList<>());
-        coordinator.shardToReplicaRatioMap.put(shardNum, new ArrayList<>());
-        coordinator.shardMapLock.unlock();
-        // Tell the DataStore to create the shard.
-        DataStoreDescription dsDesc = coordinator.dataStoresMap.get(dsID);
-        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = coordinator.dataStoreStubsMap.get(dsID);
-        CreateNewShardMessage cns = CreateNewShardMessage.newBuilder().setShard(shardNum).build();
-        try {
-            CreateNewShardResponse cnsResponse = stub.createNewShard(cns);
-            assert cnsResponse.getReturnCode() == 0;
-        } catch (StatusRuntimeException e) {
-            logger.warn("Shard {} create RPC failed on DataStore {}", shardNum, dsID);
-            assert(false);
-        }
-        // Once the shard is created, add it to the ZooKeeper map.
-        coordinator.shardMapLock.lock();
-        int primaryDataStore = coordinator.shardToPrimaryDataStoreMap.get(shardNum);
-        List<Integer> replicaDataStores = coordinator.shardToReplicaDataStoreMap.get(shardNum);
-        List<Double> replicaRatios = coordinator.shardToReplicaRatioMap.get(shardNum);
-        coordinator.zkCurator.setZKShardDescription(shardNum, primaryDataStore, Utilities.null_name, 0, replicaDataStores, replicaRatios);
-        coordinator.shardMapLock.unlock();
-        return ShardLocationResponse.newBuilder().setReturnCode(0).setDsID(dsID).setHost(dsDesc.host).setPort(dsDesc.port).build();
-    }
-
-    @Override
     public void queryStatistics(QueryStatisticsMessage request, StreamObserver<QueryStatisticsResponse> responseObserver) {
         responseObserver.onNext(queryStatisticsHandler(request));
         responseObserver.onCompleted();

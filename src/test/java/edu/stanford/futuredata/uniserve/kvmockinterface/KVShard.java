@@ -1,6 +1,8 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface;
 
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
@@ -11,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class KVShard implements Shard {
+    private static final Logger logger = LoggerFactory.getLogger(KVShard.class);
 
     public final Map<Integer, Integer> KVMap;
     private final Map<Integer, Long> timestampMap;

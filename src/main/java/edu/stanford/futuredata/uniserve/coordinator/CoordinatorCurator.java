@@ -1,6 +1,8 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -8,9 +10,6 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Collections;
-import java.util.List;
 
 class CoordinatorCurator {
     // TODO:  Figure out what to actually do when ZK fails.
@@ -91,11 +90,10 @@ class CoordinatorCurator {
         }
     }
 
-    void setZKShardDescription(int shard, int dsID, String cloudName, int versionNumber, List<Integer> replicaDSIDs, List<Double> replicaRatios) {
+    void setConsistentHashFunction(ConsistentHash consistentHash) {
         try {
-            String path = String.format("/shardMapping/%d", shard);
-            ZKShardDescription zkShardDescription = new ZKShardDescription(dsID, cloudName, versionNumber, replicaDSIDs, replicaRatios);
-            byte[] data = zkShardDescription.stringSummary.getBytes();
+            String path = "/consistentHash";
+            byte[] data = Utilities.objectToByteString(consistentHash).toByteArray();
             if (cf.checkExists().forPath(path) != null) {
                 cf.setData().forPath(path, data);
             } else {

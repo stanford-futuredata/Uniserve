@@ -8,21 +8,9 @@ package brokercoordinator;
 
 // Communication from datastores to the coordinator.
 service BrokerCoordinator {
-    rpc ShardLocation (ShardLocationMessage) returns (ShardLocationResponse) {}
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
     rpc TableID (TableIDMessage) returns (TableIDResponse) {}
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
-}
-
-message ShardLocationMessage {
-    int32 shard = 1;
-}
-
-message ShardLocationResponse {
-    int32 returnCode = 1;
-    int32 dsID = 2;
-    string host = 3;
-    int32 port = 4;
 }
 
 message QueryStatisticsMessage {
