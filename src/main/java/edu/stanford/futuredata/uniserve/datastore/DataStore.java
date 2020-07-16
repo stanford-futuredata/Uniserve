@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.*;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -205,32 +206,47 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
-    boolean createNewShard(int shardNum) {
-        assert (!primaryShardMap.containsKey(shardNum));
-        assert (!replicaShardMap.containsKey(shardNum));
-        Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
-        File shardPathFile = shardPath.toFile();
-        if (!shardPathFile.exists()) {
-            boolean mkdirs = shardPathFile.mkdirs();
-            if (!mkdirs) {
-                logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
-                return false;
+    boolean createShardMetadata(int shardNum) {
+        if (shardLockMap.containsKey(shardNum)) {
+            return true;
+        }
+        ShardLock shardLock = new ShardLock();
+        shardLock.systemLockLock();
+        if (shardLockMap.putIfAbsent(shardNum, shardLock) == null) {
+            assert (!primaryShardMap.containsKey(shardNum));
+            assert (!replicaShardMap.containsKey(shardNum));
+            ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
+            if (zkShardDescription == null) {
+                Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
+                File shardPathFile = shardPath.toFile();
+                if (!shardPathFile.exists()) {
+                    boolean mkdirs = shardPathFile.mkdirs();
+                    if (!mkdirs) {
+                        logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
+                        shardLock.systemLockUnlock();
+                        return false;
+                    }
+                }
+                Optional<S> shard = shardFactory.createNewShard(shardPath, shardNum);
+                if (shard.isEmpty()) {
+                    logger.error("DS{} Shard creation failed {}", dsID, shardNum);
+                    shardLock.systemLockUnlock();
+                    return false;
+                }
+                primaryShardMap.put(shardNum, shard.get());
+                shardVersionMap.put(shardNum, 0);
+                lastUploadedVersionMap.put(shardNum, 0);
+                logger.info("DS{} Created new primary shard {}", dsID, shardNum);
+            } else {
+                shardVersionMap.put(shardNum, zkShardDescription.versionNumber);
+                lastUploadedVersionMap.put(shardNum, zkShardDescription.versionNumber);
             }
+            QPSMap.put(shardNum, new ConcurrentHashMap<>());
+            writeLog.put(shardNum, new ConcurrentHashMap<>());
+            replicaDescriptionsMap.put(shardNum, new ArrayList<>());
+            materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
         }
-        Optional<S> shard = shardFactory.createNewShard(shardPath, shardNum);
-        if (shard.isEmpty()) {
-            logger.error("DS{} Shard creation failed {}", dsID, shardNum);
-            return false;
-        }
-        shardLockMap.put(shardNum, new ShardLock());
-        QPSMap.put(shardNum, new ConcurrentHashMap<>());
-        shardVersionMap.put(shardNum, 0);
-        lastUploadedVersionMap.put(shardNum, 0);
-        writeLog.put(shardNum, new ConcurrentHashMap<>());
-        replicaDescriptionsMap.put(shardNum, new ArrayList<>());
-        primaryShardMap.put(shardNum, shard.get());
-        materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
-        logger.info("DS{} Created new primary shard {}", dsID, shardNum);
+        shardLock.systemLockUnlock();
         return true;
     }
 

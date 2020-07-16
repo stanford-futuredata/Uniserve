@@ -51,14 +51,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 if (writeState == DataStore.COLLECT) {
                     assert (lastState == DataStore.COLLECT);
                     shardNum = writeQueryMessage.getShard();
-                    // Create shard.
-                    if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-                        dataStore.shardCreationLock.lock();
-                        if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-                            dataStore.createNewShard(shardNum);
-                        }
-                        dataStore.shardCreationLock.unlock();
-                    }
+                    dataStore.createShardMetadata(shardNum);
                     txID = writeQueryMessage.getTxID();
                     writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
                     R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
@@ -286,7 +279,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         long fullStartTime = System.nanoTime();
         int shardNum = readQuery.getShard();
-        if (!dataStore.shardLockMap.containsKey(shardNum)) {
+        dataStore.createShardMetadata(shardNum);
+        if (!dataStore.shardLockMap.containsKey(shardNum)) { // TODO:  Check consistent hash instead.
             logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
@@ -365,14 +359,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         int shardNum = m.getShard();
         String name = m.getName();
         ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
-        // Create shard.
-        if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-            dataStore.shardCreationLock.lock();
-            if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-                dataStore.createNewShard(shardNum);
-            }
-            dataStore.shardCreationLock.unlock();
-        }
+        dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
         S shard = dataStore.primaryShardMap.get(shardNum);
         if (shard != null) {
@@ -410,6 +397,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     private QueryMaterializedViewResponse queryMaterializedViewHandler(QueryMaterializedViewMessage m) {
         int shardNum = m.getShard();
+        dataStore.createShardMetadata(shardNum);
         String name = m.getName();
         if (dataStore.materializedViewMap.containsKey(shardNum) && dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
             MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
