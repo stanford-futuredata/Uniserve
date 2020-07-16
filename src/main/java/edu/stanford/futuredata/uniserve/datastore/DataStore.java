@@ -188,6 +188,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
+    /** Creates all metadata for a shard not yet seen on this server, creating the shard if it does not yet exist **/
     boolean createShardMetadata(int shardNum) {
         if (shardLockMap.containsKey(shardNum)) {
             return true;
@@ -230,6 +231,19 @@ public class DataStore<R extends Row, S extends Shard> {
         return true;
     }
 
+    /** Downloads the shard if not already present, evicting if necessary **/
+    boolean ensureShardCached(int shardNum) {
+        if (!primaryShardMap.containsKey(shardNum)) {
+            ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
+            Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber, true);
+            if (shard.isEmpty()) {
+                return false;
+            }
+            primaryShardMap.putIfAbsent(shardNum, shard.get());
+        }
+        return true;
+    }
+
     public void serializeMaterializedViews(int shardNum, Path dir) throws IOException {
         Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
         FileOutputStream f = new FileOutputStream(mvFile.toFile());
@@ -265,7 +279,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         // Notify the coordinator about the upload.
         zkCurator.setZKShardDescription(shardNum, cloudName.get(), versionNumber);
-        logger.warn("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
+        logger.info("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }
 
     public void deserializeMaterializedViews(int shardNum, Path dir) throws IOException, ClassNotFoundException {
@@ -281,6 +295,7 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** Synchronously download a shard from the cloud **/
     public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber, boolean materializedViews) {
+        long downloadStart = System.currentTimeMillis();
         Path downloadDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber));
         File downloadDirFile = downloadDirectory.toFile();
         if (!downloadDirFile.exists()) {
@@ -306,6 +321,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 return Optional.empty();
             }
         }
+        logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
     }
 

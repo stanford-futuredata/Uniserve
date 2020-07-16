@@ -154,6 +154,58 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
+    @Test
+    public void testAddingServers() throws InterruptedException {
+        logger.info("testAddingServers");
+        int numShards = 5;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+
+        DataStore<KVRow, KVShard>  dataStoreOne = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)),
+                zkHost, zkPort, "127.0.0.1", 8200, -1);
+        dataStoreOne.runPingDaemon = false;
+        dataStoreOne.startServing();
+
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+        List<KVRow> rows = new ArrayList<>();
+        for (int i = 1; i < 11; i++) {
+            rows.add(new KVRow(i, i));
+        }
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        assertTrue(broker.writeQuery(writeQueryPlan, rows));
+
+        DataStore<KVRow, KVShard>  dataStoreTwo = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)),
+                zkHost, zkPort, "127.0.0.1", 8201, -1);
+        dataStoreTwo.runPingDaemon = false;
+        dataStoreTwo.startServing();
+
+        Thread.sleep(Broker.shardMapDaemonSleepDurationMillis * 2);
+
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+
+        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
+        Integer queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(2), queryResponse);
+
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 5));
+        queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(7), queryResponse);
+
+        readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        queryResponse = broker.readQuery(readQueryPlan);
+        assertEquals(Integer.valueOf(56), queryResponse);
+
+        dataStoreOne.shutDown();
+        dataStoreTwo.shutDown();
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
 
 //    @Test
     public void testBroadcastJoin() {

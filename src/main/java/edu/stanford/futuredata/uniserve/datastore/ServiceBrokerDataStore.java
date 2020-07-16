@@ -134,6 +134,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
                 if (true) { // TODO:  Check consistent hash function.
+                    dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.primaryShardMap.get(shardNum);
                     assert(shard != null);
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
@@ -289,6 +290,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
         dataStore.shardLockMap.get(shardNum).readerLockLock();
+        dataStore.ensureShardCached(shardNum);
         long unixTime = Instant.now().getEpochSecond();
         S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
         if (shard == null) {
@@ -365,6 +367,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
+        dataStore.ensureShardCached(shardNum);
         S shard = dataStore.primaryShardMap.get(shardNum);
         if (shard != null) {
             if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
@@ -408,6 +411,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     private QueryMaterializedViewResponse queryMaterializedViewHandler(QueryMaterializedViewMessage m) {
         int shardNum = m.getShard();
         dataStore.createShardMetadata(shardNum);
+        dataStore.ensureShardCached(shardNum);
         String name = m.getName();
         if (dataStore.materializedViewMap.containsKey(shardNum) && dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
             MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
