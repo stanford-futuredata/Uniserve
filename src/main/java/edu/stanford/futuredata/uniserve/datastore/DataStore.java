@@ -39,8 +39,6 @@ public class DataStore<R extends Row, S extends Shard> {
     public final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
     // Map from shard number to shard version number.
     final Map<Integer, Integer> shardVersionMap = new ConcurrentHashMap<>();
-    // Map from primary shard number to last uploaded version number.
-    final Map<Integer, Integer> lastUploadedVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
     final Map<Integer, ShardLock> shardLockMap = new ConcurrentHashMap<>();
     // Map from shard number to maps from version number to write query and data.
@@ -61,15 +59,10 @@ public class DataStore<R extends Row, S extends Shard> {
     private final Server server;
     final DataStoreCurator zkCurator;
     final ShardFactory<S> shardFactory;
-    private final DataStoreCloud dsCloud;
+    final DataStoreCloud dsCloud;
     final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
-    Lock shardCreationLock = new ReentrantLock();
-
-    public boolean runUploadShardDaemon = true; // Public for testing.
-    private final UploadShardDaemon uploadShardDaemon;
-    public static int uploadThreadSleepDurationMillis = 10000;
 
     public static int qpsReportTimeInterval = 60; // In seconds -- should be same as load balancer interval.
 
@@ -100,7 +93,6 @@ public class DataStore<R extends Row, S extends Shard> {
                 .build();
         this.zkCurator = new DataStoreCurator(zkHost, zkPort);
         this.cloudID = cloudID;
-        uploadShardDaemon = new UploadShardDaemon();
         pingDaemon = new PingDaemon();
     }
 
@@ -148,9 +140,6 @@ public class DataStore<R extends Row, S extends Shard> {
             shutDown();
             return 1;
         }
-        if (dsCloud != null) {
-            uploadShardDaemon.start();
-        }
         pingDaemon.start();
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
@@ -169,16 +158,9 @@ public class DataStore<R extends Row, S extends Shard> {
         serving = false;
         server.shutdown();
         runPingDaemon = false;
-        runUploadShardDaemon = false;
         try {
             pingDaemon.join();
         } catch (InterruptedException ignored) {}
-        if (dsCloud != null) {
-            try {
-                uploadShardDaemon.interrupt();
-                uploadShardDaemon.join();
-            } catch (InterruptedException ignored) {}
-        }
         for (List<ReplicaDescription> replicaDescriptions: replicaDescriptionsMap.values()) {
             for (ReplicaDescription rd: replicaDescriptions) {
                 rd.channel.shutdownNow();
@@ -235,11 +217,9 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
                 primaryShardMap.put(shardNum, shard.get());
                 shardVersionMap.put(shardNum, 0);
-                lastUploadedVersionMap.put(shardNum, 0);
                 logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             } else {
                 shardVersionMap.put(shardNum, zkShardDescription.versionNumber);
-                lastUploadedVersionMap.put(shardNum, zkShardDescription.versionNumber);
             }
             QPSMap.put(shardNum, new ConcurrentHashMap<>());
             writeLog.put(shardNum, new ConcurrentHashMap<>());
@@ -259,15 +239,11 @@ public class DataStore<R extends Row, S extends Shard> {
         f.close();
     }
 
-    /** Synchronously upload a shard to the cloud, returning its name and version number. **/
-    /** Assumes read lock is held **/
+    /** Synchronously upload a shard to the cloud; assumes shard write lock is held **/
     // TODO:  Safely delete old versions.
     public void uploadShardToCloud(int shardNum) {
         long uploadStart = System.currentTimeMillis();
         Integer versionNumber = shardVersionMap.get(shardNum);
-        if (lastUploadedVersionMap.get(shardNum).equals(versionNumber)) {
-            return;
-        }
         Shard shard = primaryShardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
@@ -289,7 +265,6 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         // Notify the coordinator about the upload.
         zkCurator.setZKShardDescription(shardNum, cloudName.get(), versionNumber);
-        lastUploadedVersionMap.put(shardNum, versionNumber);
         logger.warn("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }
 
@@ -346,38 +321,6 @@ public class DataStore<R extends Row, S extends Shard> {
             tableNumShardsMap.put(tableName, numShards);
             tableIDMap.put(tableName, tableID);
             return new Pair<>(tableID, numShards);
-        }
-    }
-
-    private class UploadShardDaemon extends Thread {
-        @Override
-        public void run() {
-            while (runUploadShardDaemon) {
-                List<Thread> uploadThreadList = new ArrayList<>();
-                for (Integer shardNum : primaryShardMap.keySet()) {
-                    Thread uploadThread = new Thread(() -> {
-                        shardLockMap.get(shardNum).writerLockLock(-1);
-                        if (primaryShardMap.containsKey(shardNum)) {
-                            uploadShardToCloud(shardNum);
-                        }
-                        shardLockMap.get(shardNum).writerLockUnlock();
-                    });
-                    uploadThread.start();
-                    uploadThreadList.add(uploadThread);
-                }
-                for (int i = 0; i < uploadThreadList.size(); i++) {
-                    try {
-                        uploadThreadList.get(i).join();
-                    } catch (InterruptedException e) {
-                        i--;
-                    }
-                }
-                try {
-                    Thread.sleep(uploadThreadSleepDurationMillis);
-                } catch (InterruptedException e) {
-                    return;
-                }
-            }
         }
     }
 

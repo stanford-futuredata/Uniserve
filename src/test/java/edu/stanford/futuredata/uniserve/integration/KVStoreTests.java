@@ -168,7 +168,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -183,9 +182,6 @@ public class KVStoreTests {
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
         assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 4))));
-
-        dataStores.get(0).uploadShardToCloud(1000000);
-        dataStores.get(1).uploadShardToCloud(1);
 
         ReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVPseudoBroadcastJoin("table1", "table2");
         assertEquals(Integer.valueOf(5), broker.readQuery(readQueryPlan2));
@@ -247,7 +243,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -263,12 +258,6 @@ public class KVStoreTests {
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
-
-        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-        }
 
         List<BrokerThread> brokerThreads = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
@@ -313,7 +302,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -321,7 +309,7 @@ public class KVStoreTests {
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         broker.createTable("table", numShards);
-        for (int i = 1; i < 100; i++) {
+        for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
             assertTrue(writeSuccess);
@@ -329,18 +317,14 @@ public class KVStoreTests {
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(i), queryResponse);
         }
-        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-        }
+
         coordinator.addReplica(0, 1);
         coordinator.addReplica(1, 2);
         coordinator.addReplica(2, 3);
         coordinator.addReplica(3, 2);
         coordinator.addReplica(3, 0);
         coordinator.addReplica(3, 1);
-        for (int i = 1; i < 100; i++) {
+        for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
                     new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
@@ -378,7 +362,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -386,7 +369,7 @@ public class KVStoreTests {
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         broker.createTable("table", numShards);
-        for (int i = 1; i < 100; i++) {
+        for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
             assertTrue(writeSuccess);
@@ -394,11 +377,7 @@ public class KVStoreTests {
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(i), queryResponse);
         }
-        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-        }
+
         coordinator.addReplica(0, 1);
         coordinator.addReplica(1, 2);
         coordinator.addReplica(2, 3);
@@ -407,7 +386,7 @@ public class KVStoreTests {
         coordinator.addReplica(3, 1);
         coordinator.addReplica(3, 1);
 
-        for (int i = 1; i < 100; i++) {
+        for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
                     new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
@@ -432,7 +411,7 @@ public class KVStoreTests {
         coordinator.addReplica(3, 3);
         coordinator.addReplica(0, 2);
 
-        for (int i = 1; i < 100; i++) {
+        for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i + 1),
                     new KVRow(2 * i, 4 * i + 1), new KVRow(4 * i, 8 * i + 1)));
@@ -503,7 +482,6 @@ public class KVStoreTests {
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                 new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
                 zkHost, zkPort, "127.0.0.1", 8000, -1);
-        dataStore.runUploadShardDaemon = false;
         int d_r = dataStore.startServing();
         assertEquals(0, d_r);
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
@@ -513,7 +491,6 @@ public class KVStoreTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertTrue(writeSuccess);
 
-        dataStore.uploadShardToCloud(0);
         Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1, true);
         assertTrue(shard.isPresent());
 
@@ -533,10 +510,9 @@ public class KVStoreTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 4;
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null,
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -603,7 +579,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -622,11 +597,6 @@ public class KVStoreTests {
         WriteQueryPlan<KVRow, KVShard> firstPlan = new KVWriteQueryPlanInsert();
         assertTrue(broker.writeQuery(firstPlan, firstList));
 
-        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-        }
         for (int i = 0; i < numShards; i++) {
             coordinator.addReplica(i, (i + 1) % numShards);
         }
@@ -686,7 +656,6 @@ public class KVStoreTests {
             DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            dataStore.runUploadShardDaemon = false;
             dataStore.runPingDaemon = false;
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
@@ -701,7 +670,6 @@ public class KVStoreTests {
         ReadQueryPlan<KVShard, Integer> r = new KVMaterializedViewSum();
         broker.registerMaterializedView(r, "rmv");
 
-        dataStores.get(3).uploadShardToCloud(0);
         coordinator.addReplica(0, 1);
 
         broker.writeQuery(w, Collections.singletonList(new KVRow(numShards, numShards, numShards)));
@@ -710,7 +678,7 @@ public class KVStoreTests {
 
         Integer v;
         int sum = numShards;
-        for (int i = numShards + 1; i < 100; i++) {
+        for (int i = numShards + 1; i < 10; i++) {
             broker.writeQuery(w, Collections.singletonList(new KVRow(i, i, i)));
             sum += i;
             v = broker.queryMaterializedView(r, "rmv");

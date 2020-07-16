@@ -46,6 +46,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         assert(!dataStore.replicaShardMap.containsKey(shardNum));
         // Get shard info from ZK.
         ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
+        assert (zkShardDescription != null);
         String cloudName = zkShardDescription.cloudName;
         int replicaVersion = zkShardDescription.versionNumber;
         ConsistentHash c = dataStore.zkCurator.getConsistentHashFunction();
@@ -128,7 +129,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, replicaVersion);
         if (request.getIsReplacementPrimary()) {
-            dataStore.lastUploadedVersionMap.put(shardNum, replicaVersion);
             dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
         }
         dataStore.shardLockMap.get(shardNum).systemLockUnlock();
@@ -158,7 +158,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         assert(dataStore.replicaShardMap.containsKey(shardNum));
         assert(!dataStore.primaryShardMap.containsKey(shardNum));
         ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
-        dataStore.lastUploadedVersionMap.put(shardNum, zkShardDescription.versionNumber);
         assert(!dataStore.replicaDescriptionsMap.containsKey(shardNum));
         dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
         Optional<List<DataStoreDescription>> replicaDescriptions = Optional.empty(); // TODO:  Are they?
@@ -203,7 +202,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.replicaShardMap.remove(shardNum);
         dataStore.writeLog.remove(shardNum);
         dataStore.replicaDescriptionsMap.remove(shardNum);
-        dataStore.lastUploadedVersionMap.remove(shardNum);
         dataStore.shardVersionMap.remove(shardNum);
         dataStore.shardTimestampMap.remove(shardNum);
         dataStore.materializedViewMap.remove(shardNum);

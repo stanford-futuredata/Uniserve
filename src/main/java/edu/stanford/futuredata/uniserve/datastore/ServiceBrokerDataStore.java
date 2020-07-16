@@ -74,14 +74,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     commitWriteQuery(shardNum, txID, writeQueryPlan);
                     lastState = writeState;
                     preemptionLock.unlock();
-                    long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
-                    long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
-                    long lastExistingTimestamp =
-                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
-                    // Update materialized views.
-                    for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                        m.updateView(dataStore.primaryShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
-                    }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert (lastState == DataStore.PREPARE);
@@ -237,6 +229,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+                // Update materialized views.
+                long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
+                long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
+                long lastExistingTimestamp =
+                        dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
+                for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
+                    m.updateView(dataStore.primaryShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
+                }
+                // Upload the updated shard.
+                if (dataStore.dsCloud != null) {
+                    dataStore.uploadShardToCloud(shardNum);
+                }
                 try {
                     commitSemaphore.acquire(replicaObservers.size());
                 } catch (InterruptedException e) {
@@ -372,6 +376,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ByteString intermediate = r.queryShard(Collections.singletonList(shard));
             MaterializedView v = new MaterializedView(r, timestamp, intermediate);
             dataStore.materializedViewMap.get(shardNum).put(name, v);
+            int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+            dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+            // Upload the shard updated with the new MV.
+            if (dataStore.dsCloud != null) {
+                dataStore.uploadShardToCloud(shardNum);
+            }
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             List<DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub> replicaStubs =
                     dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> DataStoreDataStoreGrpc.newBlockingStub(i.channel)).collect(Collectors.toList());
