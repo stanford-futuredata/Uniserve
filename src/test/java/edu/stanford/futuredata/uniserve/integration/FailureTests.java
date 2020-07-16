@@ -43,7 +43,7 @@ public class FailureTests {
         cleanUp(zkHost, zkPort);
     }
 
-//    @Test
+    @Test
     public void testSingleFailure() throws InterruptedException {
         logger.info("testSingleFailure");
         int numShards = 4;
@@ -55,7 +55,7 @@ public class FailureTests {
         int num_datastores = 4;
         for (int i = 0; i < num_datastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
-                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i, -1);
+                    Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort,"127.0.0.1",  8100 + i, -1);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -69,12 +69,6 @@ public class FailureTests {
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
         assertTrue(writeSuccess);
-
-        for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-        }
 
         dataStores.get(0).shutDown();
 
@@ -95,7 +89,7 @@ public class FailureTests {
         broker.shutdown();
     }
 
-//    @Test
+    @Test
     public void testBrokerFailDuringWrite() throws InterruptedException {
         logger.info("testBrokerFailDuringWrite");
         int numShards = 4;
@@ -124,20 +118,19 @@ public class FailureTests {
                     rows.add(new KVRow(d, i % 2));
                 }
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
-                int num = 0;
-                for (DataStore<KVRow, KVShard> d: dataStores) {
-                    KVShard s = d.primaryShardMap.get(num);
+                for (int shardNum = 0; shardNum < numShards; shardNum++) {
+                    int dsID = coordinator.consistentHash.getBucket(shardNum);
+                    KVShard s = dataStores.get(dsID).primaryShardMap.get(shardNum);
                     if (writeSuccess) {
-                        assertEquals(Optional.of(i % 2), s.queryKey(num));
+                        assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                     } else {
-                        assertEquals(dataStores.get(0).primaryShardMap.get(0).queryKey(0), s.queryKey(num));
+                        assertEquals(dataStores.get(coordinator.consistentHash.getBucket(0)).primaryShardMap.get(0).queryKey(0), s.queryKey(shardNum));
                     }
-                    num += 1;
                 }
             }
         });
         t.start();
-        Thread.sleep(500);
+        Thread.sleep(2000);
         broker.shutdown();
         t.join();
         Thread.sleep(500);
@@ -148,7 +141,7 @@ public class FailureTests {
         broker.shutdown();
     }
 
-//    @Test
+    @Test
     public void testDataStoreFailDuringWrite() throws InterruptedException {
         logger.info("testDataStoreFailDuringWrite");
         int numShards = 4;
@@ -161,7 +154,7 @@ public class FailureTests {
         for (int i = 0; i < numDataStores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    zkHost, zkPort, "127.0.0.1", 8800 + i, -1);
             int d_r = dataStore.startServing();
             assertEquals(0, d_r);
             dataStores.add(dataStore);
@@ -174,41 +167,34 @@ public class FailureTests {
         }
         WriteQueryPlan<KVRow, KVShard> q = new KVWriteQueryPlanInsert();
         assertTrue(broker.writeQuery(q, startRows));
-        for(int i = 0; i < numShards; i++) {
-            dataStores.get(i).uploadShardToCloud(i);
-            coordinator.addReplica(i, i + numShards);
-        }
+//        for(int i = 0; i < numShards; i++) {
+//            coordinator.addReplica(i, i + numShards);
+//        }
         Thread t = new Thread(() -> {
-            for (int i = 0; i < 20; i++) {
+            for (int i = 0; i < 10; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
                 List<KVRow> rows = new ArrayList<>();
                 for(int d = 0; d < numShards; d++) {
                     rows.add(new KVRow(d, i % 2));
                 }
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
-                int num = 0;
-                for (DataStore<KVRow, KVShard> d: dataStores) {
-                    int storedShard = num < numShards ? num : num - numShards;
-                    KVShard s;
-                    if (num < numShards) {
-                        s = d.primaryShardMap.get(storedShard);
-                    } else {
-                        s = d.replicaShardMap.get(storedShard);
-                    }
+                for (int shardNum = 0; shardNum < numShards; shardNum++) {
+                    int dsID = coordinator.consistentHash.getBucket(shardNum);
+                    KVShard s = dataStores.get(dsID).primaryShardMap.get(shardNum);
                     if (!Objects.isNull(s)) {
                         if (writeSuccess) {
-                            assertEquals(Optional.of(i % 2), s.queryKey(storedShard));
+                            assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                         } else {
-                            assertEquals(dataStores.get(0).primaryShardMap.get(0).queryKey(0), s.queryKey(storedShard));
+                            assertEquals(dataStores.get(coordinator.consistentHash.getBucket(1)).primaryShardMap.get(1).queryKey(1), s.queryKey(shardNum));
                         }
                     }
-                    num += 1;
                 }
             }
         });
         t.start();
         Thread.sleep(250);
-        dataStores.get(1).shutDown();
+        dataStores.get(6).shutDown();
+        Thread.sleep(5000);
         t.join();
         for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).runPingDaemon = false;

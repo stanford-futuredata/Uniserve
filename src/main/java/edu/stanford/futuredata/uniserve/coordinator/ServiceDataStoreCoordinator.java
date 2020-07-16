@@ -49,8 +49,12 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
         ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                 .setNewConsistentHash(newConsistentHash).build();
-        for (CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub: coordinator.dataStoreStubsMap.values()) {
-            otherStub.executeReshuffle(reshuffleMessage);
+        for (DataStoreDescription otherDescription: coordinator.dataStoresMap.values()) {
+            if (otherDescription.status.get() == DataStoreDescription.ALIVE) {
+                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub =
+                        coordinator.dataStoreStubsMap.get(otherDescription.dsID);
+                otherStub.executeReshuffle(reshuffleMessage);
+            }
         }
         stub.executeReshuffle(reshuffleMessage);
         coordinator.dataStoreChannelsMap.put(dsID, channel);
@@ -76,9 +80,27 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         int dsID = request.getDsID();
         CoordinatorPingMessage m = CoordinatorPingMessage.newBuilder().build();
         try {
-            CoordinatorPingResponse alwaysEmpty = coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
+            coordinator.dataStoreStubsMap.get(dsID).coordinatorPing(m);
         } catch (StatusRuntimeException e) {
-            logger.error("Found failure, TODO actually fix it.");
+            coordinator.consistentHashLock.lock();
+            DataStoreDescription dsDescription = coordinator.dataStoresMap.get(dsID);
+            if (dsDescription.status.compareAndSet(DataStoreDescription.ALIVE, DataStoreDescription.DEAD)) {
+                logger.warn("DS{} Failure Detected", dsID);
+                coordinator.zkCurator.setDSDescription(dsDescription);
+                coordinator.consistentHash.removeBucket(dsID);
+                ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
+                ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
+                        .setNewConsistentHash(newConsistentHash).build();
+                for (DataStoreDescription otherDescription: coordinator.dataStoresMap.values()) {
+                    if (otherDescription.status.get() == DataStoreDescription.ALIVE) {
+                        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub =
+                                coordinator.dataStoreStubsMap.get(otherDescription.dsID);
+                        otherStub.executeReshuffle(reshuffleMessage);
+                    }
+                }
+                coordinator.zkCurator.setConsistentHashFunction(coordinator.consistentHash);
+            }
+            coordinator.consistentHashLock.unlock();
         }
         return PotentialDSFailureResponse.newBuilder().build();
     }
