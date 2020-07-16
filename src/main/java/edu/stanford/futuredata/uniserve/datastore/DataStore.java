@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class DataStore<R extends Row, S extends Shard> {
 
@@ -62,6 +64,7 @@ public class DataStore<R extends Row, S extends Shard> {
     final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
+    Lock shardCreationLock = new ReentrantLock();
 
     public boolean runUploadShardDaemon = true; // Public for testing.
     private final UploadShardDaemon uploadShardDaemon;

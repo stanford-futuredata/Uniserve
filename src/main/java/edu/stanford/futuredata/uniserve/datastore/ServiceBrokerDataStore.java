@@ -53,7 +53,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     shardNum = writeQueryMessage.getShard();
                     // Create shard.
                     if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-                        dataStore.createNewShard(shardNum); // TODO:  Synchronize this.
+                        dataStore.shardCreationLock.lock();
+                        if (!dataStore.primaryShardMap.containsKey(shardNum)) {
+                            dataStore.createNewShard(shardNum);
+                        }
+                        dataStore.shardCreationLock.unlock();
                     }
                     txID = writeQueryMessage.getTxID();
                     writeQueryPlan = (WriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
@@ -363,7 +367,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         // Create shard.
         if (!dataStore.primaryShardMap.containsKey(shardNum)) {
-            dataStore.createNewShard(shardNum); // TODO:  Synchronize this.
+            dataStore.shardCreationLock.lock();
+            if (!dataStore.primaryShardMap.containsKey(shardNum)) {
+                dataStore.createNewShard(shardNum);
+            }
+            dataStore.shardCreationLock.unlock();
         }
         dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
         S shard = dataStore.primaryShardMap.get(shardNum);

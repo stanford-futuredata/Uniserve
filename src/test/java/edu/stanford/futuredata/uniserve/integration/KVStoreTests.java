@@ -522,7 +522,7 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
-    // @Test
+    @Test
     public void testSimultaneousWrites() throws InterruptedException {
         logger.info("testSimultaneousWrites");
         int numShards = 4;
