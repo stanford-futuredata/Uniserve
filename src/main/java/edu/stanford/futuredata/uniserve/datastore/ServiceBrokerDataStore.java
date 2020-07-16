@@ -133,7 +133,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
 
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
-                if (true) { // TODO:  Check consistent hash function.
+                if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.primaryShardMap.get(shardNum);
                     assert(shard != null);
@@ -209,7 +209,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     }
                     return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
                 } else {
-                    logger.warn("DS{} Primary got write request for absent shard {}", dataStore.dsID, shardNum);
+                    logger.warn("DS{} Primary got write request for unassigned shard {}", dataStore.dsID, shardNum);
                     preemptionLock.unlock();
                     t.releaseLock();
                     return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
@@ -285,74 +285,67 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         long fullStartTime = System.nanoTime();
         int shardNum = readQuery.getShard();
         dataStore.createShardMetadata(shardNum);
-        if (!dataStore.shardLockMap.containsKey(shardNum)) { // TODO:  Check consistent hash instead.
-            logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
+        dataStore.shardLockMap.get(shardNum).readerLockLock();
+        if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
+            logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
-        dataStore.shardLockMap.get(shardNum).readerLockLock();
         dataStore.ensureShardCached(shardNum);
         long unixTime = Instant.now().getEpochSecond();
-        S shard = dataStore.replicaShardMap.getOrDefault(shardNum, null);
-        if (shard == null) {
-            shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
-        }
-        if (shard != null) {
-            ByteString serializedQuery = readQuery.getSerializedQuery();
-            ReadQueryPlan<S, Object> readQueryPlan;
-            readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
-            int numTables = readQueryPlan.getQueriedTables().size();
-            List<S> shards = new ArrayList<>();
-            boolean[] toDestroy = new boolean[numTables];
-            shards.add(shard); // TODO:  Ordering.
-            for (int i = 1; i < numTables; i++) {
-                String tableName = readQueryPlan.getQueriedTables().get(i);
-                Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
-                int tableID = tableInfo.getValue0();
-                int numShards = tableInfo.getValue1();
-                assert(numShards == 1); // TODO:  Support non-broadcast joins.
-                int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
-                if (dataStore.shardLockMap.containsKey(joinedShard)) {
-                    dataStore.shardLockMap.get(joinedShard).readerLockLock();
-                }
-                if (dataStore.primaryShardMap.containsKey(joinedShard)) {
-                    shards.add(dataStore.primaryShardMap.get(joinedShard));
-                } else if (dataStore.replicaShardMap.containsKey(joinedShard)) {
-                    shards.add(dataStore.replicaShardMap.get(joinedShard));
-                } else {
-                    ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(joinedShard);
-                    String cloudName = zkShardDescription.cloudName;
-                    int replicaVersion = zkShardDescription.versionNumber;
-                    // Download the shard.
-                    Optional<S> loadedShard = dataStore.downloadShardFromCloud(joinedShard, cloudName, replicaVersion, false);
-                    assert (loadedShard.isPresent()); // TODO:  Error handling.
-                    shards.add(loadedShard.get());
-                    toDestroy[i] = true;
-                }
+        S shard = dataStore.primaryShardMap.getOrDefault(shardNum, null);
+        assert(shard != null);
+        ByteString serializedQuery = readQuery.getSerializedQuery();
+        ReadQueryPlan<S, Object> readQueryPlan;
+        readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
+        int numTables = readQueryPlan.getQueriedTables().size();
+        List<S> shards = new ArrayList<>();
+        boolean[] toDestroy = new boolean[numTables];
+        shards.add(shard); // TODO:  Ordering.
+        for (int i = 1; i < numTables; i++) {
+            String tableName = readQueryPlan.getQueriedTables().get(i);
+            Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
+            int tableID = tableInfo.getValue0();
+            int numShards = tableInfo.getValue1();
+            assert(numShards == 1); // TODO:  Support non-broadcast joins.
+            int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
+            if (dataStore.shardLockMap.containsKey(joinedShard)) {
+                dataStore.shardLockMap.get(joinedShard).readerLockLock();
             }
-            long executeStartTime = System.nanoTime();
-            ByteString queryResponse = readQueryPlan.queryShard(shards);
-            long executeEndTime = System.nanoTime();
-            dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
-            for (int i = 1; i < numTables; i++) {
-                String tableName = readQueryPlan.getQueriedTables().get(i);
-                int joinedShard = Broker.SHARDS_PER_TABLE * dataStore.getTableInfo(tableName).getValue0();
-                if (dataStore.shardLockMap.containsKey(joinedShard)) {
-                    dataStore.shardLockMap.get(joinedShard).readerLockLock();
-                }
-                if (toDestroy[i]) {
-                    shards.get(i).destroy();
-                }
+            if (dataStore.primaryShardMap.containsKey(joinedShard)) {
+                shards.add(dataStore.primaryShardMap.get(joinedShard));
+            } else if (dataStore.replicaShardMap.containsKey(joinedShard)) {
+                shards.add(dataStore.replicaShardMap.get(joinedShard));
+            } else {
+                ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(joinedShard);
+                String cloudName = zkShardDescription.cloudName;
+                int replicaVersion = zkShardDescription.versionNumber;
+                // Download the shard.
+                Optional<S> loadedShard = dataStore.downloadShardFromCloud(joinedShard, cloudName, replicaVersion, false);
+                assert (loadedShard.isPresent()); // TODO:  Error handling.
+                shards.add(loadedShard.get());
+                toDestroy[i] = true;
             }
-            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-            dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
-            long fullEndTime = System.nanoTime();
-            dataStore.readQueryFullTimes.add((fullEndTime - fullStartTime) / 1000L);
-            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
-        } else {
-            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-            logger.warn("DS{} Got read request for absent shard {}", dataStore.dsID, shardNum);
-            return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
+        long executeStartTime = System.nanoTime();
+        ByteString queryResponse = readQueryPlan.queryShard(shards);
+        long executeEndTime = System.nanoTime();
+        dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
+        for (int i = 1; i < numTables; i++) {
+            String tableName = readQueryPlan.getQueriedTables().get(i);
+            int joinedShard = Broker.SHARDS_PER_TABLE * dataStore.getTableInfo(tableName).getValue0();
+            if (dataStore.shardLockMap.containsKey(joinedShard)) {
+                dataStore.shardLockMap.get(joinedShard).readerLockLock();
+            }
+            if (toDestroy[i]) {
+                shards.get(i).destroy();
+            }
+        }
+        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
+        long fullEndTime = System.nanoTime();
+        dataStore.readQueryFullTimes.add((fullEndTime - fullStartTime) / 1000L);
+        return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(queryResponse).build();
     }
 
     @Override
@@ -367,9 +360,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
-        dataStore.ensureShardCached(shardNum);
-        S shard = dataStore.primaryShardMap.get(shardNum);
-        if (shard != null) {
+        if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
+            dataStore.ensureShardCached(shardNum);
+            S shard = dataStore.primaryShardMap.get(shardNum);
             if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
                 logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
                 dataStore.shardLockMap.get(shardNum).writerLockUnlock();
@@ -396,7 +389,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
             return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         } else {
-            logger.warn("DS{} Got MV request for absent shard {}", dataStore.dsID, shardNum);
+            logger.warn("DS{} Got MV request for unassigned shard {}", dataStore.dsID, shardNum);
             dataStore.shardLockMap.get(shardNum).writerLockUnlock();
             return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
@@ -410,15 +403,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     private QueryMaterializedViewResponse queryMaterializedViewHandler(QueryMaterializedViewMessage m) {
         int shardNum = m.getShard();
-        dataStore.createShardMetadata(shardNum);
-        dataStore.ensureShardCached(shardNum);
         String name = m.getName();
-        if (dataStore.materializedViewMap.containsKey(shardNum) && dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
+        dataStore.createShardMetadata(shardNum);
+        dataStore.shardLockMap.get(shardNum).readerLockLock();
+        if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
+            dataStore.ensureShardCached(shardNum);
             MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
             ByteString intermediate = v.getLatestView();
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(intermediate).build();
         } else {
-            logger.warn("DS{} Got MV query for absent shard {} or name {}", dataStore.dsID, shardNum, name);
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+            logger.warn("DS{} Got MV query for unassigned shard {} or name {}", dataStore.dsID, shardNum, name);
             return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
     }

@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.sun.management.OperatingSystemMXBean;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
@@ -15,10 +16,7 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.lang.management.ManagementFactory;
-import com.sun.management.OperatingSystemMXBean;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -268,5 +266,31 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         dataStore.shardLockMap.get(shardNum).writerLockUnlock();
         return NotifyReplicaRemovedResponse.newBuilder().build();
+    }
+
+    @Override
+    public void executeReshuffle(ExecuteReshuffleMessage request, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
+        responseObserver.onNext(executeReshuffleHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ExecuteReshuffleResponse executeReshuffleHandler(ExecuteReshuffleMessage request) {
+        ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(request.getNewConsistentHash());
+        ConsistentHash oldHash = dataStore.consistentHash;
+        // By setting the consistent hash, ensure no new queries are processed after this point.
+        dataStore.consistentHash = newHash;
+        // Delete all shards to be shuffled out, if present.
+        for (int shardNum: dataStore.shardLockMap.keySet()) {
+            if (oldHash.getBucket(shardNum) == dataStore.dsID && newHash.getBucket(shardNum) != dataStore.dsID) {
+                dataStore.shardLockMap.get(shardNum).systemLockLock();
+                S shard = dataStore.primaryShardMap.get(shardNum);
+                if (shard != null) {
+                    shard.destroy();
+                }
+                dataStore.shardLockMap.get(shardNum).systemLockUnlock();
+            }
+        }
+        // After this returns, no more queries can be executed on shards to be shuffled off this server.
+        return ExecuteReshuffleResponse.newBuilder().build();
     }
 }

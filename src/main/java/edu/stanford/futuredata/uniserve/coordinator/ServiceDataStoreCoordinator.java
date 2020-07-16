@@ -1,8 +1,11 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -40,13 +43,22 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         }
         DataStoreDescription dsDescription = new DataStoreDescription(dsID, DataStoreDescription.ALIVE, host, port);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
-        coordinator.dataStoreChannelsMap.put(dsID, channel);
         CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
-        coordinator.dataStoreStubsMap.put(dsID, stub);
-        coordinator.zkCurator.setDSDescription(dsDescription);
-        coordinator.dataStoresMap.put(dsID, dsDescription);
+        coordinator.consistentHashLock.lock();
         coordinator.consistentHash.addBucket(dsID);
+        ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
+        ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
+                .setNewConsistentHash(newConsistentHash).build();
+        for (CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub: coordinator.dataStoreStubsMap.values()) {
+            otherStub.executeReshuffle(reshuffleMessage);
+        }
+        stub.executeReshuffle(reshuffleMessage);
+        coordinator.dataStoreChannelsMap.put(dsID, channel);
+        coordinator.dataStoreStubsMap.put(dsID, stub);
+        coordinator.dataStoresMap.put(dsID, dsDescription);
+        coordinator.zkCurator.setDSDescription(dsDescription);
         coordinator.zkCurator.setConsistentHashFunction(coordinator.consistentHash);
+        coordinator.consistentHashLock.unlock();
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
         if (cloudID != -1) {
             coordinator.loadBalancerSemaphore.release();

@@ -22,6 +22,8 @@ service CoordinatorDataStore {
     rpc shardUsage (ShardUsageMessage) returns (ShardUsageResponse) {}
     // Notify the primary a replica is being removed.
     rpc NotifyReplicaRemoved (NotifyReplicaRemovedMessage) returns (NotifyReplicaRemovedResponse) {}
+    // Execute a reshuffle after a server is added or removed.
+    rpc ExecuteReshuffle (ExecuteReshuffleMessage) returns (ExecuteReshuffleResponse) {}
 }
 
 message CreateNewShardMessage {
@@ -72,3 +74,9 @@ message NotifyReplicaRemovedMessage {
 }
 
 message NotifyReplicaRemovedResponse {}
+
+message ExecuteReshuffleMessage {
+    bytes newConsistentHash = 1;
+}
+
+message ExecuteReshuffleResponse {}

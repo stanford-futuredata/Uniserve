@@ -31,6 +31,7 @@ public class Coordinator {
 
     private final CoordinatorCloud cCloud;
 
+    final Lock consistentHashLock = new ReentrantLock();
     final ConsistentHash consistentHash = new ConsistentHash();
 
     // Used to assign each datastore a unique incremental ID.

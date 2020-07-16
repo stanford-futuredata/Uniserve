@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.*;
@@ -19,8 +20,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class DataStore<R extends Row, S extends Shard> {
 
@@ -79,6 +78,8 @@ public class DataStore<R extends Row, S extends Shard> {
     public static final int PREPARE = 1;
     public static final int COMMIT = 2;
     public static final int ABORT = 3;
+
+    ConsistentHash consistentHash;
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) {
         this.dsHost = dsHost;
