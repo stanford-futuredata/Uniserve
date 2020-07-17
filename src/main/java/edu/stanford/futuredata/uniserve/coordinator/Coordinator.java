@@ -1,12 +1,15 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
+import org.javatuples.Pair;
 import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -117,16 +120,6 @@ public class Coordinator {
         if (cCloud != null) {
             cCloud.shutdown();
         }
-    }
-
-    int assignShardToDataStore(int shardNum) {
-        DataStoreDescription ds;
-        int offset = 0;
-        do {
-            ds = dataStoresMap.get((shardNum + offset) % dataStoresMap.size());
-            offset++;
-        } while (ds.status.get() == DataStoreDescription.DEAD);
-        return ds.dsID;
     }
 
     public void addReplica(int shardNum, int replicaID) {
@@ -274,6 +267,20 @@ public class Coordinator {
         }
     }
 
+    public void assignShards(Set<Integer> lostShards, Set<Integer> gainedShards) {
+        ByteString newConsistentHash = Utilities.objectToByteString(consistentHash);
+        ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
+                .setNewConsistentHash(newConsistentHash).build();
+        // TODO:  Parallelize
+        for (int dsID: lostShards) {
+            dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
+        }
+        for (int dsID: gainedShards) {
+            dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
+        }
+        zkCurator.setConsistentHashFunction(consistentHash);
+    }
+
     private class LoadBalancerDaemon extends Thread {
         @Override
         public void run() {
@@ -288,8 +295,13 @@ public class Coordinator {
                 Map<Integer, Integer> memoryUsages = load.getValue1();
                 logger.info("Collected QPS Load: {}", qpsLoad);
                 logger.info("Collected memory usages: {}", memoryUsages);
-                // logger.info("Generated assignment map: {}", assignmentMap);
-                // assignShards(assignmentMap, qpsLoad);
+                consistentHashLock.lock();
+                Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(qpsLoad, consistentHash);
+                Set<Integer> lostShards = changes.getValue0();
+                Set<Integer> gainedShards = changes.getValue1();
+                logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+                assignShards(lostShards, gainedShards);
+                consistentHashLock.unlock();
                 Map<Integer, Double> serverCpuUsage = load.getValue2();
                 logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
                 if (cCloud != null) {

@@ -18,6 +18,11 @@ public class ConsistentHash implements Serializable {
 
     private static final ReadWriteLock lock = new ReentrantReadWriteLock();
 
+    // A mapping of keys reassigned away from their consistent-hash buckets.
+    public final Map<Integer, Integer> reassignmentMap = new HashMap<>();
+
+    public final Set<Integer> buckets = new HashSet<>();
+
     private int hashFunction(int k) {
         // from CLRS, including the magic numbers.
         return (int) (m * (k * A - Math.floor(k * A)));
@@ -31,6 +36,7 @@ public class ConsistentHash implements Serializable {
             hashToBucket.put(hash, bucketNum);
         }
         Collections.sort(hashRing);
+        buckets.add(bucketNum);
         lock.writeLock().unlock();
     }
 
@@ -42,10 +48,14 @@ public class ConsistentHash implements Serializable {
             hashToBucket.remove(hash);
         }
         Collections.sort(hashRing);
+        buckets.remove(bucketNum);
         lock.writeLock().unlock();
     }
 
     public int getBucket(int key) {
+        if (reassignmentMap.containsKey(key)) {
+            return reassignmentMap.get(key);
+        }
         lock.readLock().lock();
         int hash = hashFunction(key);
         for (int n : hashRing) {

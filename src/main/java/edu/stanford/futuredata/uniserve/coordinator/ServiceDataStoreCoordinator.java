@@ -91,6 +91,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
                 ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
                 ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                         .setNewConsistentHash(newConsistentHash).build();
+                // TODO:  Parallelize
                 for (DataStoreDescription otherDescription: coordinator.dataStoresMap.values()) {
                     if (otherDescription.status.get() == DataStoreDescription.ALIVE) {
                         CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub =

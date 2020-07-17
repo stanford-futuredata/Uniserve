@@ -290,8 +290,8 @@ public class KVStoreTests {
         int c_r = coordinator.startServing();
         assertEquals(0, c_r);
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
-        int num_datastores = 4;
-        for (int i = 0; i < num_datastores; i++) {
+        int numDataStores = 4;
+        for (int i = 0; i < numDataStores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
@@ -333,7 +333,7 @@ public class KVStoreTests {
             Integer queryResponse = brokerThread.getQueryResponse();
             assertEquals(Integer.valueOf(i), queryResponse);
         }
-        for (int i = 0; i < num_datastores; i++) {
+        for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).shutDown();
         }
         coordinator.stopServing();
