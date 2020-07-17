@@ -49,15 +49,13 @@ public class FailureTests {
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
-        int num_datastores = 4;
-        for (int i = 0; i < num_datastores; i++) {
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
                     Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort,"127.0.0.1",  8100 + i, -1);
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            dataStore.startServing();
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
@@ -79,12 +77,10 @@ public class FailureTests {
         } while (Objects.isNull(queryResponse));
         assertEquals(queryResponse, 55);
 
-        for (int i = 0; i < num_datastores; i++) {
+        for (int i = 0; i < numDatastores; i++) {
             dataStores.get(i).runPingDaemon = false;
         }
-        for (int i = 0; i < num_datastores; i++) {
-            dataStores.get(i).shutDown();
-        }
+        dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
     }
@@ -95,8 +91,7 @@ public class FailureTests {
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 4;
         for (int i = 0; i < numDataStores; i++) {
@@ -104,8 +99,7 @@ public class FailureTests {
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
             dataStore.runPingDaemon = false;
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            dataStore.startServing();
             dataStores.add(dataStore);
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
@@ -134,9 +128,7 @@ public class FailureTests {
         broker.shutdown();
         t.join();
         Thread.sleep(500);
-        for (int i = 0; i < numDataStores; i++) {
-            dataStores.get(i).shutDown();
-        }
+        dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
     }
@@ -147,16 +139,14 @@ public class FailureTests {
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 2 * numShards;
         for (int i = 0; i < numDataStores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8800 + i, -1);
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            dataStore.startServing();
             dataStores.add(dataStore);
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
@@ -167,9 +157,6 @@ public class FailureTests {
         }
         WriteQueryPlan<KVRow, KVShard> q = new KVWriteQueryPlanInsert();
         assertTrue(broker.writeQuery(q, startRows));
-//        for(int i = 0; i < numShards; i++) {
-//            coordinator.addReplica(i, i + numShards);
-//        }
         Thread t = new Thread(() -> {
             for (int i = 0; i < 10; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
@@ -199,9 +186,7 @@ public class FailureTests {
         for (int i = 0; i < numDataStores; i++) {
             dataStores.get(i).runPingDaemon = false;
         }
-        for (int i = 0; i < numDataStores; i++) {
-            dataStores.get(i).shutDown();
-        }
+        dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
     }
@@ -212,16 +197,14 @@ public class FailureTests {
         int numShards = 5;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
-        int num_datastores = 4;
-        for (int i = 0; i < num_datastores; i++) {
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            dataStore.startServing();
             dataStores.add(dataStore);
         }
         final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
@@ -275,12 +258,10 @@ public class FailureTests {
         Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
-        for (int i = 0; i < num_datastores; i++) {
+        for (int i = 0; i < numDatastores; i++) {
             dataStores.get(i).runPingDaemon = false;
         }
-        for (int i = 0; i < num_datastores; i++) {
-            dataStores.get(i).shutDown();
-        }
+        dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
     }
