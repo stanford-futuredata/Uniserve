@@ -200,7 +200,7 @@ public class KVStoreTests {
     }
 
 
-//    @Test
+    @Test
     public void testBroadcastJoin() {
         logger.info("testSingleKey");
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
@@ -221,13 +221,13 @@ public class KVStoreTests {
         assertTrue(broker.createTable("table2", 1));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
-        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 1))));
+        assertTrue(broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2))));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
-        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 4))));
+        assertTrue(broker.writeQuery(writeQueryPlan2, List.of(new KVRow(1, 4), new KVRow(2, 5))));
 
         ReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVPseudoBroadcastJoin("table1", "table2");
-        assertEquals(Integer.valueOf(5), broker.readQuery(readQueryPlan2));
+        assertEquals(Integer.valueOf(12), broker.readQuery(readQueryPlan2));
 
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();

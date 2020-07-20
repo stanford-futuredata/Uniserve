@@ -309,23 +309,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int numShards = tableInfo.getValue1();
             assert(numShards == 1); // TODO:  Support non-broadcast joins.
             int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
-            if (dataStore.shardLockMap.containsKey(joinedShard)) {
-                dataStore.shardLockMap.get(joinedShard).readerLockLock();
-            }
-            if (dataStore.primaryShardMap.containsKey(joinedShard)) {
-                shards.add(dataStore.primaryShardMap.get(joinedShard));
-            } else if (dataStore.replicaShardMap.containsKey(joinedShard)) {
-                shards.add(dataStore.replicaShardMap.get(joinedShard));
-            } else {
-                ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(joinedShard);
-                String cloudName = zkShardDescription.cloudName;
-                int replicaVersion = zkShardDescription.versionNumber;
-                // Download the shard.
-                Optional<S> loadedShard = dataStore.downloadShardFromCloud(joinedShard, cloudName, replicaVersion, false);
-                assert (loadedShard.isPresent()); // TODO:  Error handling.
-                shards.add(loadedShard.get());
-                toDestroy[i] = true;
-            }
+            dataStore.createShardMetadata(joinedShard);
+            dataStore.shardLockMap.get(joinedShard).readerLockLock();
+            dataStore.shardLockMap.get(joinedShard).writerLockLock(-1);
+            dataStore.cacheEphemeralShard(joinedShard);
+            dataStore.shardLockMap.get(joinedShard).writerLockUnlock();
+            assert(dataStore.primaryShardMap.containsKey(joinedShard));
+            shards.add(dataStore.primaryShardMap.get(joinedShard));
         }
         long executeStartTime = System.nanoTime();
         ByteString queryResponse = readQueryPlan.queryShard(shards);
