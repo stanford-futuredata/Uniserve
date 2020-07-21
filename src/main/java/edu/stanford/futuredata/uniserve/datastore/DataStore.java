@@ -20,6 +20,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DataStore<R extends Row, S extends Shard> {
 
@@ -54,6 +55,8 @@ public class DataStore<R extends Row, S extends Shard> {
     private final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
     // Maximum number of shards in each table.
     private final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
+    // Map from dsID to a ManagedChannel.
+    private final Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
 
     private final Server server;
     final DataStoreCurator zkCurator;
@@ -62,6 +65,7 @@ public class DataStore<R extends Row, S extends Shard> {
     final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
+    final AtomicInteger ephemeralShardNum = new AtomicInteger(Integer.MAX_VALUE);
 
     public static int qpsReportTimeInterval = 60; // In seconds -- should be same as load balancer interval.
 
@@ -176,6 +180,9 @@ public class DataStore<R extends Row, S extends Shard> {
             entry.getValue().destroy();
             replicaShardMap.remove(entry.getKey());
         }
+        for (ManagedChannel c: dsIDToChannelMap.values()) {
+            c.shutdownNow();
+        }
         zkCurator.close();
         int numQueries = readQueryExecuteTimes.size();
         OptionalDouble averageExecuteTime = readQueryExecuteTimes.stream().mapToLong(i -> i).average();
@@ -187,6 +194,19 @@ public class DataStore<R extends Row, S extends Shard> {
             long p99Full = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() * 99 / 100];
             logger.info("Queries: {} p50 Exec: {}μs p99 Exec: {}μs p50 Full: {}μs p99 Full: {}μs", numQueries, p50Exec, p99Exec, p50Full, p99Full);
         }
+    }
+
+    Optional<S> createNewShard(int shardNum) {
+        Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
+        File shardPathFile = shardPath.toFile();
+        if (!shardPathFile.exists()) {
+            boolean mkdirs = shardPathFile.mkdirs();
+            if (!mkdirs) {
+                logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
+                return Optional.empty();
+            }
+        }
+        return shardFactory.createNewShard(shardPath, shardNum);
     }
 
     /** Creates all metadata for a shard not yet seen on this server, creating the shard if it does not yet exist **/
@@ -201,17 +221,7 @@ public class DataStore<R extends Row, S extends Shard> {
             assert (!replicaShardMap.containsKey(shardNum));
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             if (zkShardDescription == null) {
-                Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
-                File shardPathFile = shardPath.toFile();
-                if (!shardPathFile.exists()) {
-                    boolean mkdirs = shardPathFile.mkdirs();
-                    if (!mkdirs) {
-                        logger.error("DS{} Shard directory creation failed {}", dsID, shardNum);
-                        shardLock.systemLockUnlock();
-                        return false;
-                    }
-                }
-                Optional<S> shard = shardFactory.createNewShard(shardPath, shardNum);
+                Optional<S> shard = createNewShard(shardNum);
                 if (shard.isEmpty()) {
                     logger.error("DS{} Shard creation failed {}", dsID, shardNum);
                     shardLock.systemLockUnlock();
@@ -354,6 +364,17 @@ public class DataStore<R extends Row, S extends Shard> {
             tableIDMap.put(tableName, tableID);
             return new Pair<>(tableID, numShards);
         }
+    }
+
+    ManagedChannel getChannelForDSID(int dsID) {
+        if (!dsIDToChannelMap.containsKey(dsID)) {
+            DataStoreDescription d = zkCurator.getDSDescription(dsID);
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(d.host, d.port).usePlaintext().build();
+            if (dsIDToChannelMap.putIfAbsent(dsID, channel) != null) {
+                channel.shutdown();
+            }
+        }
+        return dsIDToChannelMap.get(dsID);
     }
 
     private class PingDaemon extends Thread {

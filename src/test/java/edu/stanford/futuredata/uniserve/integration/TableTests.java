@@ -1,0 +1,83 @@
+package edu.stanford.futuredata.uniserve.integration;
+
+import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
+import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.tablemockinterface.TableQueryEngine;
+import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
+import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
+import edu.stanford.futuredata.uniserve.tablemockinterface.TableShardFactory;
+import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.TableReadMostFrequent;
+import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.TableWriteInsert;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class TableTests {
+    private static final Logger logger = LoggerFactory.getLogger(TableTests.class);
+
+    private static String zkHost = "127.0.0.1";
+    private static Integer zkPort = 2181;
+
+    @BeforeAll
+    static void startUpCleanUp() {
+        cleanUp(zkHost, zkPort);
+    }
+
+    @AfterEach
+    private void unitTestCleanUp() {
+        cleanUp(zkHost, zkPort);
+    }
+
+
+    @Test
+    public void testShuffleMostFrequent() {
+        logger.info("testShuffleMostFrequent");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        int c_r = coordinator.startServing();
+        assertEquals(0, c_r);
+        int numDataStores = 4;
+        List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
+        for (int i = 0; i < numDataStores; i++) {
+            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+            dataStore.runPingDaemon = false;
+            int d_r = dataStore.startServing();
+            assertEquals(0, d_r);
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new TableQueryEngine());
+        assertTrue(broker.createTable("table1", numShards));
+
+        List<TableRow> rows = new ArrayList<>();
+        for (int k = 0; k < 5; k++) {
+            for (int v = 0; v < k; v++) {
+                rows.add(new TableRow(Map.of("k", k, "v", v), k));
+            }
+        }
+        assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows));
+
+        ReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
+        assertEquals(0, broker.readQuery(r));
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+}

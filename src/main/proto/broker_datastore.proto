@@ -12,6 +12,8 @@ service BrokerDataStore {
     rpc WriteQuery (stream WriteQueryMessage) returns (WriteQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ReadQuery (ReadQueryMessage) returns (ReadQueryResponse) {}
+    // Make a read query that requires a shuffle.
+    rpc ReadShuffleQuery (ReadShuffleQueryMessage) returns (ReadShuffleQueryResponse) {}
     // Register a materialized view on a DataStore.
     rpc RegisterMaterializedView (RegisterMaterializedViewMessage) returns (RegisterMaterializedViewResponse);
     // Query a materialized view.
@@ -36,6 +38,17 @@ message ReadQueryMessage {
 }
 
 message ReadQueryResponse {
+    int32 returnCode = 1;
+    bytes response = 2;
+}
+
+message ReadShuffleQueryMessage {
+    bytes serializedQuery = 1;
+    int32 bucketNum = 2;
+    int32 numBuckets = 3;
+}
+
+message ReadShuffleQueryResponse {
     int32 returnCode = 1;
     bytes response = 2;
 }

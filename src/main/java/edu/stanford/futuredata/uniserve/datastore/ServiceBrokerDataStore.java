@@ -9,6 +9,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
+import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
@@ -407,5 +409,42 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             logger.warn("DS{} Got MV query for unassigned shard {} or name {}", dataStore.dsID, shardNum, name);
             return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
+    }
+
+    @Override
+    public void readShuffleQuery(ReadShuffleQueryMessage request, StreamObserver<ReadShuffleQueryResponse> responseObserver) {
+        responseObserver.onNext(readShuffleQueryHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ReadShuffleQueryResponse readShuffleQueryHandler(ReadShuffleQueryMessage m) {
+        ReadQueryPlan<S, Object> readQueryPlan =
+                (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        assert(readQueryPlan.getShuffleColumns().isPresent());
+        S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+        // TODO: Interface for selectively querying table shards.
+        String tableName = readQueryPlan.getQueriedTables().get(0); // TODO:  Handle multiple tables (joins).
+        Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
+        int tableID = tableInfo.getValue0();
+        int tableShards = tableInfo.getValue1();
+        List<Integer> targetShards =
+                IntStream.range(tableID * Broker.SHARDS_PER_TABLE, tableID * Broker.SHARDS_PER_TABLE + tableShards)
+                        .boxed().collect(Collectors.toList());
+        String shuffleColumn = readQueryPlan.getShuffleColumns().get().get(0);
+        for (int targetShard: targetShards) { // TODO:  Make async.
+            int targetDSID = dataStore.consistentHash.getBucket(targetShard);
+            ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+            DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
+            GetShuffleDataMessage g = GetShuffleDataMessage.newBuilder()
+                    .setShardNum(targetShard).setColumnName(shuffleColumn)
+                    .setBucketNum(m.getBucketNum()).setNumBuckets(m.getNumBuckets()).build();
+            GetShuffleDataResponse r = stub.getShuffleData(g);
+            assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+            ByteString rows = r.getShuffleData();
+            ephemeralShard.bulkImport(rows);
+        }
+        ByteString b = readQueryPlan.queryShard(Collections.singletonList(ephemeralShard));
+        ephemeralShard.destroy();
+        return ReadShuffleQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
     }
 }

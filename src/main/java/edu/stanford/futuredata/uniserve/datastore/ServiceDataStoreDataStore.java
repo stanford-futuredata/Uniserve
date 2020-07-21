@@ -242,4 +242,27 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onNext(DataStorePingResponse.newBuilder().build());
         responseObserver.onCompleted();
     }
+
+    @Override
+    public void getShuffleData(GetShuffleDataMessage request, StreamObserver<GetShuffleDataResponse> responseObserver) {
+        responseObserver.onNext(getShuffleDataHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private GetShuffleDataResponse getShuffleDataHandler(GetShuffleDataMessage m) {
+        int shardNum = m.getShardNum();
+        dataStore.createShardMetadata(shardNum);
+        dataStore.shardLockMap.get(shardNum).readerLockLock();
+        if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
+            logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+            return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
+        dataStore.ensureShardCached(shardNum);
+        S shard = dataStore.primaryShardMap.get(shardNum);
+        assert(shard != null);
+        ByteString rows = shard.bulkExport(m.getColumnName(), m.getBucketNum(), m.getNumBuckets());
+        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(rows).build();
+    }
 }

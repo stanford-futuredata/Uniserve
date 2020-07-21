@@ -16,6 +16,8 @@ service DataStoreDataStore {
     rpc DataStorePing (DataStorePingMessage) returns (DataStorePingResponse) {}
     // Register a materialized view on a replica.
     rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
+    // Get data for a shuffle.
+    rpc GetShuffleData (GetShuffleDataMessage) returns (GetShuffleDataResponse) {}
 }
 
 message ReplicaWriteMessage {
@@ -56,4 +58,16 @@ message ReplicaRegisterMVMessage {
 
 message ReplicaRegisterMVResponse {
     int32 returnCode = 1;
+}
+
+message GetShuffleDataMessage {
+    int32 shardNum = 1;
+    string columnName = 2;
+    int32 bucketNum = 3;
+    int32 numBuckets = 4;
+}
+
+message GetShuffleDataResponse {
+    int32 returnCode = 1;
+    bytes shuffleData = 2;
 }

@@ -9,11 +9,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-public class TableReadQueryPlanJoin implements ReadQueryPlan<TableShard, Integer> {
+public class TableReadJoin implements ReadQueryPlan<TableShard, Integer> {
 
     private final List<String> tables;
 
-    public TableReadQueryPlanJoin(String tableOne, String tableTwo) {
+    public TableReadJoin(String tableOne, String tableTwo) {
         this.tables = List.of(tableOne, tableTwo);
     }
 

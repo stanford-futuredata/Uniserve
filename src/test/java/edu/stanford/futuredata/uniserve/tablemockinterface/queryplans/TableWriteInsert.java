@@ -7,11 +7,11 @@ import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class TableWriteQueryPlanInsert implements WriteQueryPlan<TableRow, TableShard> {
+public class TableWriteInsert implements WriteQueryPlan<TableRow, TableShard> {
 
     private final String tableName;
 
-    public TableWriteQueryPlanInsert(String tableName) {
+    public TableWriteInsert(String tableName) {
         this.tableName = tableName;
     }
 
