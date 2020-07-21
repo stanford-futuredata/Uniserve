@@ -37,8 +37,6 @@ public class BrokerCurator {
             byte[] b = cf.getData().forPath(path);
             return new DataStoreDescription(new String(b));
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
-            assert(false);
             return null;
         }
     }

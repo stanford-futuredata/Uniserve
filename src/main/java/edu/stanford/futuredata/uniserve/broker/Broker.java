@@ -29,8 +29,10 @@ public class Broker {
     private final BrokerCurator zkCurator;
 
     private static final Logger logger = LoggerFactory.getLogger(Broker.class);
-    // Map from dsIDs to stubs.
-    private final Map<Integer, BrokerDataStoreGrpc.BrokerDataStoreBlockingStub> dsIDToStubMap = new ConcurrentHashMap<>();
+    // Consistent hash assigning shards to servers.
+    private ConsistentHash consistentHash;
+    // Map from dsIDs to channels.
+    private Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Map from table names to IDs.
@@ -60,8 +62,6 @@ public class Broker {
     ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
 
     AtomicLong txIDs = new AtomicLong(0); // TODO:  Put in ZooKeeper.
-
-    private ConsistentHash consistentHash;
 
 
     /*
@@ -93,15 +93,14 @@ public class Broker {
         runShardMapUpdateDaemon = false;
         runQueryStatisticsDaemon = false;
         try {
-            shardMapUpdateDaemon.interrupt();
             shardMapUpdateDaemon.join();
             queryStatisticsDaemon.interrupt();
             queryStatisticsDaemon.join();
         } catch (InterruptedException ignored) {}
         // TODO:  Synchronize with outstanding queries?
         ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).shutdownNow();
-        for (BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub: dsIDToStubMap.values()) {
-            ((ManagedChannel) stub.getChannel()).shutdownNow();
+        for (ManagedChannel c: dsIDToChannelMap.values()) {
+            c.shutdownNow();
         }
         int numQueries = remoteExecutionTimes.size();
         if (numQueries > 0) {
@@ -276,19 +275,9 @@ public class Broker {
 
     private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubForShard(int shard) {
         int dsID = consistentHash.getBucket(shard);
-        // First, check the local shard-to-server map.
-        BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = dsIDToStubMap.getOrDefault(dsID, null);
-        if (stub == null) {
-            DataStoreDescription dsDescription = zkCurator.getDSDescriptionFromDSID(dsID);
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
-            stub = dsIDToStubMap.putIfAbsent(dsDescription.dsID, BrokerDataStoreGrpc.newBlockingStub(channel));
-            if (stub == null) {
-                stub = dsIDToStubMap.get(dsDescription.dsID); // No entry exists.
-            } else {
-                channel.shutdown(); // Stub already exists.
-            }
-        }
-        return stub;
+        ManagedChannel channel = dsIDToChannelMap.get(dsID);
+        assert(channel != null);
+        return BrokerDataStoreGrpc.newBlockingStub(channel);
     }
 
     public void sendStatisticsToCoordinator() {
@@ -313,16 +302,47 @@ public class Broker {
     }
 
     private class ShardMapUpdateDaemon extends Thread {
+
+        private void updateMap() {
+            ConsistentHash consistentHash = zkCurator.getConsistentHashFunction();
+            Map<Integer, ManagedChannel> dsIDToChannelMap = new HashMap<>();
+            int dsID = 0;
+            while (true) {
+                DataStoreDescription d = zkCurator.getDSDescriptionFromDSID(dsID);
+                if (d == null) {
+                    break;
+                } else if (d.status.get() == DataStoreDescription.ALIVE) {
+                    ManagedChannel channel = Broker.this.dsIDToChannelMap.containsKey(dsID) ?
+                            Broker.this.dsIDToChannelMap.get(dsID) :
+                            ManagedChannelBuilder.forAddress(d.host, d.port).usePlaintext().build();
+                    dsIDToChannelMap.put(dsID, channel);
+                } else if (d.status.get() == DataStoreDescription.DEAD) {
+                    if (Broker.this.dsIDToChannelMap.containsKey(dsID)) {
+                        Broker.this.dsIDToChannelMap.get(dsID).shutdown();
+                    }
+                }
+                dsID++;
+            }
+            Broker.this.dsIDToChannelMap = dsIDToChannelMap;
+            Broker.this.consistentHash = consistentHash;
+        }
+
         @Override
         public void run() {
             while (runShardMapUpdateDaemon) {
-                consistentHash = zkCurator.getConsistentHashFunction();
+                updateMap();
                 try {
                     Thread.sleep(shardMapDaemonSleepDurationMillis);
                 } catch (InterruptedException e) {
                     break;
                 }
             }
+        }
+
+        @Override
+        public synchronized void start() {
+            updateMap();
+            super.start();
         }
     }
 

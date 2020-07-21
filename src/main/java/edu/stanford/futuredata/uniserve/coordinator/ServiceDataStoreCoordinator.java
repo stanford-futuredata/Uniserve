@@ -36,6 +36,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         String host = m.getHost();
         int port = m.getPort();
         int cloudID = m.getCloudID();
+        coordinator.consistentHashLock.lock();
         int dsID = coordinator.dataStoreNumber.getAndIncrement();
         if (cloudID != -1) {
             assert(cloudID >= 0);
@@ -44,7 +45,6 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         DataStoreDescription dsDescription = new DataStoreDescription(dsID, DataStoreDescription.ALIVE, host, port);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
         CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
-        coordinator.consistentHashLock.lock();
         coordinator.consistentHash.addBucket(dsID);
         ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
         ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
