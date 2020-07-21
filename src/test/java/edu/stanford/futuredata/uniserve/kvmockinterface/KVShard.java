@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,5 +101,15 @@ public class KVShard implements Shard {
             return Optional.empty();
         }
         return Optional.of(shardPath);
+    }
+
+    @Override
+    public ByteString bulkExport(String columnName, int hashValue, int numBuckets) {
+        return null;
+    }
+
+    @Override
+    public boolean bulkImport(ByteString rows) {
+        return false;
     }
 }

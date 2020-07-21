@@ -7,12 +7,18 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
     public List<String> getQueriedTables() {
         return Collections.singletonList("table");
+    }
+
+    @Override
+    public Optional<List<String>> getShuffleColumns() {
+        return Optional.empty();
     }
 
     @Override

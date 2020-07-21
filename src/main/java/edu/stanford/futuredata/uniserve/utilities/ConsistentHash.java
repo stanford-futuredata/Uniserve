@@ -23,7 +23,7 @@ public class ConsistentHash implements Serializable {
 
     public final Set<Integer> buckets = new HashSet<>();
 
-    private int hashFunction(int k) {
+    public static int hashFunction(int k) {
         // from CLRS, including the magic numbers.
         return (int) (m * (k * A - Math.floor(k * A)));
     }

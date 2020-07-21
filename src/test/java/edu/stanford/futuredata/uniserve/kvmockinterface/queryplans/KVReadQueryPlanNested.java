@@ -8,6 +8,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     // Return the value corresponding to the key corresponding to innerKey.
@@ -22,6 +23,11 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     @Override
     public List<String> getQueriedTables() {
         return Collections.singletonList("table");
+    }
+
+    @Override
+    public Optional<List<String>> getShuffleColumns() {
+        return Optional.empty();
     }
 
     @Override

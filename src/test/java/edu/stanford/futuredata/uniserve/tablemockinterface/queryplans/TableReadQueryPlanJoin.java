@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class TableReadQueryPlanJoin implements ReadQueryPlan<TableShard, Integer> {
 
@@ -19,6 +20,11 @@ public class TableReadQueryPlanJoin implements ReadQueryPlan<TableShard, Integer
     @Override
     public List<String> getQueriedTables() {
         return tables;
+    }
+
+    @Override
+    public Optional<List<String>> getShuffleColumns() {
+        return Optional.empty();
     }
 
     @Override

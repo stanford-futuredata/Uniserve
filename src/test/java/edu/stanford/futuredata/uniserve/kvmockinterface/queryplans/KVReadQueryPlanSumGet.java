@@ -23,6 +23,11 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
+    public Optional<List<String>> getShuffleColumns() {
+        return Optional.empty();
+    }
+
+    @Override
     public List<Integer> keysForQuery() {
         return this.keys;
     }
