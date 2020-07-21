@@ -421,30 +421,34 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ReadQueryPlan<S, Object> readQueryPlan =
                 (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         assert(readQueryPlan.getShuffleColumns().isPresent());
-        S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-        // TODO: Interface for selectively querying table shards.
-        String tableName = readQueryPlan.getQueriedTables().get(0); // TODO:  Handle multiple tables (joins).
-        Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
-        int tableID = tableInfo.getValue0();
-        int tableShards = tableInfo.getValue1();
-        List<Integer> targetShards =
-                IntStream.range(tableID * Broker.SHARDS_PER_TABLE, tableID * Broker.SHARDS_PER_TABLE + tableShards)
-                        .boxed().collect(Collectors.toList());
-        String shuffleColumn = readQueryPlan.getShuffleColumns().get().get(0);
-        for (int targetShard: targetShards) { // TODO:  Make async.
-            int targetDSID = dataStore.consistentHash.getBucket(targetShard);
-            ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
-            DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
-            GetShuffleDataMessage g = GetShuffleDataMessage.newBuilder()
-                    .setShardNum(targetShard).setColumnName(shuffleColumn)
-                    .setBucketNum(m.getBucketNum()).setNumBuckets(m.getNumBuckets()).build();
-            GetShuffleDataResponse r = stub.getShuffleData(g);
-            assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
-            ByteString rows = r.getShuffleData();
-            ephemeralShard.bulkImport(rows);
+        List<S> ephemeralShards = new ArrayList<>();
+        for (int tableNum = 0; tableNum < readQueryPlan.getQueriedTables().size(); tableNum++) {
+            S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+            String tableName = readQueryPlan.getQueriedTables().get(tableNum);
+            Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
+            int tableID = tableInfo.getValue0();
+            int tableShards = tableInfo.getValue1();
+            // TODO: Interface for selectively querying table shards.
+            List<Integer> targetShards =
+                    IntStream.range(tableID * Broker.SHARDS_PER_TABLE, tableID * Broker.SHARDS_PER_TABLE + tableShards)
+                            .boxed().collect(Collectors.toList());
+            String shuffleColumn = readQueryPlan.getShuffleColumns().get().get(tableNum);
+            for (int targetShard : targetShards) { // TODO:  Make async.
+                int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
+                GetShuffleDataMessage g = GetShuffleDataMessage.newBuilder()
+                        .setShardNum(targetShard).setColumnName(shuffleColumn)
+                        .setBucketNum(m.getBucketNum()).setNumBuckets(m.getNumBuckets()).build();
+                GetShuffleDataResponse r = stub.getShuffleData(g);
+                assert (r.getReturnCode() == Broker.QUERY_SUCCESS);
+                ByteString rows = r.getShuffleData();
+                ephemeralShard.bulkImport(rows);
+            }
+            ephemeralShards.add(ephemeralShard);
         }
-        ByteString b = readQueryPlan.queryShard(Collections.singletonList(ephemeralShard));
-        ephemeralShard.destroy();
+        ByteString b = readQueryPlan.queryShard(ephemeralShards);
+        ephemeralShards.forEach(S::destroy);
         return ReadShuffleQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
     }
 }
