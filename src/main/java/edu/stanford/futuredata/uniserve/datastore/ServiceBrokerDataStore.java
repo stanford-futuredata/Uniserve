@@ -283,6 +283,38 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         responseObserver.onCompleted();
     }
 
+    private S loadBroadcastedTable(String tableName) {
+        Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
+        int tableID = tableInfo.getValue0();
+        int numShards = tableInfo.getValue1();
+        assert(numShards == 1); // TODO:  Support non-broadcast joins.
+        int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
+        dataStore.createShardMetadata(joinedShard);
+
+        ZKShardDescription z = dataStore.zkCurator.getZKShardDescription(joinedShard);
+        dataStore.shardLockMap.get(joinedShard).readerLockLock();
+        if (!dataStore.primaryShardMap.containsKey(joinedShard) || dataStore.shardVersionMap.get(joinedShard) != z.versionNumber) {
+            if (dataStore.primaryShardMap.containsKey(joinedShard)) {
+                dataStore.shardLockMap.get(joinedShard).readerLockUnlock();
+                dataStore.shardLockMap.get(joinedShard).systemLockLock();
+                dataStore.primaryShardMap.get(joinedShard).destroy();
+                dataStore.primaryShardMap.remove(joinedShard);
+                dataStore.shardLockMap.get(joinedShard).systemLockUnlock();
+                dataStore.shardLockMap.get(joinedShard).readerLockLock();
+            }
+            dataStore.shardLockMap.get(joinedShard).writerLockLock(-1);
+            if (!dataStore.primaryShardMap.containsKey(joinedShard)) {
+                Optional<S> shard = dataStore.downloadShardFromCloud(joinedShard, z.cloudName, z.versionNumber, false);
+                assert (shard.isPresent());
+                S contained = dataStore.primaryShardMap.putIfAbsent(joinedShard, shard.get());
+                assert(contained == null);
+            }
+            dataStore.shardLockMap.get(joinedShard).writerLockUnlock();
+        }
+        assert(dataStore.primaryShardMap.containsKey(joinedShard));
+        return dataStore.primaryShardMap.get(joinedShard);
+    }
+
     private ReadQueryResponse readQueryHandler(ReadQueryMessage readQuery) {
         long fullStartTime = System.nanoTime();
         int shardNum = readQuery.getShard();
@@ -302,38 +334,29 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         readQueryPlan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(serializedQuery);
         int numTables = readQueryPlan.getQueriedTables().size();
         List<S> shards = new ArrayList<>();
-        boolean[] toDestroy = new boolean[numTables];
-        shards.add(shard); // TODO:  Ordering.
-        for (int i = 1; i < numTables; i++) {
-            String tableName = readQueryPlan.getQueriedTables().get(i);
-            Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
-            int tableID = tableInfo.getValue0();
-            int numShards = tableInfo.getValue1();
-            assert(numShards == 1); // TODO:  Support non-broadcast joins.
-            int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
-            dataStore.createShardMetadata(joinedShard);
-            dataStore.shardLockMap.get(joinedShard).readerLockLock();
-            dataStore.shardLockMap.get(joinedShard).writerLockLock(-1);
-            dataStore.cacheEphemeralShard(joinedShard);
-            dataStore.shardLockMap.get(joinedShard).writerLockUnlock();
-            assert(dataStore.primaryShardMap.containsKey(joinedShard));
-            shards.add(dataStore.primaryShardMap.get(joinedShard));
+        int localShardIndex = 0;
+        for (int i = 0; i < numTables; i++) {
+            if (i == localShardIndex) {
+                shards.add(shard);
+            } else {
+                String tableName = readQueryPlan.getQueriedTables().get(i);
+                S broadcastedTableShard = loadBroadcastedTable(tableName);
+                shards.add(broadcastedTableShard);
+            }
         }
         long executeStartTime = System.nanoTime();
         ByteString queryResponse = readQueryPlan.queryShard(shards);
         long executeEndTime = System.nanoTime();
         dataStore.readQueryExecuteTimes.add((executeEndTime - executeStartTime) / 1000L);
-        for (int i = 1; i < numTables; i++) {
-            String tableName = readQueryPlan.getQueriedTables().get(i);
-            int joinedShard = Broker.SHARDS_PER_TABLE * dataStore.getTableInfo(tableName).getValue0();
-            if (dataStore.shardLockMap.containsKey(joinedShard)) {
-                dataStore.shardLockMap.get(joinedShard).readerLockLock();
-            }
-            if (toDestroy[i]) {
-                shards.get(i).destroy();
+        for (int i = 0; i < numTables; i++) {
+            if (i == localShardIndex) {
+              dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+            } else {
+                String tableName = readQueryPlan.getQueriedTables().get(i);
+                int joinedShard = Broker.SHARDS_PER_TABLE * dataStore.getTableInfo(tableName).getValue0();
+                dataStore.shardLockMap.get(joinedShard).readerLockUnlock();
             }
         }
-        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
         dataStore.QPSMap.get(shardNum).merge(unixTime, readQueryPlan.getQueryCost(), Integer::sum);
         long fullEndTime = System.nanoTime();
         dataStore.readQueryFullTimes.add((fullEndTime - fullStartTime) / 1000L);

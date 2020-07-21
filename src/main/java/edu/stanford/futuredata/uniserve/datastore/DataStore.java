@@ -255,21 +255,6 @@ public class DataStore<R extends Row, S extends Shard> {
         return true;
     }
 
-    /** Cache a shard locally, updating if the cached shard is outdated **/
-    void cacheEphemeralShard(int shardNum) {
-        ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
-        if (!primaryShardMap.containsKey(shardNum) || shardVersionMap.get(shardNum) != z.versionNumber) {
-            if (primaryShardMap.containsKey(shardNum)) {
-                primaryShardMap.get(shardNum).destroy(); // TODO:  Synchronize this.
-            }
-            Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber, false);
-            if (shard.isEmpty()) {
-                return;
-            }
-            primaryShardMap.putIfAbsent(shardNum, shard.get());
-        }
-    }
-
     public void serializeMaterializedViews(int shardNum, Path dir) throws IOException {
         Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
         FileOutputStream f = new FileOutputStream(mvFile.toFile());
