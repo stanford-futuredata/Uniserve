@@ -518,16 +518,35 @@ public class Broker {
         int numBuckets = dsIDToChannelMap.size();
         ByteString serializedQuery = Utilities.objectToByteString(readQueryPlan);
         int bucketNum = 0;
-        List<ByteString> intermediates = new ArrayList<>();
-        for (ManagedChannel channel: dsIDToChannelMap.values()) { // TODO:  Make async.
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = BrokerDataStoreGrpc.newBlockingStub(channel);
+        List<ByteString> intermediates = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(numBuckets);
+        StreamObserver<ReadShuffleQueryResponse> responseObserver = new StreamObserver<>() {
+            @Override
+            public void onNext(ReadShuffleQueryResponse r) {
+                assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+                intermediates.add(r.getResponse());
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                assert(false); // TODO:  Handle failures.
+            }
+
+            @Override
+            public void onCompleted() {
+                latch.countDown();
+            }
+        };
+        for (ManagedChannel channel: dsIDToChannelMap.values()) {
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ReadShuffleQueryMessage m = ReadShuffleQueryMessage.newBuilder().setSerializedQuery(serializedQuery)
                     .setBucketNum(bucketNum).setNumBuckets(numBuckets).build();
-            ReadShuffleQueryResponse r = stub.readShuffleQuery(m);
-            assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle failures.
-            intermediates.add(r.getResponse());
+            stub.readShuffleQuery(m, responseObserver);
             bucketNum++;
         }
+        try {
+            latch.await();
+        } catch (InterruptedException ignored) { }
         return intermediates;
     }
 

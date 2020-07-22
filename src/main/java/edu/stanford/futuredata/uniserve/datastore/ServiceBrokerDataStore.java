@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
@@ -287,7 +289,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         Pair<Integer, Integer> tableInfo = dataStore.getTableInfo(tableName);
         int tableID = tableInfo.getValue0();
         int numShards = tableInfo.getValue1();
-        assert(numShards == 1); // TODO:  Support non-broadcast joins.
+        assert(numShards == 1);
         int joinedShard = Broker.SHARDS_PER_TABLE * tableID;
         dataStore.createShardMetadata(joinedShard);
 
@@ -456,18 +458,38 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     IntStream.range(tableID * Broker.SHARDS_PER_TABLE, tableID * Broker.SHARDS_PER_TABLE + tableShards)
                             .boxed().collect(Collectors.toList());
             String shuffleColumn = readQueryPlan.getShuffleColumns().get().get(tableNum);
-            for (int targetShard : targetShards) { // TODO:  Make async.
+            List<ByteString> rowsList = new CopyOnWriteArrayList<>();
+            CountDownLatch latch = new CountDownLatch(targetShards.size());
+            StreamObserver<GetShuffleDataResponse> responseObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(GetShuffleDataResponse r) {
+                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle failures.
+                    rowsList.add(r.getShuffleData());
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    assert(false); // TODO:  Handle failures.
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            };
+            for (int targetShard : targetShards) {
                 int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
                 ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
-                DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(channel);
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                 GetShuffleDataMessage g = GetShuffleDataMessage.newBuilder()
                         .setShardNum(targetShard).setColumnName(shuffleColumn)
                         .setBucketNum(m.getBucketNum()).setNumBuckets(m.getNumBuckets()).build();
-                GetShuffleDataResponse r = stub.getShuffleData(g);
-                assert (r.getReturnCode() == Broker.QUERY_SUCCESS);
-                ByteString rows = r.getShuffleData();
-                ephemeralShard.bulkImport(rows);
+                stub.getShuffleData(g, responseObserver);
             }
+            try {
+                latch.await();
+            } catch (InterruptedException ignored) { }
+            rowsList.forEach(ephemeralShard::bulkImport);
             ephemeralShards.add(ephemeralShard);
         }
         ByteString b = readQueryPlan.queryShard(ephemeralShards);
