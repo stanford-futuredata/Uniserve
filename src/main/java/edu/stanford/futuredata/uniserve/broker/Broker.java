@@ -497,31 +497,42 @@ public class Broker {
         ByteString serializedConsistentHash = Utilities.objectToByteString(consistentHash);
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
-        StreamObserver<ReadQueryResponse> responseObserver = new StreamObserver<>() {
-            @Override
-            public void onNext(ReadQueryResponse r) {
-                assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
-                intermediates.add(r.getResponse());
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                assert(false); // TODO:  Handle failures.
-            }
-
-            @Override
-            public void onCompleted() {
-                latch.countDown();
-            }
-        };
         int reducerNum = 0;
-        for (ManagedChannel channel: dsIDToChannelMap.values()) {
+        for (Map.Entry<Integer, ManagedChannel> entry: dsIDToChannelMap.entrySet()) {
+            int dsID = entry.getKey();
+            ManagedChannel channel = entry.getValue();
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ReadQueryMessage m = ReadQueryMessage.newBuilder().setSerializedQuery(serializedQuery)
                     .setTxID(txIDs.getAndIncrement())
                     .setConsistentHash(serializedConsistentHash)
-                    .setTargetShards(serializedTargetShards)
+                    .setTargetShards(serializedTargetShards).setTargetDSID(dsID)
                     .setReducerNum(reducerNum).setNumReducers(numReducers).build();
+            StreamObserver<ReadQueryResponse> responseObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(ReadQueryResponse r) {
+                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+                    intermediates.add(r.getResponse());
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                    ManagedChannel newChannel;
+                    int newDSID;
+                    do {
+                        newDSID = ThreadLocalRandom.current()
+                                .nextInt(dsIDToChannelMap.keySet().stream().mapToInt(i -> i).max().getAsInt());
+                        newChannel = dsIDToChannelMap.get(newDSID);
+                    } while (newChannel == null && newDSID != dsID);
+                    BrokerDataStoreGrpc.BrokerDataStoreStub newStub = BrokerDataStoreGrpc.newStub(newChannel);
+                    newStub.readQuery(m, this);
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            };
             stub.readQuery(m, responseObserver);
             reducerNum++;
         }

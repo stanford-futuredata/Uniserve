@@ -32,11 +32,12 @@ message WriteQueryResponse {
 
 message ReadQueryMessage {
     bytes consistentHash = 1;
-    bytes serializedQuery = 2;
-    int32 reducerNum = 3;
-    int32 numReducers = 4;
-    int64 txID = 5;
-    bytes targetShards = 6;
+    int32 targetDSID = 2;
+    bytes serializedQuery = 3;
+    int32 reducerNum = 4;
+    int32 numReducers = 5;
+    int64 txID = 6;
+    bytes targetShards = 7;
 }
 
 message ReadQueryResponse {

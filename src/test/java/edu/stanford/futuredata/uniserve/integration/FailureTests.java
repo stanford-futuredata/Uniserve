@@ -43,7 +43,7 @@ public class FailureTests {
         cleanUp(zkHost, zkPort);
     }
 
-//    @Test
+    @Test
     public void testSingleFailure() throws InterruptedException {
         logger.info("testSingleFailure");
         int numShards = 4;

@@ -301,7 +301,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             if (!plan.shuffleNeeded().get(tableName)) {
                 List<ByteString> tableEphemeralData = new ArrayList<>();
                 for (int shardNum: targetShards) {
-                    if (c.getBucket(shardNum) == dataStore.dsID) {
+                    if (c.getBucket(shardNum) == m.getTargetDSID()) {
                         dataStore.createShardMetadata(shardNum);
                         dataStore.shardLockMap.get(shardNum).readerLockLock();
                         dataStore.ensureShardCached(shardNum);
