@@ -318,23 +318,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             } else {
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
                 CountDownLatch latch = new CountDownLatch(targetShards.size());
-                StreamObserver<GetShuffleDataResponse> responseObserver = new StreamObserver<>() {
-                    @Override
-                    public void onNext(GetShuffleDataResponse r) {
-                        assert (r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle failures.
-                        tableEphemeralData.add(r.getShuffleData());
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        assert (false); // TODO:  Handle failures.
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        latch.countDown();
-                    }
-                };
                 for (int targetShard : targetShards) {
                     int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
@@ -343,6 +326,30 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                             .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerNum(m.getReducerNum())
                             .setSerializedQuery(m.getSerializedQuery()).setTableName(tableName)
                             .setTxID(m.getTxID()).build();
+                    StreamObserver<GetShuffleDataResponse> responseObserver = new StreamObserver<>() {
+                        @Override
+                        public void onNext(GetShuffleDataResponse r) {
+                            if (r.getReturnCode() == Broker.QUERY_RETRY) {
+                                onError(new Throwable());
+                            } else {
+                                tableEphemeralData.add(r.getShuffleData());
+                            }
+                        }
+
+                        @Override
+                        public void onError(Throwable throwable) {
+                            logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
+                            int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                            ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                            DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                            stub.getShuffleData(g, this);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            latch.countDown();
+                        }
+                    };
                     stub.getShuffleData(g, responseObserver);
                 }
                 try {
