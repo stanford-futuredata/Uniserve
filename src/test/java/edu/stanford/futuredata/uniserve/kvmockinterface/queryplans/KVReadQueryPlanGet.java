@@ -7,7 +7,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
 
@@ -31,18 +31,18 @@ public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.empty();
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of(tableName, List.of(key));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(this.key);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of(tableName, false);
     }
 
     @Override
     public ByteString queryShard(List<KVShard> shard) {
-        return Utilities.objectToByteString(shard.get(0).queryKey(this.key).get());
+        return null;
     }
 
     @Override
@@ -56,13 +56,30 @@ public class KVReadQueryPlanGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
+    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+        assert(numReducers == 1);
+        return Map.of(0, Utilities.objectToByteString(shard.queryKey(this.key).get()));
     }
 
     @Override
-    public int getQueryCost() {
-        return 1;
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+        List<ByteString> tableEphemeralData = ephemeralData.get(tableName);
+        if (tableEphemeralData.size() > 0) {
+            assert(tableEphemeralData.size() == 1);
+            return tableEphemeralData.get(0);
+        } else {
+            return ByteString.EMPTY;
+        }
+    }
+
+    @Override
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        for (ByteString b: shardQueryResults) {
+            if(!b.isEmpty()) {
+                return (Integer) Utilities.byteStringToObject(b);
+            }
+        }
+        return null;
     }
 
     @Override

@@ -62,9 +62,11 @@ message ReplicaRegisterMVResponse {
 
 message GetShuffleDataMessage {
     int32 shardNum = 1;
-    string columnName = 2;
-    int32 bucketNum = 3;
-    int32 numBuckets = 4;
+    string tableName = 2;
+    int64 txID = 3;
+    int32 reducerNum = 4;
+    int32 numReducers = 5;
+    bytes serializedQuery = 6;
 }
 
 message GetShuffleDataResponse {

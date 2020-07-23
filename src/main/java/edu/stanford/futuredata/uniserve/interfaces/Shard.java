@@ -21,9 +21,4 @@ public interface Shard {
     void destroy();
     // Return a directory containing a serialization of this shard.
     Optional<Path> shardToData();
-    // Return an importable blob containing all rows whose values in the specified column hash to the specified
-    // value given the specified number of buckets.
-    ByteString bulkExport(String columnName, int hashValue, int numBuckets);
-    // Import a blob returned by bulkExport.
-    boolean bulkImport(ByteString rows);
 }

@@ -7,7 +7,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
 
@@ -17,13 +17,13 @@ public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.empty();
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of("table", Collections.singletonList(-1));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(-1);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of("table", false);
     }
 
     @Override
@@ -42,13 +42,18 @@ public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return shardQueryResults.stream().mapToInt(i -> (Integer) Utilities.byteStringToObject(i)).sum();
+    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+        return null;
     }
 
     @Override
-    public int getQueryCost() {
-        return 1;
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+        return null;
+    }
+
+    @Override
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return shardQueryResults.stream().mapToInt(i -> (Integer) Utilities.byteStringToObject(i)).sum();
     }
 
     @Override

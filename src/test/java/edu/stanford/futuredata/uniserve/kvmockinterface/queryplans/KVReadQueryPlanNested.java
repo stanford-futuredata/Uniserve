@@ -3,12 +3,11 @@ package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     // Return the value corresponding to the key corresponding to innerKey.
@@ -26,18 +25,18 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.empty();
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of("table", List.of(innerKeyValue));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(this.innerKeyValue);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of("table", false);
     }
 
     @Override
     public ByteString queryShard(List<KVShard> shard) {
-        return Utilities.objectToByteString(shard.get(0).queryKey(this.innerKeyValue).get());
+        return null;
     }
 
     @Override
@@ -51,13 +50,19 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
+    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+        assert(numReducers == 1);
+        return Map.of(0, Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get()));
     }
 
     @Override
-    public int getQueryCost() {
-        return 1;
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+        return ephemeralData.get("table").get(0);
+    }
+
+    @Override
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
     }
 
     @Override

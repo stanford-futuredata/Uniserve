@@ -6,8 +6,11 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
 
@@ -23,26 +26,19 @@ public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.empty();
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of(tables.get(0), Collections.singletonList(-1),
+                tables.get(1), Collections.singletonList(-1));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(-1);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of(tables.get(0), false, tables.get(1), true);
     }
 
     @Override
     public ByteString queryShard(List<KVShard> shard) {
-        int sum = 0;
-        KVShard shardOne = shard.get(0);
-        KVShard shardTwo = shard.get(1);
-        for (int k : shardOne.KVMap.keySet()) {
-            if (shardTwo.KVMap.containsKey(k)) {
-                sum += shardOne.KVMap.get(k) + shardTwo.KVMap.get(k);
-            }
-        }
-        return Utilities.objectToByteString(sum);
+        return null;
     }
 
     @Override
@@ -56,13 +52,36 @@ public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
+    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+        ByteString b = Utilities.objectToByteString((ConcurrentHashMap<Integer, Integer>) shard.KVMap);
+        HashMap<Integer, ByteString> ret = new HashMap<>();
+        for (int i = 0; i < numReducers; i++) {
+            ret.put(i, b);
+        }
+        return ret;
     }
 
     @Override
-    public int getQueryCost() {
-        return 1;
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+        List<Map<Integer, Integer>> KVMapsOne =
+                (ephemeralData.get(tables.get(0)).stream()
+                        .map(i -> (Map<Integer, Integer>) Utilities.byteStringToObject(i)))
+                        .collect(Collectors.toList());
+        Map<Integer, Integer> KVMapTwo = (Map<Integer, Integer>) Utilities.byteStringToObject(ephemeralData.get(tables.get(1)).get(0));
+        int sum = 0;
+        for (Map<Integer, Integer> KVMapOne: KVMapsOne) {
+            for (int k : KVMapOne.keySet()) {
+                if (KVMapTwo.containsKey(k)) {
+                    sum += KVMapOne.get(k) + KVMapTwo.get(k);
+                }
+            }
+        }
+        return Utilities.objectToByteString(sum);
+    }
+
+    @Override
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
     @Override

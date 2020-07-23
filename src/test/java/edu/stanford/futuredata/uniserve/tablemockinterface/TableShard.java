@@ -1,10 +1,6 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface;
 
-import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
-import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,21 +51,4 @@ public class TableShard implements Shard {
         return Optional.of(shardPath);
     }
 
-    @Override
-    public ByteString bulkExport(String columnName, int hashValue, int numBuckets) {
-        ArrayList<Map<String, Integer>> exportable = new ArrayList<>();
-        for(Map<String, Integer> row: table) {
-            if (ConsistentHash.hashFunction(row.get(columnName)) % numBuckets == hashValue) {
-                exportable.add(row);
-            }
-        }
-        return Utilities.objectToByteString(exportable);
-    }
-
-    @Override
-    public boolean bulkImport(ByteString rows) {
-        ArrayList<Map<String, Integer>> importable = (ArrayList<Map<String, Integer>>) Utilities.byteStringToObject(rows);
-        table.addAll(importable);
-        return true;
-    }
 }

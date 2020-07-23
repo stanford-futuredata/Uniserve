@@ -16,7 +16,10 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -249,8 +252,14 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onCompleted();
     }
 
+    private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, Map<Integer, ByteString>> txShuffledData = new ConcurrentHashMap<>();
+
     private GetShuffleDataResponse getShuffleDataHandler(GetShuffleDataMessage m) {
+        long txID = m.getTxID();
         int shardNum = m.getShardNum();
+        ReadQueryPlan<S, Object> plan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
         if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
@@ -258,11 +267,31 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
-        dataStore.ensureShardCached(shardNum);
-        S shard = dataStore.primaryShardMap.get(shardNum);
-        assert(shard != null);
-        ByteString rows = shard.bulkExport(m.getColumnName(), m.getBucketNum(), m.getNumBuckets());
+        Semaphore txSemaphore = txSemaphores.putIfAbsent(mapID, new Semaphore(0));
+        if (txSemaphore == null) {
+            dataStore.ensureShardCached(shardNum);
+            S shard = dataStore.primaryShardMap.get(shardNum);
+            assert (shard != null);
+            Map<Integer, ByteString> mapperResult = plan.mapper(shard, m.getTableName(), m.getNumReducers());
+            txShuffledData.put(mapID, mapperResult);
+            txSemaphores.get(mapID).release(m.getNumReducers() - 1);
+        } else {
+            try {
+                txSemaphore.acquire();
+            } catch (InterruptedException e) {
+                assert(false);
+            }
+        }
+        Map<Integer, ByteString> mapperResult = txShuffledData.get(mapID);
+        assert(mapperResult.containsKey(m.getReducerNum()));
+        ByteString ephemeralData = mapperResult.get(m.getReducerNum());
+        mapperResult.remove(m.getReducerNum());  // TODO: Make reliable--what if map immutable?.
+        if (mapperResult.isEmpty()) {
+            txShuffledData.remove(mapID);
+        }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-        return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(rows).build();
+        long unixTime = Instant.now().getEpochSecond();
+        dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
+        return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(ephemeralData).build();
     }
 }

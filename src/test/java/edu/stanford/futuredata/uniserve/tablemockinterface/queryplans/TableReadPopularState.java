@@ -3,8 +3,8 @@ package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,41 +14,32 @@ public class TableReadPopularState implements ReadQueryPlan<TableShard, Integer>
 
     private static final Logger logger = LoggerFactory.getLogger(TableReadPopularState.class);
 
-    private final List<String> tables;
+    private final String tableOne;
+    private final String tableTwo;
 
     public TableReadPopularState(String tableOne, String tableTwo) {
-        this.tables = List.of(tableOne, tableTwo);
+        this.tableOne = tableOne;
+        this.tableTwo = tableTwo;
     }
 
     @Override
     public List<String> getQueriedTables() {
-        return tables;
+        return List.of(tableOne, tableTwo);
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.of(List.of("city", "city"));
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of(tableOne, List.of(-1), tableTwo, List.of(-1));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(-1);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of(tableOne, true, tableTwo, true);
     }
 
     @Override
     public ByteString queryShard(List<TableShard> shards) {
-        Map<Integer, Integer> cityToState = new HashMap<>();
-        TableShard shardOne = shards.get(0);
-        TableShard shardTwo = shards.get(1);
-        for (Map<String, Integer> row: shardTwo.table) {
-            cityToState.put(row.get("city"), row.get("state"));
-        }
-        HashMap<Integer, Integer> stateFrequency = new HashMap<>();
-        for (Map<String, Integer> row: shardOne.table) {
-            int state = cityToState.get(row.get("city"));
-            stateFrequency.merge(state, 1, Integer::sum);
-        }
-        return Utilities.objectToByteString(stateFrequency);
+        return null;
     }
 
     @Override
@@ -62,6 +53,47 @@ public class TableReadPopularState implements ReadQueryPlan<TableShard, Integer>
     }
 
     @Override
+    public Map<Integer, ByteString> mapper(TableShard shard, String tableName, int numReducers) {
+        Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
+        for (Map<String, Integer> row: shard.table) {
+            int partitionKey = ConsistentHash.hashFunction(row.get("city")) % numReducers;
+            partitionedTables.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);
+        }
+        HashMap<Integer, ByteString> serializedTables = new HashMap<>();
+        partitionedTables.forEach((k, v) -> serializedTables.put(k, Utilities.objectToByteString(v)));
+        for (int i = 0; i < numReducers; i++) {
+            if(!serializedTables.containsKey(i)) {
+                serializedTables.put(i, ByteString.EMPTY);
+            }
+        }
+        return serializedTables;
+    }
+
+    @Override
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<TableShard> ephemeralShards) {
+        Map<Integer, Integer> cityToState = new HashMap<>();
+        for(ByteString b: ephemeralData.get(tableTwo)) {
+            if (!b.isEmpty()) {
+                List<Map<String, Integer>> tableTwo = (List<Map<String, Integer>>) Utilities.byteStringToObject(b);
+                for (Map<String, Integer> row : tableTwo) {
+                    cityToState.put(row.get("city"), row.get("state"));
+                }
+            }
+        }
+        HashMap<Integer, Integer> stateFrequency = new HashMap<>();
+        for(ByteString b: ephemeralData.get(tableOne)) {
+            if (!b.isEmpty()) {
+                List<Map<String, Integer>> tableOne = (List<Map<String, Integer>>) Utilities.byteStringToObject(b);
+                for (Map<String, Integer> row : tableOne) {
+                    int state = cityToState.get(row.get("city"));
+                    stateFrequency.merge(state, 1, Integer::sum);
+                }
+            }
+        }
+        return Utilities.objectToByteString(stateFrequency);
+    }
+
+    @Override
     public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
         Map<Integer, Integer> stateFrequency = new HashMap<>();
         for (ByteString b: shardQueryResults) {
@@ -69,11 +101,6 @@ public class TableReadPopularState implements ReadQueryPlan<TableShard, Integer>
             shardStateFrequency.forEach((k, v) -> stateFrequency.merge(k, v, Integer::sum));
         }
         return stateFrequency.entrySet().stream().max((entry1, entry2) -> entry1.getValue() > entry2.getValue() ? 1 : -1).get().getKey();
-    }
-
-    @Override
-    public int getQueryCost() {
-        return 1;
     }
 
     @Override

@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
@@ -23,13 +24,13 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.empty();
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of("table", keys);
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return this.keys;
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of("table", false);
     }
 
     @Override
@@ -55,13 +56,26 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
-        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
+    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+        assert(numReducers == 1);
+        int sum = 0;
+        for (Integer key : keys) {
+            Optional<Integer> value = shard.queryKey(key);
+            if (value.isPresent()) {
+                sum += value.get();
+            }
+        }
+        return Map.of(0, Utilities.objectToByteString(sum));
     }
 
     @Override
-    public int getQueryCost() {
-        return 1;
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+        return Utilities.objectToByteString(ephemeralData.get("table").stream().mapToInt(i -> (Integer) Utilities.byteStringToObject(i)).sum());
+    }
+
+    @Override
+    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+        return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
     @Override

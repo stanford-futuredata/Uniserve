@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
+import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;
 
@@ -23,31 +24,18 @@ public class TableReadMostFrequent implements ReadQueryPlan<TableShard, Integer>
     }
 
     @Override
-    public Optional<List<String>> getShuffleColumns() {
-        return Optional.of(List.of("v"));
+    public Map<String, List<Integer>> keysForQuery() {
+        return Map.of(tables.get(0), Collections.singletonList(-1));
     }
 
     @Override
-    public List<Integer> keysForQuery() {
-        return Collections.singletonList(-1);
+    public Map<String, Boolean> shuffleNeeded() {
+        return Map.of(tables.get(0), true);
     }
 
     @Override
     public ByteString queryShard(List<TableShard> shards) {
-        Map<Integer, Integer> frequencies = new HashMap<>();
-        TableShard s = shards.get(0);
-        for (Map<String, Integer> row: s.table) {
-            Integer val = row.get("v");
-            frequencies.merge(val, 1, Integer::sum);
-        }
-        Optional<Map.Entry<Integer, Integer>> maxEntry =
-                frequencies.entrySet().stream().max((entry1, entry2) -> entry1.getValue() > entry2.getValue() ? 1 : -1);
-        if (maxEntry.isPresent()) {
-            Pair<Integer, Integer> kf = new Pair<>(maxEntry.get().getKey(), maxEntry.get().getValue());
-            return Utilities.objectToByteString(kf);
-        } else {
-            return ByteString.EMPTY;
-        }
+        return ByteString.EMPTY;
     }
 
     @Override
@@ -58,6 +46,45 @@ public class TableReadMostFrequent implements ReadQueryPlan<TableShard, Integer>
     @Override
     public ByteString combineIntermediates(List<ByteString> intermediates) {
         return null;
+    }
+
+    @Override
+    public Map<Integer, ByteString> mapper(TableShard shard, String tableName, int numReducers) {
+        Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
+        for (Map<String, Integer> row: shard.table) {
+            int partitionKey = ConsistentHash.hashFunction(row.get("v")) % numReducers;
+            partitionedTables.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);
+        }
+        HashMap<Integer, ByteString> serializedTables = new HashMap<>();
+        partitionedTables.forEach((k, v) -> serializedTables.put(k, Utilities.objectToByteString(v)));
+        for (int i = 0; i < numReducers; i++) {
+            if(!serializedTables.containsKey(i)) {
+                serializedTables.put(i, ByteString.EMPTY);
+            }
+        }
+        return serializedTables;
+    }
+
+    @Override
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<TableShard> ephemeralShards) {
+        Map<Integer, Integer> frequencies = new HashMap<>();
+        for (ByteString b: ephemeralData.get(tables.get(0))) {
+            if (!b.isEmpty()) {
+                List<Map<String, Integer>> table = (List<Map<String, Integer>>) Utilities.byteStringToObject(b);
+                for (Map<String, Integer> row : table) {
+                    Integer val = row.get("v");
+                    frequencies.merge(val, 1, Integer::sum);
+                }
+            }
+        }
+        Optional<Map.Entry<Integer, Integer>> maxEntry =
+                frequencies.entrySet().stream().max((entry1, entry2) -> entry1.getValue() > entry2.getValue() ? 1 : -1);
+        if (maxEntry.isPresent()) {
+            Pair<Integer, Integer> kf = new Pair<>(maxEntry.get().getKey(), maxEntry.get().getValue());
+            return Utilities.objectToByteString(kf);
+        } else {
+            return ByteString.EMPTY;
+        }
     }
 
     @Override
@@ -76,11 +103,6 @@ public class TableReadMostFrequent implements ReadQueryPlan<TableShard, Integer>
             }
         }
         return maxKey;
-    }
-
-    @Override
-    public int getQueryCost() {
-        return 1;
     }
 
     @Override

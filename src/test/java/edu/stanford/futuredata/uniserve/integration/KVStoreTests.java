@@ -202,7 +202,7 @@ public class KVStoreTests {
 
     @Test
     public void testBroadcastJoin() {
-        logger.info("testSingleKey");
+        logger.info("testBroadcastJoin");
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
