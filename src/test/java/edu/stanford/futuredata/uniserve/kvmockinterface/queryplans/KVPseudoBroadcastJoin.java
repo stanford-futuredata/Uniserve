@@ -62,17 +62,13 @@ public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
-        List<Map<Integer, Integer>> KVMapsOne =
-                (ephemeralData.get(tables.get(0)).stream()
-                        .map(i -> (Map<Integer, Integer>) Utilities.byteStringToObject(i)))
-                        .collect(Collectors.toList());
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
         Map<Integer, Integer> KVMapTwo = (Map<Integer, Integer>) Utilities.byteStringToObject(ephemeralData.get(tables.get(1)).get(0));
         int sum = 0;
-        for (Map<Integer, Integer> KVMapOne: KVMapsOne) {
-            for (int k : KVMapOne.keySet()) {
+        for (KVShard tableOneShard: localShards.get(tables.get(0))) {
+            for (int k : tableOneShard.KVMap.keySet()) {
                 if (KVMapTwo.containsKey(k)) {
-                    sum += KVMapOne.get(k) + KVMapTwo.get(k);
+                    sum += tableOneShard.KVMap.get(k) + KVMapTwo.get(k);
                 }
             }
         }

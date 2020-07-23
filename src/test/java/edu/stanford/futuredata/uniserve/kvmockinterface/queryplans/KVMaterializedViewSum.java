@@ -47,7 +47,7 @@ public class KVMaterializedViewSum implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
         return null;
     }
 

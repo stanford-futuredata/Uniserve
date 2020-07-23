@@ -57,20 +57,22 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
     public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
-        assert(numReducers == 1);
-        int sum = 0;
-        for (Integer key : keys) {
-            Optional<Integer> value = shard.queryKey(key);
-            if (value.isPresent()) {
-                sum += value.get();
-            }
-        }
-        return Map.of(0, Utilities.objectToByteString(sum));
+        assert(false);
+        return null;
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
-        return Utilities.objectToByteString(ephemeralData.get("table").stream().mapToInt(i -> (Integer) Utilities.byteStringToObject(i)).sum());
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
+        int sum = 0;
+        for (KVShard shard: localShards.get("table")) {
+            for (Integer key : keys) {
+                Optional<Integer> value = shard.queryKey(key);
+                if (value.isPresent()) {
+                    sum += value.get();
+                }
+            }
+        }
+        return Utilities.objectToByteString(sum);
     }
 
     @Override

@@ -70,7 +70,7 @@ public class TableReadPopularState implements ReadQueryPlan<TableShard, Integer>
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<TableShard> ephemeralShards) {
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards, Map<String, List<TableShard>> localShards) {
         Map<Integer, Integer> cityToState = new HashMap<>();
         for(ByteString b: ephemeralData.get(tableTwo)) {
             if (!b.isEmpty()) {

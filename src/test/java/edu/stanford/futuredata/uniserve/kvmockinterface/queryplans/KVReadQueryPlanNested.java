@@ -51,13 +51,18 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
 
     @Override
     public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
-        assert(numReducers == 1);
-        return Map.of(0, Utilities.objectToByteString(shard.queryKey(this.innerKeyValue).get()));
+        assert(false);
+        return null;
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<KVShard> ephemeralShards) {
-        return ephemeralData.get("table").get(0);
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
+        if (localShards.get("table").size() > 0) {
+            assert(localShards.get("table").size() == 1);
+            return Utilities.objectToByteString(localShards.get("table").get(0).queryKey(innerKeyValue).get());
+        } else {
+            return ByteString.EMPTY;
+        }
     }
 
     @Override

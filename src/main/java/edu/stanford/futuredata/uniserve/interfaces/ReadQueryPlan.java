@@ -27,7 +27,7 @@ public interface ReadQueryPlan<S extends Shard, T> extends Serializable {
     // Mapper.
     Map<Integer, ByteString> mapper(S shard, String tableName, int numReducers);
     // Reducer.
-    ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<S> ephemeralShards);
+    ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, Map<String, List<S>> localShards);
     // The query will return the result of this function executed on all results from queryShard.
     T aggregateShardQueries(List<ByteString> shardQueryResults);
     // Get query plans for subqueries.

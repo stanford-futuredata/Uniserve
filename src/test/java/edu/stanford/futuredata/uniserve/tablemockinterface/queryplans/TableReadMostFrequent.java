@@ -66,7 +66,7 @@ public class TableReadMostFrequent implements ReadQueryPlan<TableShard, Integer>
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, List<TableShard> ephemeralShards) {
+    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards, Map<String, List<TableShard>> localShards) {
         Map<Integer, Integer> frequencies = new HashMap<>();
         for (ByteString b: ephemeralData.get(tables.get(0))) {
             if (!b.isEmpty()) {

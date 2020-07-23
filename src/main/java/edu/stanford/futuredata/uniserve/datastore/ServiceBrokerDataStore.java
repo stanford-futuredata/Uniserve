@@ -9,7 +9,6 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
@@ -25,7 +24,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
@@ -292,12 +290,15 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
         ConsistentHash c = (ConsistentHash) Utilities.byteStringToObject(m.getConsistentHash());
-        List<S> ephemeralShards = new ArrayList<>();
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
+        Map<String, S> ephemeralShards = new HashMap<>();
+        Map<String, List<S>> localShards = new HashMap<>();
+        List<Integer> localShardNums = new ArrayList<>();
         for (String tableName: plan.getQueriedTables()) {
             S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-            ephemeralShards.add(ephemeralShard);
+            ephemeralShards.put(tableName, ephemeralShard);
             List<Integer> targetShards = allTargetShards.get(tableName);
+            localShards.put(tableName, new ArrayList<>());
             if (!plan.shuffleNeeded().get(tableName)) {
                 List<ByteString> tableEphemeralData = new ArrayList<>();
                 for (int shardNum: targetShards) {
@@ -307,11 +308,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         dataStore.ensureShardCached(shardNum);
                         S shard = dataStore.primaryShardMap.get(shardNum);
                         assert(shard != null);
-                        ByteString shardResult = plan.mapper(shard, tableName, 1).get(0);
-                        tableEphemeralData.add(shardResult);
-                        long unixTime = Instant.now().getEpochSecond();
-                        dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
-                        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+                        localShards.get(tableName).add(shard);
+                        localShardNums.add(shardNum);
                     }
                 }
                 ephemeralData.put(tableName, tableEphemeralData);
@@ -359,8 +357,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 ephemeralData.put(tableName, tableEphemeralData);
             }
         }
-        ByteString b = plan.reducer(ephemeralData, ephemeralShards);
-        ephemeralShards.forEach(S::destroy);
+        ByteString b = plan.reducer(ephemeralData, ephemeralShards, localShards);
+        ephemeralShards.values().forEach(S::destroy);
+        for (int shardNum: localShardNums) {
+            long unixTime = Instant.now().getEpochSecond();
+            dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        }
         return ReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
     }
 
