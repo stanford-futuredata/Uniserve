@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.recipes.locks.InterProcessMutex;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -19,12 +20,14 @@ public class BrokerCurator {
     // TODO:  Figure out what to actually do when ZK fails.
     private final CuratorFramework cf;
     private static final Logger logger = LoggerFactory.getLogger(BrokerCurator.class);
+    private InterProcessMutex lock;
 
     BrokerCurator(String zkHost, int zkPort) {
         String connectString = String.format("%s:%d", zkHost, zkPort);
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         this.cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
+        lock = new InterProcessMutex(cf, "/brokerWriteLock");
     }
 
     void close() {
@@ -82,6 +85,22 @@ public class BrokerCurator {
             logger.error("getConsistentHash Error: {}", e.getMessage());
             assert(false);
             return null;
+        }
+    }
+
+    void acquireWriteLock() {
+        try {
+            lock.acquire();
+        } catch (Exception e) {
+            logger.error("WriteLock Acquire Error: {}", e.getMessage());
+        }
+    }
+
+    void releaseWriteLock() {
+        try {
+            lock.release();
+        } catch (Exception e) {
+            logger.error("WriteLock Release Error: {}", e.getMessage());
         }
     }
 

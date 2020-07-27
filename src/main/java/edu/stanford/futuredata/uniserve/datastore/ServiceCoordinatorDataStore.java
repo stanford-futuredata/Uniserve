@@ -152,7 +152,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
 
     private PromoteReplicaShardResponse promoteReplicaShardHandler(PromoteReplicaShardMessage message) {
         Integer shardNum = message.getShard();
-        dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         assert(dataStore.replicaShardMap.containsKey(shardNum));
         assert(!dataStore.primaryShardMap.containsKey(shardNum));
         ZKShardDescription zkShardDescription = dataStore.zkCurator.getZKShardDescription(shardNum);
@@ -253,7 +253,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
         int shardNum = request.getShard();
         int dsID = request.getDsID();
-        dataStore.shardLockMap.get(shardNum).writerLockLock(-1);
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
         List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
         List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
         if (matchingDescriptions.size() > 0) {

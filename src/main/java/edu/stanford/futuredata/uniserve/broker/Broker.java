@@ -125,6 +125,7 @@ public class Broker {
     }
 
     public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+        zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         Pair<Integer, Integer> idAndShards = getTableInfo(writeQueryPlan.getQueriedTable());
         int tableID = idAndShards.getValue0();
@@ -157,6 +158,7 @@ public class Broker {
             }
         }
         assert (queryStatus.get() != QUERY_RETRY);
+        zkCurator.releaseWriteLock();
         return queryStatus.get() == QUERY_SUCCESS;
     }
 

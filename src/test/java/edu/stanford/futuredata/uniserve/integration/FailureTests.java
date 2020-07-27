@@ -130,7 +130,6 @@ public class FailureTests {
         Thread.sleep(500);
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
-        broker.shutdown();
     }
 
     @Test

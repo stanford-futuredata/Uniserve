@@ -583,7 +583,7 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
-    // @Test  // TODO:  Fix rare deadlock.
+    @Test
     public void testSimultaneousWritesReplicas() throws InterruptedException {
         logger.info("testSimultaneousWritesReplicas");
         int numShards = 4;
