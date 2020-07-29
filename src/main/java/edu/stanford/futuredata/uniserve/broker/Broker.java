@@ -9,7 +9,6 @@ import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -162,32 +161,32 @@ public class Broker {
         return queryStatus.get() == QUERY_SUCCESS;
     }
 
-    public <S extends Shard, V> V readQuery(ReadQueryPlan<S, V> readQueryPlan) {
+    public <S extends Shard, V> V readQuery(AnchoredReadQueryPlan<S, V> readQueryPlan) {
         // If there aren't subqueries, execute the query directly.
         if (readQueryPlan.getSubQueries().isEmpty()) {
             return executeReadQueryStage(readQueryPlan);
         }
-        Set<ReadQueryPlan> unexecutedReadQueryPlans = new HashSet<>();
+        Set<AnchoredReadQueryPlan> unexecutedReadQueryPlans = new HashSet<>();
         // DFS the query plan tree to construct a list of all sub-query plans.
-        Stack<ReadQueryPlan> searchStack = new Stack<>();
+        Stack<AnchoredReadQueryPlan> searchStack = new Stack<>();
         searchStack.push(readQueryPlan);
         while (!searchStack.empty()) {
-            ReadQueryPlan q = searchStack.pop();
+            AnchoredReadQueryPlan q = searchStack.pop();
             unexecutedReadQueryPlans.add(q);
-            List<ReadQueryPlan> subQueries = q.getSubQueries();
-            for (ReadQueryPlan sq : subQueries) {
+            List<AnchoredReadQueryPlan> subQueries = q.getSubQueries();
+            for (AnchoredReadQueryPlan sq : subQueries) {
                 searchStack.push(sq);
             }
         }
         // Step through the list of plans, executing them sequentially in dependency order.
-        Map<ReadQueryPlan, Object> executedQueryPlans = new HashMap<>();
+        Map<AnchoredReadQueryPlan, Object> executedQueryPlans = new HashMap<>();
         while (!unexecutedReadQueryPlans.isEmpty()) {
-            Set<ReadQueryPlan> updatedUnexecutedReadQueryPlans = new HashSet<>();
-            for (ReadQueryPlan q: unexecutedReadQueryPlans) {
+            Set<AnchoredReadQueryPlan> updatedUnexecutedReadQueryPlans = new HashSet<>();
+            for (AnchoredReadQueryPlan q: unexecutedReadQueryPlans) {
                 if (executedQueryPlans.keySet().containsAll(q.getSubQueries())) {
                     List<Object> subQueryResults = new ArrayList<>();
-                    List<ReadQueryPlan> subQueries = q.getSubQueries();
-                    for (ReadQueryPlan sq: subQueries) {
+                    List<AnchoredReadQueryPlan> subQueries = q.getSubQueries();
+                    for (AnchoredReadQueryPlan sq: subQueries) {
                         subQueryResults.add(executedQueryPlans.get(sq));
                     }
                     q.setSubQueryResults(subQueryResults);
@@ -202,7 +201,7 @@ public class Broker {
         return (V) executedQueryPlans.get(readQueryPlan);
     }
 
-    public <S extends Shard, V> boolean registerMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
+    public <S extends Shard, V> boolean registerMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
         List<Integer> shardNums;
         Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
@@ -228,7 +227,7 @@ public class Broker {
         return true;
     }
 
-    public <S extends Shard, V> V queryMaterializedView(ReadQueryPlan<S, V> readQueryPlan, String name) {
+    public <S extends Shard, V> V queryMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
         List<Integer> shardNums;
         Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
@@ -472,8 +471,9 @@ public class Broker {
     }
 
 
-    private <S extends Shard, V> V executeReadQueryStage(ReadQueryPlan<S, V> readQueryPlan) {
-        Map<String, List<Integer>> partitionKeys = readQueryPlan.keysForQuery();
+    private <S extends Shard, V> V executeReadQueryStage(AnchoredReadQueryPlan<S, V> plan) {
+        long txID = txIDs.getAndIncrement();
+        Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
         for(Map.Entry<String, List<Integer>> entry: partitionKeys.entrySet()) {
             String tableName = entry.getKey();
@@ -493,41 +493,33 @@ public class Broker {
             targetShards.put(tableName, shardNums);
         }
         ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
-        Map<Integer, ManagedChannel> dsIDToChannelMap = this.dsIDToChannelMap;
-        int numReducers = dsIDToChannelMap.size();
-        ByteString serializedQuery = Utilities.objectToByteString(readQueryPlan);
-        ByteString serializedConsistentHash = Utilities.objectToByteString(consistentHash);
+        ByteString serializedQuery = Utilities.objectToByteString(plan);
+        String anchorTable = plan.getAnchorTable();
+        List<Integer> anchorTableShards = targetShards.get(anchorTable);
+        int numReducers = anchorTableShards.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
-        int reducerNum = 0;
-        for (Map.Entry<Integer, ManagedChannel> entry: dsIDToChannelMap.entrySet()) {
-            int dsID = entry.getKey();
-            ManagedChannel channel = entry.getValue();
+        for (int anchorShardNum: anchorTableShards) {
+            int dsID = consistentHash.getBucket(anchorShardNum);
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            ReadQueryMessage m = ReadQueryMessage.newBuilder().setSerializedQuery(serializedQuery)
-                    .setTxID(txIDs.getAndIncrement())
-                    .setConsistentHash(serializedConsistentHash)
-                    .setTargetShards(serializedTargetShards).setTargetDSID(dsID)
-                    .setReducerNum(reducerNum).setNumReducers(numReducers).build();
-            StreamObserver<ReadQueryResponse> responseObserver = new StreamObserver<>() {
+            AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
+            setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
+                    .setTxID(txID).setTargetShards(serializedTargetShards).build();
+            StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
                 @Override
-                public void onNext(ReadQueryResponse r) {
-                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+                public void onNext(AnchoredReadQueryResponse r) {
+                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle
                     intermediates.add(r.getResponse());
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
                     logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
-                    ManagedChannel newChannel;
-                    int newDSID;
-                    do {
-                        newDSID = ThreadLocalRandom.current()
-                                .nextInt(dsIDToChannelMap.keySet().stream().mapToInt(i -> i).max().getAsInt());
-                        newChannel = dsIDToChannelMap.get(newDSID);
-                    } while (newChannel == null && newDSID != dsID);
-                    BrokerDataStoreGrpc.BrokerDataStoreStub newStub = BrokerDataStoreGrpc.newStub(newChannel);
-                    newStub.readQuery(m, this);
+                    int newDSID = consistentHash.getBucket(anchorShardNum);
+                    ManagedChannel channel = dsIDToChannelMap.get(newDSID);
+                    BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                    stub.anchoredReadQuery(m, this);
                 }
 
                 @Override
@@ -535,14 +527,13 @@ public class Broker {
                     latch.countDown();
                 }
             };
-            stub.readQuery(m, responseObserver);
-            reducerNum++;
+            stub.anchoredReadQuery(m, responseObserver);
         }
         try {
             latch.await();
         } catch (InterruptedException ignored) { }
         long aggStart = System.nanoTime();
-        V ret =  readQueryPlan.aggregateShardQueries(intermediates);
+        V ret =  plan.aggregateShardQueries(intermediates);
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;

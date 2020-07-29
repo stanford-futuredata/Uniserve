@@ -1,7 +1,8 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -10,30 +11,31 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
-public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
+public class KVPseudoBroadcastJoin implements AnchoredReadQueryPlan<KVShard, Integer> {
 
-    private final List<String> tables;
+    private final String tableOne;
+    private final String tableTwo;
 
     public KVPseudoBroadcastJoin(String tableOne, String tableTwo) {
-        this.tables = List.of(tableOne, tableTwo);
+        this.tableOne = tableOne;
+        this.tableTwo = tableTwo;
     }
 
     @Override
     public List<String> getQueriedTables() {
-        return tables;
+        return List.of(tableOne, tableTwo);
     }
 
     @Override
     public Map<String, List<Integer>> keysForQuery() {
-        return Map.of(tables.get(0), Collections.singletonList(-1),
-                tables.get(1), Collections.singletonList(-1));
+        return Map.of(tableOne, Collections.singletonList(-1),
+                tableTwo, Collections.singletonList(-1));
     }
 
     @Override
-    public Map<String, Boolean> shuffleNeeded() {
-        return Map.of(tables.get(0), false, tables.get(1), true);
+    public String getAnchorTable() {
+        return tableOne;
     }
 
     @Override
@@ -52,24 +54,27 @@ public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+    public List<Integer> getPartitionKeys(Shard s) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public Map<Integer, ByteString> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         ByteString b = Utilities.objectToByteString((ConcurrentHashMap<Integer, Integer>) shard.KVMap);
         HashMap<Integer, ByteString> ret = new HashMap<>();
-        for (int i = 0; i < numReducers; i++) {
+        for (int i: partitionKeys.keySet()) {
             ret.put(i, b);
         }
         return ret;
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
-        Map<Integer, Integer> KVMapTwo = (Map<Integer, Integer>) Utilities.byteStringToObject(ephemeralData.get(tables.get(1)).get(0));
+    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
+        Map<Integer, Integer> KVMapTwo = (Map<Integer, Integer>) Utilities.byteStringToObject(ephemeralData.get(tableTwo).get(0));
         int sum = 0;
-        for (KVShard tableOneShard: localShards.get(tables.get(0))) {
-            for (int k : tableOneShard.KVMap.keySet()) {
-                if (KVMapTwo.containsKey(k)) {
-                    sum += tableOneShard.KVMap.get(k) + KVMapTwo.get(k);
-                }
+        for (int k : localShard.KVMap.keySet()) {
+            if (KVMapTwo.containsKey(k)) {
+                sum += localShard.KVMap.get(k) + KVMapTwo.get(k);
             }
         }
         return Utilities.objectToByteString(sum);
@@ -81,7 +86,7 @@ public class KVPseudoBroadcastJoin implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public List<ReadQueryPlan> getSubQueries() {return Collections.emptyList();}
+    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.emptyList();}
 
     @Override
     public void setSubQueryResults(List<Object> subQueryResults) {}

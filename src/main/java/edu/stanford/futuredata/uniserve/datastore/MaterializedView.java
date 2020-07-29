@@ -1,7 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 
 import java.io.Serializable;
@@ -13,9 +13,9 @@ import java.util.Map;
 public class MaterializedView implements Serializable {
     // TODO:  Define a cache eviction policy.
     private final Map<Long, ByteString> cachedIntermediates = new HashMap<>();
-    private final ReadQueryPlan r;
+    private final AnchoredReadQueryPlan r;
 
-    public MaterializedView(ReadQueryPlan r, long firstTimeStamp, ByteString firstIntermediate) {
+    public MaterializedView(AnchoredReadQueryPlan r, long firstTimeStamp, ByteString firstIntermediate) {
         this.r = r;
         cachedIntermediates.put(firstTimeStamp, firstIntermediate);
     }

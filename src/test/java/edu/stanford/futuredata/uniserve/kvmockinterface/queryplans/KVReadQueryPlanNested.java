@@ -1,7 +1,8 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -9,7 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
+public class KVReadQueryPlanNested implements AnchoredReadQueryPlan<KVShard, Integer> {
     // Return the value corresponding to the key corresponding to innerKey.
 
     private final KVReadQueryPlanGet subQuery;
@@ -30,8 +31,8 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<String, Boolean> shuffleNeeded() {
-        return Map.of("table", false);
+    public String getAnchorTable() {
+        return "table";
     }
 
     @Override
@@ -50,19 +51,19 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+    public List<Integer> getPartitionKeys(Shard s) {
+        return null;
+    }
+
+    @Override
+    public Map<Integer, ByteString> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         assert(false);
         return null;
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
-        if (localShards.get("table").size() > 0) {
-            assert(localShards.get("table").size() == 1);
-            return Utilities.objectToByteString(localShards.get("table").get(0).queryKey(innerKeyValue).get());
-        } else {
-            return ByteString.EMPTY;
-        }
+    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
+        return Utilities.objectToByteString(localShard.queryKey(innerKeyValue).get());
     }
 
     @Override
@@ -71,7 +72,7 @@ public class KVReadQueryPlanNested implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public List<ReadQueryPlan> getSubQueries() {return Collections.singletonList(subQuery);}
+    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.singletonList(subQuery);}
 
     @Override
     public void setSubQueryResults(List<Object> subQueryResults) {

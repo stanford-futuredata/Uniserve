@@ -4,7 +4,7 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
@@ -70,7 +70,7 @@ public class FailureTests {
 
         dataStores.get(0).shutDown();
 
-        ReadQueryPlan<KVShard, Integer>  readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         Integer queryResponse;
         do {
             queryResponse = broker.readQuery(readQueryPlan);
@@ -212,7 +212,7 @@ public class FailureTests {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
             assertTrue(writeSuccess);
-            ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertEquals(Integer.valueOf(i), queryResponse);
         }
@@ -232,7 +232,7 @@ public class FailureTests {
         dataStores.get(1).shutDown();
 
         for (int i = 1; i < 100; i++) {
-            ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
@@ -248,12 +248,12 @@ public class FailureTests {
         coordinator.addReplica(0, 2);
 
         for (int i = 1; i < 100; i++) {
-            ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.readQuery(readQueryPlan);
             assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
         coordinator.removeShard(2, 3);
-        ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
+        AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
         Integer queryResponse = broker.readQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 

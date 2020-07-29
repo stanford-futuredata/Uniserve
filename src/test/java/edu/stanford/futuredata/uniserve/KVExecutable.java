@@ -6,7 +6,7 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
@@ -102,7 +102,7 @@ public class KVExecutable {
             List<Long> trialTimes = new ArrayList<>();
             for (int i = 0; i < 10000; i++) {
                 long t0 = System.nanoTime();
-                ReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
+                AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
                 Integer queryResponse = broker.readQuery(readQueryPlan);
                 assert (queryResponse == 2);
                 long timeElapsed = System.nanoTime() - t0;

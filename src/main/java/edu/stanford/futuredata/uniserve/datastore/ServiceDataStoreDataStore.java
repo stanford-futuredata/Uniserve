@@ -3,7 +3,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -20,8 +20,6 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
@@ -183,7 +181,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     private ReplicaRegisterMVResponse registerReplicaMVHandler(ReplicaRegisterMVMessage m) {
         int shardNum = m.getShard();
         String name = m.getName();
-        ReadQueryPlan<S, Object> r = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        AnchoredReadQueryPlan<S, Object> r = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         dataStore.shardLockMap.get(shardNum).writerLockLock();
         S shard = dataStore.replicaShardMap.get(shardNum);
         if (shard != null) {
@@ -212,51 +210,50 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
 
     @Override
-    public void getShuffleData(GetShuffleDataMessage request, StreamObserver<GetShuffleDataResponse> responseObserver) {
-        responseObserver.onNext(getShuffleDataHandler(request));
+    public void anchoredShuffle(AnchoredShuffleMessage request, StreamObserver<AnchoredShuffleResponse> responseObserver) {
+        responseObserver.onNext(anchoredShuffleHandler(request));
         responseObserver.onCompleted();
     }
 
     private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
-    private final Map<Pair<Long, Integer>, Map<Integer, ByteString>> txShuffledData = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, Map<Integer, ByteString>> txShuffledData = new ConcurrentHashMap<>();;
+    private final Map<Pair<Long, Integer>, Map<Integer, List<Integer>>> txPartitionKeys = new ConcurrentHashMap<>();
 
-    private GetShuffleDataResponse getShuffleDataHandler(GetShuffleDataMessage m) {
+    private AnchoredShuffleResponse anchoredShuffleHandler(AnchoredShuffleMessage m) {
         long txID = m.getTxID();
         int shardNum = m.getShardNum();
-        ReadQueryPlan<S, Object> plan = (ReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        AnchoredReadQueryPlan<S, Object> plan = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
         if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
             logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-            return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+            return AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
-        Semaphore txSemaphore = txSemaphores.putIfAbsent(mapID, new Semaphore(0));
-        if (txSemaphore == null) {
+
+        txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getReducerShardNum(), m.getPartitionKeysList());
+        Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
+        if (txPartitionKeys.get(mapID).size() == m.getNumReducers()) {
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.primaryShardMap.get(shardNum);
             assert (shard != null);
-            Map<Integer, ByteString> mapperResult = plan.mapper(shard, m.getTableName(), m.getNumReducers());
+            Map<Integer, ByteString> mapperResult = plan.mapper(shard, txPartitionKeys.get(mapID));
             txShuffledData.put(mapID, mapperResult);
-            txSemaphores.get(mapID).release(m.getNumReducers() - 1);
+            long unixTime = Instant.now().getEpochSecond();
+            dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
+            s.release(m.getNumReducers() - 1);
         } else {
-            try {
-                txSemaphore.acquire();
-            } catch (InterruptedException e) {
-                assert(false);
-            }
+            s.acquireUninterruptibly();
         }
         Map<Integer, ByteString> mapperResult = txShuffledData.get(mapID);
-        assert(mapperResult.containsKey(m.getReducerNum()));
-        ByteString ephemeralData = mapperResult.get(m.getReducerNum());
-        mapperResult.remove(m.getReducerNum());  // TODO: Make reliable--what if map immutable?.
+        assert(mapperResult.containsKey(m.getReducerShardNum()));
+        ByteString ephemeralData = mapperResult.get(m.getReducerShardNum());
+        mapperResult.remove(m.getReducerShardNum());  // TODO: Make reliable--what if map immutable?.
         if (mapperResult.isEmpty()) {
             txShuffledData.remove(mapID);
         }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-        long unixTime = Instant.now().getEpochSecond();
-        dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
-        return GetShuffleDataResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(ephemeralData).build();
+        return AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(ephemeralData).build();
     }
 }

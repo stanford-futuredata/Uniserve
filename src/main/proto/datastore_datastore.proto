@@ -17,7 +17,7 @@ service DataStoreDataStore {
     // Register a materialized view on a replica.
     rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
     // Get data for a shuffle.
-    rpc GetShuffleData (GetShuffleDataMessage) returns (GetShuffleDataResponse) {}
+    rpc AnchoredShuffle (AnchoredShuffleMessage) returns (AnchoredShuffleResponse) {}
 }
 
 message ReplicaWriteMessage {
@@ -60,16 +60,16 @@ message ReplicaRegisterMVResponse {
     int32 returnCode = 1;
 }
 
-message GetShuffleDataMessage {
+message AnchoredShuffleMessage {
     int32 shardNum = 1;
-    string tableName = 2;
-    int64 txID = 3;
-    int32 reducerNum = 4;
+    int64 txID = 2;
+    repeated int32 partitionKeys = 3;
+    int32 reducerShardNum = 4;
     int32 numReducers = 5;
     bytes serializedQuery = 6;
 }
 
-message GetShuffleDataResponse {
+message AnchoredShuffleResponse {
     int32 returnCode = 1;
     bytes shuffleData = 2;
 }

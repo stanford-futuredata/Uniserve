@@ -1,7 +1,8 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -10,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
+public class KVReadQueryPlanSumGet implements AnchoredReadQueryPlan<KVShard, Integer> {
 
     private final List<Integer> keys;
 
@@ -29,8 +30,8 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<String, Boolean> shuffleNeeded() {
-        return Map.of("table", false);
+    public String getAnchorTable() {
+        return "table";
     }
 
     @Override
@@ -56,20 +57,23 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<Integer, ByteString> mapper(KVShard shard, String tableName, int numReducers) {
+    public List<Integer> getPartitionKeys(Shard s) {
+        return null;
+    }
+
+    @Override
+    public Map<Integer, ByteString> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         assert(false);
         return null;
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, Map<String, List<KVShard>> localShards) {
+    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
         int sum = 0;
-        for (KVShard shard: localShards.get("table")) {
-            for (Integer key : keys) {
-                Optional<Integer> value = shard.queryKey(key);
-                if (value.isPresent()) {
-                    sum += value.get();
-                }
+        for (Integer key : keys) {
+            Optional<Integer> value = localShard.queryKey(key);
+            if (value.isPresent()) {
+                sum += value.get();
             }
         }
         return Utilities.objectToByteString(sum);
@@ -81,7 +85,7 @@ public class KVReadQueryPlanSumGet implements ReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public List<ReadQueryPlan> getSubQueries() {return Collections.emptyList();}
+    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.emptyList();}
 
     @Override
     public void setSubQueryResults(List<Object> subQueryResults) {}

@@ -5,16 +5,14 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanSumGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
-import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsertSlow;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
@@ -90,13 +88,13 @@ public class LoadBalancerTests {
         assertTrue(broker.writeQuery(writeQueryPlan,
                 List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
 
-        ReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
+        AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
         assertEquals(Integer.valueOf(0), broker.readQuery(zero));
-        ReadQueryPlan<KVShard, Integer> one = new KVReadQueryPlanGet("table1",1);
+        AnchoredReadQueryPlan<KVShard, Integer> one = new KVReadQueryPlanGet("table1",1);
         assertEquals(Integer.valueOf(1), broker.readQuery(one));
-        ReadQueryPlan<KVShard, Integer> two = new KVReadQueryPlanGet("table1", 2);
+        AnchoredReadQueryPlan<KVShard, Integer> two = new KVReadQueryPlanGet("table1", 2);
         assertEquals(Integer.valueOf(2), broker.readQuery(two));
-        ReadQueryPlan<KVShard, Integer> three = new KVReadQueryPlanGet("table1", 3);
+        AnchoredReadQueryPlan<KVShard, Integer> three = new KVReadQueryPlanGet("table1", 3);
         assertEquals(Integer.valueOf(3), broker.readQuery(three));
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
