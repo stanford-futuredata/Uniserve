@@ -62,9 +62,4 @@ public class KVMaterializedViewSum implements AnchoredReadQueryPlan<KVShard, Int
         return shardQueryResults.stream().mapToInt(i -> (Integer) Utilities.byteStringToObject(i)).sum();
     }
 
-    @Override
-    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.emptyList();}
-
-    @Override
-    public void setSubQueryResults(List<Object> subQueryResults) {}
 }

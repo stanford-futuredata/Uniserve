@@ -29,8 +29,4 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     ByteString reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
     // The query will return the result of this function executed on all results from queryShard.
     T aggregateShardQueries(List<ByteString> shardQueryResults);
-    // Get query plans for subqueries.
-    List<AnchoredReadQueryPlan> getSubQueries();
-    // Set results of subqueries.
-    void setSubQueryResults(List<Object> subQueryResults);
 }

@@ -234,36 +234,6 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
-    @Test
-    public void testBasicNestedQuery() {
-        logger.info("testBasicNestedQuery");
-        int numShards = 1;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-        DataStore<KVRow, KVShard> dataStore =
-                new DataStore<>(null,
-                        new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
-                        zkHost, zkPort, "127.0.0.1", 8000, -1);
-        dataStore.startServing();
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
-        broker.createTable("table", numShards);
-
-        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(0, 1)));
-        assertTrue(writeSuccess);
-        writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
-        assertTrue(writeSuccess);
-
-        AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanNested(0);
-        Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
-        assertEquals(Integer.valueOf(2), queryResponse);
-
-        dataStore.shutDown();
-        coordinator.stopServing();
-        broker.shutdown();
-    }
-
     static abstract class BrokerThread extends Thread {
         public abstract Integer getQueryResponse();
     }

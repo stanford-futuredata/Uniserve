@@ -77,9 +77,4 @@ public class KVReadQueryPlanGet implements AnchoredReadQueryPlan<KVShard, Intege
         return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
     }
 
-    @Override
-    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.emptyList();}
-
-    @Override
-    public void setSubQueryResults(List<Object> subQueryResults) {}
 }

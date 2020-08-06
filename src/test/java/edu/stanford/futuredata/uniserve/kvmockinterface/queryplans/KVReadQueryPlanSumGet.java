@@ -84,9 +84,4 @@ public class KVReadQueryPlanSumGet implements AnchoredReadQueryPlan<KVShard, Int
         return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 
-    @Override
-    public List<AnchoredReadQueryPlan> getSubQueries() {return Collections.emptyList();}
-
-    @Override
-    public void setSubQueryResults(List<Object> subQueryResults) {}
 }
