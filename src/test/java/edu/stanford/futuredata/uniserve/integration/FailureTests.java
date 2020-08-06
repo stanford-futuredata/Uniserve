@@ -73,7 +73,7 @@ public class FailureTests {
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         Integer queryResponse;
         do {
-            queryResponse = broker.readQuery(readQueryPlan);
+            queryResponse = broker.anchoredReadQuery(readQueryPlan);
         } while (Objects.isNull(queryResponse));
         assertEquals(queryResponse, 55);
 
@@ -213,7 +213,7 @@ public class FailureTests {
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
-            Integer queryResponse = broker.readQuery(readQueryPlan);
+            Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
             assertEquals(Integer.valueOf(i), queryResponse);
         }
         for(DataStore<KVRow, KVShard> dataStore: dataStores) {
@@ -233,7 +233,7 @@ public class FailureTests {
 
         for (int i = 1; i < 100; i++) {
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
-            Integer queryResponse = broker.readQuery(readQueryPlan);
+            Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
             assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
 
@@ -249,12 +249,12 @@ public class FailureTests {
 
         for (int i = 1; i < 100; i++) {
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
-            Integer queryResponse = broker.readQuery(readQueryPlan);
+            Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
             assertTrue(Objects.isNull(queryResponse) || Integer.valueOf(i).equals(queryResponse));
         }
         coordinator.removeShard(2, 3);
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(2);
-        Integer queryResponse = broker.readQuery(readQueryPlan);
+        Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
         assertEquals(Integer.valueOf(2), queryResponse);
 
         for (int i = 0; i < numDatastores; i++) {

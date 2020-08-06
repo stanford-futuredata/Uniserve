@@ -161,7 +161,7 @@ public class Broker {
         return queryStatus.get() == QUERY_SUCCESS;
     }
 
-    public <S extends Shard, V> V readQuery(AnchoredReadQueryPlan<S, V> readQueryPlan) {
+    public <S extends Shard, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> readQueryPlan) {
         // If there aren't subqueries, execute the query directly.
         if (readQueryPlan.getSubQueries().isEmpty()) {
             return executeReadQueryStage(readQueryPlan);
@@ -199,6 +199,76 @@ public class Broker {
             unexecutedReadQueryPlans = updatedUnexecutedReadQueryPlans;
         }
         return (V) executedQueryPlans.get(readQueryPlan);
+    }
+
+    public <S extends Shard, V> V shuffleReadQuery(ShuffleReadQueryPlan<S, V> plan) {
+        long txID = txIDs.getAndIncrement();
+        Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
+        HashMap<String, List<Integer>> targetShards = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> entry : partitionKeys.entrySet()) {
+            String tableName = entry.getKey();
+            List<Integer> tablePartitionKeys = entry.getValue();
+            Pair<Integer, Integer> tableInfo = getTableInfo(tableName);
+            int tableID = tableInfo.getValue0();
+            int numShards = tableInfo.getValue1();
+            List<Integer> shardNums;
+            if (tablePartitionKeys.contains(-1)) {
+                // -1 is a wildcard--run on all shards.
+                shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards)
+                        .boxed().collect(Collectors.toList());
+            } else {
+                shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
+                        .distinct().collect(Collectors.toList());
+            }
+            targetShards.put(tableName, shardNums);
+        }
+        ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
+        ByteString serializedQuery = Utilities.objectToByteString(plan);
+        Set<Integer> dsIDs = dsIDToChannelMap.keySet();
+        int numReducers = dsIDs.size();
+        List<ByteString> intermediates = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(numReducers);
+        int reducerNum = 0;
+        for (int dsID : dsIDs) {
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            ShuffleReadQueryMessage m = ShuffleReadQueryMessage.newBuilder().
+                    setReducerNum(reducerNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
+                    .setTxID(txID).setTargetShards(serializedTargetShards).build();
+            reducerNum++;
+            StreamObserver<ShuffleReadQueryResponse> responseObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(ShuffleReadQueryResponse r) {
+                    assert (r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle
+                    intermediates.add(r.getResponse());
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                    int numDSIDs = dsIDToChannelMap.keySet().size();
+                    Integer newDSID = dsIDToChannelMap.keySet().stream().skip(new Random().nextInt(numDSIDs)).findFirst().orElse(null);
+                    ManagedChannel channel = dsIDToChannelMap.get(newDSID);
+                    BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                    stub.shuffleReadQuery(m, this);
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            };
+            stub.shuffleReadQuery(m, responseObserver);
+        }
+        try {
+            latch.await();
+        } catch (InterruptedException ignored) {
+        }
+        long aggStart = System.nanoTime();
+        V ret = plan.aggregateShardQueries(intermediates);
+        long aggEnd = System.nanoTime();
+        aggregationTimes.add((aggEnd - aggStart) / 1000L);
+        return ret;
     }
 
     public <S extends Shard, V> boolean registerMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {

@@ -12,6 +12,8 @@ service BrokerDataStore {
     rpc WriteQuery (stream WriteQueryMessage) returns (WriteQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc AnchoredReadQuery (AnchoredReadQueryMessage) returns (AnchoredReadQueryResponse) {}
+    // Make a read query to a DataStore server.  Return a response.
+    rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
     // Register a materialized view on a DataStore.
     rpc RegisterMaterializedView (RegisterMaterializedViewMessage) returns (RegisterMaterializedViewResponse);
     // Query a materialized view.
@@ -39,6 +41,19 @@ message AnchoredReadQueryMessage {
 }
 
 message AnchoredReadQueryResponse {
+    int32 returnCode = 1;
+    bytes response = 2;
+}
+
+message ShuffleReadQueryMessage {
+    bytes serializedQuery = 1;
+    int32 reducerNum = 2;
+    int32 numReducers = 3;
+    int64 txID = 4;
+    bytes targetShards = 5;
+}
+
+message ShuffleReadQueryResponse {
     int32 returnCode = 1;
     bytes response = 2;
 }

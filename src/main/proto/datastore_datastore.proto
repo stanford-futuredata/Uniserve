@@ -16,8 +16,10 @@ service DataStoreDataStore {
     rpc DataStorePing (DataStorePingMessage) returns (DataStorePingResponse) {}
     // Register a materialized view on a replica.
     rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
-    // Get data for a shuffle.
+    // Get data for an anchored shuffle.
     rpc AnchoredShuffle (AnchoredShuffleMessage) returns (AnchoredShuffleResponse) {}
+    // Get data for a shuffle.
+    rpc Shuffle (ShuffleMessage) returns (ShuffleResponse) {}
 }
 
 message ReplicaWriteMessage {
@@ -70,6 +72,19 @@ message AnchoredShuffleMessage {
 }
 
 message AnchoredShuffleResponse {
+    int32 returnCode = 1;
+    bytes shuffleData = 2;
+}
+
+message ShuffleMessage {
+    int32 shardNum = 1;
+    int64 txID = 2;
+    int32 reducerNum = 3;
+    int32 numReducers = 4;
+    bytes serializedQuery = 5;
+}
+
+message ShuffleResponse {
     int32 returnCode = 1;
     bytes shuffleData = 2;
 }

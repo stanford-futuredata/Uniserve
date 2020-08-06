@@ -3,10 +3,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
@@ -20,6 +17,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
@@ -209,15 +207,16 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onCompleted();
     }
 
+    private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, Map<Integer, ByteString>> txShuffledData = new ConcurrentHashMap<>();;
+    private final Map<Pair<Long, Integer>, Map<Integer, List<Integer>>> txPartitionKeys = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, AtomicInteger> txCounts = new ConcurrentHashMap<>();
+
     @Override
     public void anchoredShuffle(AnchoredShuffleMessage request, StreamObserver<AnchoredShuffleResponse> responseObserver) {
         responseObserver.onNext(anchoredShuffleHandler(request));
         responseObserver.onCompleted();
     }
-
-    private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
-    private final Map<Pair<Long, Integer>, Map<Integer, ByteString>> txShuffledData = new ConcurrentHashMap<>();;
-    private final Map<Pair<Long, Integer>, Map<Integer, List<Integer>>> txPartitionKeys = new ConcurrentHashMap<>();
 
     private AnchoredShuffleResponse anchoredShuffleHandler(AnchoredShuffleMessage m) {
         long txID = m.getTxID();
@@ -234,7 +233,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
         txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getReducerShardNum(), m.getPartitionKeysList());
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
-        if (txPartitionKeys.get(mapID).size() == m.getNumReducers()) {
+        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumReducers()) {
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.primaryShardMap.get(shardNum);
             assert (shard != null);
@@ -255,5 +254,47 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();
         return AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(ephemeralData).build();
+    }
+
+    @Override
+    public void shuffle(ShuffleMessage request, StreamObserver<ShuffleResponse> responseObserver) {
+        responseObserver.onNext(shuffleHandler(request));
+        responseObserver.onCompleted();
+    }
+
+    private ShuffleResponse shuffleHandler(ShuffleMessage m) {
+        long txID = m.getTxID();
+        int shardNum = m.getShardNum();
+        ShuffleReadQueryPlan<S, Object> plan = (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
+        dataStore.createShardMetadata(shardNum);
+        dataStore.shardLockMap.get(shardNum).readerLockLock();
+        if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
+            logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
+            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+            return ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
+        Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
+        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).compareAndSet(0, 1)) {
+            dataStore.ensureShardCached(shardNum);
+            S shard = dataStore.primaryShardMap.get(shardNum);
+            assert (shard != null);
+            Map<Integer, ByteString> mapperResult = plan.mapper(shard, m.getNumReducers());
+            txShuffledData.put(mapID, mapperResult);
+            long unixTime = Instant.now().getEpochSecond();
+            dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
+            s.release(m.getNumReducers() - 1);
+        } else {
+            s.acquireUninterruptibly();
+        }
+        Map<Integer, ByteString> mapperResult = txShuffledData.get(mapID);
+        assert(mapperResult.containsKey(m.getReducerNum()));
+        ByteString ephemeralData = mapperResult.get(m.getReducerNum());
+        mapperResult.remove(m.getReducerNum());  // TODO: Make reliable--what if map immutable?.
+        if (mapperResult.isEmpty()) {
+            txShuffledData.remove(mapID);
+        }
+        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        return ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(ephemeralData).build();
     }
 }

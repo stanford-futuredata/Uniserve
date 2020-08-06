@@ -3,10 +3,7 @@ package edu.stanford.futuredata.uniserve.datastore;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Row;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
@@ -314,6 +311,71 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         long unixTime = Instant.now().getEpochSecond();
         dataStore.QPSMap.get(localShardNum).merge(unixTime, 1, Integer::sum);
         return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+    }
+
+    @Override
+    public void shuffleReadQuery(ShuffleReadQueryMessage request,  StreamObserver<ShuffleReadQueryResponse> responseObserver) {
+        responseObserver.onNext(shuffleReadQueryHandler(request));
+        responseObserver.onCompleted();
+    }
+
+
+    private ShuffleReadQueryResponse shuffleReadQueryHandler(ShuffleReadQueryMessage m) {
+        ShuffleReadQueryPlan<S, Object> plan =
+                (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
+        Map<String, List<ByteString>> ephemeralData = new HashMap<>();
+        Map<String, S> ephemeralShards = new HashMap<>();
+        for (String tableName: plan.getQueriedTables()) {
+            S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+            ephemeralShards.put(tableName, ephemeralShard);
+            List<Integer> targetShards = allTargetShards.get(tableName);
+            List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
+            CountDownLatch latch = new CountDownLatch(targetShards.size());
+            for (int targetShard : targetShards) {
+                int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                ShuffleMessage g = ShuffleMessage.newBuilder()
+                        .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerNum(m.getReducerNum())
+                        .setSerializedQuery(m.getSerializedQuery())
+                        .setTxID(m.getTxID()).build();
+                StreamObserver<ShuffleResponse> responseObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(ShuffleResponse r) {
+                        if (r.getReturnCode() == Broker.QUERY_RETRY) {
+                            onError(new Throwable());
+                        } else {
+                            tableEphemeralData.add(r.getShuffleData());
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
+                        int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                        ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                        DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                        stub.shuffle(g, this);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        latch.countDown();
+                    }
+                };
+                stub.shuffle(g, responseObserver);
+            }
+            try {
+                latch.await();
+            } catch (InterruptedException ignored) {
+            }
+            ephemeralData.put(tableName, tableEphemeralData);
+
+        }
+        ByteString b = plan.reducer(ephemeralData, ephemeralShards);
+        ephemeralShards.values().forEach(S::destroy);
+        return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
     }
 
     @Override

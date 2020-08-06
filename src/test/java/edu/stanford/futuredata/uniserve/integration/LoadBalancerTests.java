@@ -89,13 +89,13 @@ public class LoadBalancerTests {
                 List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
 
         AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
-        assertEquals(Integer.valueOf(0), broker.readQuery(zero));
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         AnchoredReadQueryPlan<KVShard, Integer> one = new KVReadQueryPlanGet("table1",1);
-        assertEquals(Integer.valueOf(1), broker.readQuery(one));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
         AnchoredReadQueryPlan<KVShard, Integer> two = new KVReadQueryPlanGet("table1", 2);
-        assertEquals(Integer.valueOf(2), broker.readQuery(two));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
         AnchoredReadQueryPlan<KVShard, Integer> three = new KVReadQueryPlanGet("table1", 3);
-        assertEquals(Integer.valueOf(3), broker.readQuery(three));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
         Pair<Set<Integer>, Set<Integer>> lostGained = LoadBalancer.balanceLoad(load, coordinator.consistentHash);
@@ -109,10 +109,10 @@ public class LoadBalancerTests {
             }
         }
 
-        assertEquals(Integer.valueOf(0), broker.readQuery(zero));
-        assertEquals(Integer.valueOf(1), broker.readQuery(one));
-        assertEquals(Integer.valueOf(2), broker.readQuery(two));
-        assertEquals(Integer.valueOf(3), broker.readQuery(three));
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();

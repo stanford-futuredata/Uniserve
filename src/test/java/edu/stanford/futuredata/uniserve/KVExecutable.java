@@ -103,7 +103,7 @@ public class KVExecutable {
             for (int i = 0; i < 10000; i++) {
                 long t0 = System.nanoTime();
                 AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(1);
-                Integer queryResponse = broker.readQuery(readQueryPlan);
+                Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
                 assert (queryResponse == 2);
                 long timeElapsed = System.nanoTime() - t0;
                 trialTimes.add(timeElapsed / 1000L);
