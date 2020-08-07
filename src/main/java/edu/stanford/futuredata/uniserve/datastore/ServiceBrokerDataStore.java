@@ -305,12 +305,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 ephemeralData.put(tableName, tableEphemeralData);
             }
         }
-        ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
+        AnchoredReadQueryResponse r;
+        try {
+            ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
+            r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+        } catch (Exception e) {
+            r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+        }
         dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
         ephemeralShards.values().forEach(S::destroy);
         long unixTime = Instant.now().getEpochSecond();
         dataStore.QPSMap.get(localShardNum).merge(unixTime, 1, Integer::sum);
-        return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+        return r;
     }
 
     @Override
