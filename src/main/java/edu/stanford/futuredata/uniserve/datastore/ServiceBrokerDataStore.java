@@ -310,6 +310,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
             r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
         } catch (Exception e) {
+            logger.warn("Read Query Exception: {}", e.getMessage());
             r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
         dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
