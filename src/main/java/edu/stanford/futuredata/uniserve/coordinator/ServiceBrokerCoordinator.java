@@ -1,16 +1,14 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,12 +45,11 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     private CreateTableResponse createTableHandler(CreateTableMessage m) {
         String tableName = m.getTableName();
         int numShards = m.getNumShards();
-        if (coordinator.tableNumShardsMap.putIfAbsent(tableName, numShards) != null) {
+        int tableID = coordinator.tableNumber.getAndIncrement();
+        TableInfo t = new TableInfo(tableName, tableID, numShards, ByteString.EMPTY);
+        if (coordinator.tableInfoMap.putIfAbsent(tableName, t) != null) {
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         } else {
-            int tableID = coordinator.tableNumber.getAndIncrement();
-            Integer n = coordinator.tableIDMap.putIfAbsent(tableName, tableID);
-            assert (n == null);
             logger.info("Creating Table. Name: {} ID: {} NumShards {}", tableName, tableID, numShards);
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         }
@@ -66,12 +63,11 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
 
     private TableIDResponse tableIDHandler(TableIDMessage m) {
         String tableName = m.getTableName();
-        if (coordinator.tableIDMap.containsKey(tableName)) {
-            int tableID = coordinator.tableIDMap.get(tableName);
-            int numShards = coordinator.tableNumShardsMap.get(tableName);
+        if (coordinator.tableInfoMap.containsKey(tableName)) {
+            TableInfo t = coordinator.tableInfoMap.get(tableName);
             return TableIDResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
-                    .setId(tableID)
-                    .setNumShards(numShards).build();
+                    .setId(t.id)
+                    .setNumShards(t.numShards).build();
         } else {
             return TableIDResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }

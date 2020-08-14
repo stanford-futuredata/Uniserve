@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
@@ -8,6 +9,7 @@ import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.*;
 import org.javatuples.Pair;
@@ -51,10 +53,8 @@ public class DataStore<R extends Row, S extends Shard> {
     final Map<Integer, Map<Long, Integer>> QPSMap = new ConcurrentHashMap<>();
     // Map from tuples of name and shard to materialized view.
     final Map<Integer, Map<String, MaterializedView>> materializedViewMap = new ConcurrentHashMap<>();
-    // Map from table names to IDs.
-    private final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
-    // Maximum number of shards in each table.
-    private final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
+    // Map from table names to tableInfos.
+    private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
     // Map from dsID to a ManagedChannel.
     private final Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
 
@@ -336,18 +336,16 @@ public class DataStore<R extends Row, S extends Shard> {
         return shard;
     }
 
-    Pair<Integer, Integer> getTableInfo(String tableName) {
-        if (tableIDMap.containsKey(tableName)) {
-            return new Pair<>(tableIDMap.get(tableName), tableNumShardsMap.get(tableName));
+    private TableInfo getTableInfo(String tableName) {
+        if (tableInfoMap.containsKey(tableName)) {
+            return tableInfoMap.get(tableName);
         } else {
             DTableIDResponse r = coordinatorStub.
                     tableID(DTableIDMessage.newBuilder().setTableName(tableName).build());
             assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
-            int tableID = r.getId();
-            int numShards = r.getNumShards();
-            tableNumShardsMap.put(tableName, numShards);
-            tableIDMap.put(tableName, tableID);
-            return new Pair<>(tableID, numShards);
+            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards(), ByteString.EMPTY);
+            tableInfoMap.put(tableName, t);
+            return t;
         }
     }
 

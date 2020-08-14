@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
@@ -43,10 +44,8 @@ public class Coordinator {
     final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
     // Used to assign each table a unique incremental ID.
     final AtomicInteger tableNumber = new AtomicInteger(0);
-    // Map from table names to IDs.
-    final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
-    // Maximum number of shards in each table.
-    final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
+    // Map from table names to tableInfos.
+    final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their channels.
     final Map<Integer, ManagedChannel> dataStoreChannelsMap = new ConcurrentHashMap<>();
     // Map from datastore IDs to their stubs.

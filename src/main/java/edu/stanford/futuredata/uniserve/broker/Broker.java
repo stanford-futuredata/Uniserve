@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -35,9 +36,7 @@ public class Broker {
     // Stub for communication with the coordinator.
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
     // Map from table names to IDs.
-    private final Map<String, Integer> tableIDMap = new ConcurrentHashMap<>();
-    // Maximum number of shards in each table.
-    private final Map<String, Integer> tableNumShardsMap = new ConcurrentHashMap<>();
+    private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
 
     private final ShardMapUpdateDaemon shardMapUpdateDaemon;
     public boolean runShardMapUpdateDaemon = true;
@@ -126,13 +125,11 @@ public class Broker {
     public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
-        Pair<Integer, Integer> idAndShards = getTableInfo(writeQueryPlan.getQueriedTable());
-        int tableID = idAndShards.getValue0();
-        int numShards = idAndShards.getValue1();
+        TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
         for (R row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
-            int shard = keyToShard(tableID, numShards, partitionKey);
+            int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
@@ -168,9 +165,9 @@ public class Broker {
         for(Map.Entry<String, List<Integer>> entry: partitionKeys.entrySet()) {
             String tableName = entry.getKey();
             List<Integer> tablePartitionKeys = entry.getValue();
-            Pair<Integer, Integer> tableInfo = getTableInfo(tableName);
-            int tableID = tableInfo.getValue0();
-            int numShards = tableInfo.getValue1();
+            TableInfo tableInfo = getTableInfo(tableName);
+            int tableID = tableInfo.id;
+            int numShards = tableInfo.numShards;
             List<Integer> shardNums;
             if (tablePartitionKeys.contains(-1)) {
                 // -1 is a wildcard--run on all shards.
@@ -236,9 +233,9 @@ public class Broker {
         for (Map.Entry<String, List<Integer>> entry : partitionKeys.entrySet()) {
             String tableName = entry.getKey();
             List<Integer> tablePartitionKeys = entry.getValue();
-            Pair<Integer, Integer> tableInfo = getTableInfo(tableName);
-            int tableID = tableInfo.getValue0();
-            int numShards = tableInfo.getValue1();
+            TableInfo tableInfo = getTableInfo(tableName);
+            int tableID = tableInfo.id;
+            int numShards = tableInfo.numShards;
             List<Integer> shardNums;
             if (tablePartitionKeys.contains(-1)) {
                 // -1 is a wildcard--run on all shards.
@@ -302,9 +299,9 @@ public class Broker {
     public <S extends Shard, V> boolean registerMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
         List<Integer> shardNums;
-        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
-        int tableID = idAndShards.getValue0();
-        int numShards = idAndShards.getValue1();
+        TableInfo tableInfo = getTableInfo(readQueryPlan.getQueriedTables().get(0));
+        int tableID = tableInfo.id;
+        int numShards = tableInfo.numShards;
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
@@ -328,9 +325,9 @@ public class Broker {
     public <S extends Shard, V> V queryMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
         List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
         List<Integer> shardNums;
-        Pair<Integer, Integer> idAndShards = getTableInfo(readQueryPlan.getQueriedTables().get(0));
-        int tableID = idAndShards.getValue0();
-        int numShards = idAndShards.getValue1();
+        TableInfo tableInfo = getTableInfo(readQueryPlan.getQueriedTables().get(0));
+        int tableID = tableInfo.id;
+        int numShards = tableInfo.numShards;
         if (partitionKeys.contains(-1)) {
             // -1 is a wildcard--run on all shards.
             shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
@@ -353,18 +350,16 @@ public class Broker {
      * PRIVATE FUNCTIONS
      */
 
-    private Pair<Integer, Integer> getTableInfo(String tableName) {
-        if (tableIDMap.containsKey(tableName)) {
-            return new Pair<>(tableIDMap.get(tableName), tableNumShardsMap.get(tableName));
+    private TableInfo getTableInfo(String tableName) {
+        if (tableInfoMap.containsKey(tableName)) {
+            return tableInfoMap.get(tableName);
         } else {
             TableIDResponse r = coordinatorBlockingStub.
                     tableID(TableIDMessage.newBuilder().setTableName(tableName).build());
             assert(r.getReturnCode() == QUERY_SUCCESS);
-            int tableID = r.getId();
-            int numShards = r.getNumShards();
-            tableNumShardsMap.put(tableName, numShards);
-            tableIDMap.put(tableName, tableID);
-            return new Pair<>(tableID, numShards);
+            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards(), ByteString.EMPTY);
+            tableInfoMap.put(tableName, t);
+            return t;
         }
     }
 

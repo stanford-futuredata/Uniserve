@@ -3,8 +3,8 @@ package edu.stanford.futuredata.uniserve.coordinator;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -12,8 +12,6 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.List;
 
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
 
@@ -114,12 +112,11 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
 
     private DTableIDResponse tableIDHandler(DTableIDMessage m) {
         String tableName = m.getTableName();
-        if (coordinator.tableIDMap.containsKey(tableName)) {
-            int tableID = coordinator.tableIDMap.get(tableName);
-            int numShards = coordinator.tableNumShardsMap.get(tableName);
+        if (coordinator.tableInfoMap.containsKey(tableName)) {
+            TableInfo t = coordinator.tableInfoMap.get(tableName);
             return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
-                    .setId(tableID)
-                    .setNumShards(numShards).build();
+                    .setId(t.id)
+                    .setNumShards(t.numShards).build();
         } else {
             return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
