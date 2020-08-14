@@ -354,10 +354,10 @@ public class Broker {
         if (tableInfoMap.containsKey(tableName)) {
             return tableInfoMap.get(tableName);
         } else {
-            TableIDResponse r = coordinatorBlockingStub.
-                    tableID(TableIDMessage.newBuilder().setTableName(tableName).build());
+            TableInfoResponse r = coordinatorBlockingStub.
+                    tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
             assert(r.getReturnCode() == QUERY_SUCCESS);
-            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards(), ByteString.EMPTY);
+            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
             tableInfoMap.put(tableName, t);
             return t;
         }

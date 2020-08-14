@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -46,7 +45,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         String tableName = m.getTableName();
         int numShards = m.getNumShards();
         int tableID = coordinator.tableNumber.getAndIncrement();
-        TableInfo t = new TableInfo(tableName, tableID, numShards, ByteString.EMPTY);
+        TableInfo t = new TableInfo(tableName, tableID, numShards);
         if (coordinator.tableInfoMap.putIfAbsent(tableName, t) != null) {
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         } else {
@@ -56,20 +55,20 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     }
 
     @Override
-    public void tableID(TableIDMessage request, StreamObserver<TableIDResponse> responseObserver) {
+    public void tableInfo(TableInfoMessage request, StreamObserver<TableInfoResponse> responseObserver) {
         responseObserver.onNext(tableIDHandler(request));
         responseObserver.onCompleted();
     }
 
-    private TableIDResponse tableIDHandler(TableIDMessage m) {
+    private TableInfoResponse tableIDHandler(TableInfoMessage m) {
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {
             TableInfo t = coordinator.tableInfoMap.get(tableName);
-            return TableIDResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
+            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
                     .setNumShards(t.numShards).build();
         } else {
-            return TableIDResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
     }
 }

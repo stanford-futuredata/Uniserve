@@ -9,7 +9,7 @@ package brokercoordinator;
 // Communication from datastores to the coordinator.
 service BrokerCoordinator {
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
-    rpc TableID (TableIDMessage) returns (TableIDResponse) {}
+    rpc TableInfo (TableInfoMessage) returns (TableInfoResponse) {}
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
 }
 
@@ -19,11 +19,11 @@ message QueryStatisticsMessage {
 
 message QueryStatisticsResponse {}
 
-message TableIDMessage {
+message TableInfoMessage {
     string tableName = 1;
 }
 
-message TableIDResponse {
+message TableInfoResponse {
     int32 returnCode = 1;
     int32 id = 2;
     int32 numShards = 3;

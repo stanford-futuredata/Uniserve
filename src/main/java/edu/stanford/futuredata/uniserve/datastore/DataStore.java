@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
@@ -334,19 +333,6 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
-    }
-
-    private TableInfo getTableInfo(String tableName) {
-        if (tableInfoMap.containsKey(tableName)) {
-            return tableInfoMap.get(tableName);
-        } else {
-            DTableIDResponse r = coordinatorStub.
-                    tableID(DTableIDMessage.newBuilder().setTableName(tableName).build());
-            assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
-            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards(), ByteString.EMPTY);
-            tableInfoMap.put(tableName, t);
-            return t;
-        }
     }
 
     ManagedChannel getChannelForDSID(int dsID) {

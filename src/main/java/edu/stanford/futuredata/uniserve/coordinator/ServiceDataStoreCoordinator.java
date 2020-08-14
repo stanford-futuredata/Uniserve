@@ -105,20 +105,20 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
     }
 
     @Override
-    public void tableID(DTableIDMessage request, StreamObserver<DTableIDResponse> responseObserver) {
+    public void tableInfo(DTableInfoMessage request, StreamObserver<DTableInfoResponse> responseObserver) {
         responseObserver.onNext(tableIDHandler(request));
         responseObserver.onCompleted();
     }
 
-    private DTableIDResponse tableIDHandler(DTableIDMessage m) {
+    private DTableInfoResponse tableIDHandler(DTableInfoMessage m) {
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {
             TableInfo t = coordinator.tableInfoMap.get(tableName);
-            return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
+            return DTableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
                     .setNumShards(t.numShards).build();
         } else {
-            return DTableIDResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+            return DTableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
     }
 }

@@ -13,7 +13,7 @@ service DataStoreCoordinator {
     // Warn the coordinator that a datastore may be down.
     rpc PotentialDSFailure (PotentialDSFailureMessage) returns (PotentialDSFailureResponse) {}
     // Look up information about a table.
-    rpc TableID (DTableIDMessage) returns (DTableIDResponse) {}
+    rpc TableInfo (DTableInfoMessage) returns (DTableInfoResponse) {}
 }
 
 message RegisterDataStoreMessage {
@@ -33,11 +33,11 @@ message PotentialDSFailureMessage {
 
 message PotentialDSFailureResponse {}
 
-message DTableIDMessage {
+message DTableInfoMessage {
     string tableName = 1;
 }
 
-message DTableIDResponse {
+message DTableInfoResponse {
     int32 returnCode = 1;
     int32 id = 2;
     int32 numShards = 3;
