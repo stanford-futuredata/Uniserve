@@ -19,7 +19,7 @@ service DataStoreDataStore {
     // Get data for an anchored shuffle.
     rpc AnchoredShuffle (AnchoredShuffleMessage) returns (AnchoredShuffleResponse) {}
     // Get data for a shuffle.
-    rpc Shuffle (ShuffleMessage) returns (ShuffleResponse) {}
+    rpc Shuffle (ShuffleMessage) returns (stream ShuffleResponse) {}
 }
 
 message ReplicaWriteMessage {

@@ -13,7 +13,7 @@ public interface ShuffleReadQueryPlan<S extends Shard, T> extends Serializable {
     // Include -1 to execute on all shards.
     Map<String, List<Integer>> keysForQuery();
     // Mapper.
-    Map<Integer, ByteString> mapper(S shard, int numReducers);
+    Map<Integer, List<ByteString>> mapper(S shard, int numReducers);
     // Reducer.
     ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
     // The query will return the result of this function executed on all results from queryShard.
