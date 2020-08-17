@@ -64,7 +64,7 @@ public class DataStore<R extends Row, S extends Shard> {
     final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
-    final AtomicInteger ephemeralShardNum = new AtomicInteger(Integer.MAX_VALUE);
+    static final AtomicInteger ephemeralShardNum = new AtomicInteger(Integer.MAX_VALUE);
 
     public static int qpsReportTimeInterval = 60; // In seconds -- should be same as load balancer interval.
 
