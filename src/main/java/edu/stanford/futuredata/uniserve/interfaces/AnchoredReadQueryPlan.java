@@ -22,7 +22,7 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     // Combine multiple intermediates into one.
     ByteString combineIntermediates(List<ByteString> intermediates);
     // Get partition keys.
-    List<Integer> getPartitionKeys(Shard s); // TODO:  Maybe this shouldn't be integer.
+    List<Integer> getPartitionKeys(S s); // TODO:  Maybe this shouldn't be integer.
     // Mapper.
     Map<Integer, ByteString> mapper(S shard, Map<Integer, List<Integer>> partitionKeys);
     // Reducer.
