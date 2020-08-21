@@ -2,7 +2,6 @@ package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -54,16 +53,16 @@ public class KVPseudoBroadcastJoin implements AnchoredReadQueryPlan<KVShard, Int
     }
 
     @Override
-    public List<Integer> getPartitionKeys(Shard s) {
+    public List<Integer> getPartitionKeys(KVShard s) {
         return Collections.emptyList();
     }
 
     @Override
-    public Map<Integer, ByteString> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
+    public Map<Integer, List<ByteString>> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         ByteString b = Utilities.objectToByteString((ConcurrentHashMap<Integer, Integer>) shard.KVMap);
-        HashMap<Integer, ByteString> ret = new HashMap<>();
+        HashMap<Integer, List<ByteString>> ret = new HashMap<>();
         for (int i: partitionKeys.keySet()) {
-            ret.put(i, b);
+            ret.put(i, List.of(b));
         }
         return ret;
     }

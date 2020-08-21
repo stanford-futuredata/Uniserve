@@ -24,7 +24,7 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     // Get partition keys.
     List<Integer> getPartitionKeys(S s); // TODO:  Maybe this shouldn't be integer.
     // Mapper.
-    Map<Integer, ByteString> mapper(S shard, Map<Integer, List<Integer>> partitionKeys);
+    Map<Integer, List<ByteString>> mapper(S shard, Map<Integer, List<Integer>> partitionKeys);
     // Reducer.
     ByteString reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
     // The query will return the result of this function executed on all results from queryShard.

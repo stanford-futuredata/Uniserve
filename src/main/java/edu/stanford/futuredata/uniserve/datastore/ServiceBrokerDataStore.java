@@ -285,6 +285,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         @Override
                         public void onError(Throwable throwable) {
                             logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
+                            // TODO: First remove all ByteStrings added from this shard.
                             int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
                             ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                             DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);

@@ -2,7 +2,6 @@ package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -57,12 +56,12 @@ public class KVReadQueryPlanGet implements AnchoredReadQueryPlan<KVShard, Intege
     }
 
     @Override
-    public List<Integer> getPartitionKeys(Shard s) {
+    public List<Integer> getPartitionKeys(KVShard s) {
         return null;
     }
 
     @Override
-    public Map<Integer, ByteString> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
+    public Map<Integer, List<ByteString>> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         assert(false);
         return null;
     }

@@ -17,7 +17,7 @@ service DataStoreDataStore {
     // Register a materialized view on a replica.
     rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
     // Get data for an anchored shuffle.
-    rpc AnchoredShuffle (AnchoredShuffleMessage) returns (AnchoredShuffleResponse) {}
+    rpc AnchoredShuffle (AnchoredShuffleMessage) returns (stream AnchoredShuffleResponse) {}
     // Get data for a shuffle.
     rpc Shuffle (ShuffleMessage) returns (stream ShuffleResponse) {}
 }
