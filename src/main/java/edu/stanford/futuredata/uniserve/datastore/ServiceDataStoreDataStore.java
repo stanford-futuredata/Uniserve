@@ -236,8 +236,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             assert (shard != null);
             Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, txPartitionKeys.get(mapID));
             txShuffledData.put(mapID, mapperResult);
-            long unixTime = Instant.now().getEpochSecond();
-            dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
+            // long unixTime = Instant.now().getEpochSecond();
+            // dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
             s.release(m.getNumReducers() - 1);
         } else {
             s.acquireUninterruptibly();
