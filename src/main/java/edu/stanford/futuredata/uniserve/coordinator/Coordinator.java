@@ -294,17 +294,19 @@ public class Coordinator {
                 Map<Integer, Integer> memoryUsages = load.getValue1();
                 logger.info("Collected QPS Load: {}", qpsLoad);
                 logger.info("Collected memory usages: {}", memoryUsages);
-                consistentHashLock.lock();
-                Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(qpsLoad, consistentHash);
-                Set<Integer> lostShards = changes.getValue0();
-                Set<Integer> gainedShards = changes.getValue1();
-                logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
-                assignShards(lostShards, gainedShards);
-                consistentHashLock.unlock();
-                Map<Integer, Double> serverCpuUsage = load.getValue2();
-                logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
-                if (cCloud != null) {
-                    autoScale(serverCpuUsage);
+                if (qpsLoad.size() > 0) {
+                    consistentHashLock.lock();
+                    Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(qpsLoad, consistentHash);
+                    Set<Integer> lostShards = changes.getValue0();
+                    Set<Integer> gainedShards = changes.getValue1();
+                    logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+                    assignShards(lostShards, gainedShards);
+                    consistentHashLock.unlock();
+                    Map<Integer, Double> serverCpuUsage = load.getValue2();
+                    logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
+                    if (cCloud != null) {
+                        autoScale(serverCpuUsage);
+                    }
                 }
             }
         }
