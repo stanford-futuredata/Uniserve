@@ -34,19 +34,22 @@ public class LoadBalancer {
         PriorityQueue<Integer> serverMaxQueue = new PriorityQueue<>(Comparator.comparing(serverLoads::get).reversed());
         serverMinQueue.addAll(serverLoads.keySet());
         serverMaxQueue.addAll(serverLoads.keySet());
-        int averageLoad = shardLoads.values().stream().mapToInt(i -> i).sum() / shardLoads.size();
-        int epsilon = averageLoad / 5;
+        double averageLoad = shardLoads.values().stream().mapToDouble(i -> i).sum() / serverLoads.size();
+        double epsilon = averageLoad / 5;
         while (serverMaxQueue.size() > 0 && serverLoads.get(serverMaxQueue.peek()) > averageLoad + epsilon) {
             Integer overLoadedServer = serverMaxQueue.remove();
             while (serverToShards.get(overLoadedServer).size() > 0 && serverLoads.get(overLoadedServer) > averageLoad + epsilon) {
                 Integer underLoadedServer = serverMinQueue.remove();
-                Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().max(Comparator.comparing(shardLoads::get)).get();
+                Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().filter(i -> shardLoads.get(i) > 0).max(Comparator.comparing(shardLoads::get)).orElse(null);
+                assert(mostLoadedShard != null);
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);
                 if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad) {
                     consistentHash.reassignmentMap.put(mostLoadedShard, underLoadedServer);
+                    serverLoads.merge(overLoadedServer, -1 * shardLoads.get(mostLoadedShard), Integer::sum);
                     serverLoads.merge(underLoadedServer, shardLoads.get(mostLoadedShard), Integer::sum);
                     lostShards.add(overLoadedServer);
                     gainedShards.add(underLoadedServer);
+                    logger.info("Shard {} transferred from DS{} to DS{}", mostLoadedShard, overLoadedServer, underLoadedServer);
                 }
                 serverMinQueue.add(underLoadedServer);
             }

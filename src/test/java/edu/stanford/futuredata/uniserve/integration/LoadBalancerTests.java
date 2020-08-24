@@ -83,8 +83,13 @@ public class LoadBalancerTests {
         }
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         assertTrue(broker.createTable("table1", numShards));
+        assertTrue(broker.createTable("table2", numShards));
 
-        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan;
+        writeQueryPlan = new KVWriteQueryPlanInsert("table1");
+        assertTrue(broker.writeQuery(writeQueryPlan,
+                List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
+        writeQueryPlan = new KVWriteQueryPlanInsert("table2");
         assertTrue(broker.writeQuery(writeQueryPlan,
                 List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
 
