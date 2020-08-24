@@ -253,6 +253,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         String anchorTableName = plan.getAnchorTable();
         dataStore.createShardMetadata(localShardNum);
         dataStore.shardLockMap.get(localShardNum).readerLockLock();
+        if (dataStore.consistentHash.getBucket(localShardNum) != dataStore.dsID) {
+            logger.warn("DS{} Got anchored read request for unassigned local shard {}", dataStore.dsID, localShardNum);
+            dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
+            return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+        }
         dataStore.ensureShardCached(localShardNum);
         S localShard = dataStore.primaryShardMap.get(localShardNum);
         assert(localShard != null);

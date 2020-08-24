@@ -108,7 +108,8 @@ public class LoadBalancerTests {
                 }
             }
         }
-
+        broker.shutdown();
+        broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
