@@ -42,7 +42,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
         assert(primaryVersion != null);
         assert(replicaVersion <= primaryVersion);
-        assert(dataStore.primaryShardMap.containsKey(shardNum));  // TODO: Could fail during shard transfers?
+        assert(dataStore.shardMap.containsKey(shardNum));  // TODO: Could fail during shard transfers?
         Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
         if (replicaVersion.equals(primaryVersion)) {
             DataStoreDescription dsDescription = dataStore.zkCurator.getDSDescription(request.getDsID());
@@ -108,7 +108,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                             dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
                     // Update materialized views.
                     for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                        m.updateView(dataStore.replicaShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
+                        m.updateView(dataStore.shardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
                     }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
@@ -140,8 +140,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
 
             private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-                if (dataStore.replicaShardMap.containsKey(shardNum)) {
-                    S shard = dataStore.replicaShardMap.get(shardNum);
+                if (dataStore.shardMap.containsKey(shardNum)) {
+                    S shard = dataStore.shardMap.get(shardNum);
                     boolean success =  writeQueryPlan.preCommit(shard, rows);
                     if (success) {
                         return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
@@ -155,7 +155,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
 
             private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-                S shard = dataStore.replicaShardMap.get(shardNum);
+                S shard = dataStore.shardMap.get(shardNum);
                 writeQueryPlan.commit(shard);
                 int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
@@ -164,7 +164,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
 
             private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
-                S shard = dataStore.replicaShardMap.get(shardNum);
+                S shard = dataStore.shardMap.get(shardNum);
                 writeQueryPlan.abort(shard);
             }
         };
@@ -181,7 +181,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         String name = m.getName();
         AnchoredReadQueryPlan<S, Object> r = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         dataStore.shardLockMap.get(shardNum).writerLockLock();
-        S shard = dataStore.replicaShardMap.get(shardNum);
+        S shard = dataStore.shardMap.get(shardNum);
         if (shard != null) {
             if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
                 logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
@@ -232,7 +232,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
         if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumReducers()) {
             dataStore.ensureShardCached(shardNum);
-            S shard = dataStore.primaryShardMap.get(shardNum);
+            S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
             Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, txPartitionKeys.get(mapID));
             txShuffledData.put(mapID, mapperResult);
@@ -274,7 +274,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
         if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).compareAndSet(0, 1)) {
             dataStore.ensureShardCached(shardNum);
-            S shard = dataStore.primaryShardMap.get(shardNum);
+            S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
             Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, m.getNumReducers());
             txShuffledData.put(mapID, mapperResult);

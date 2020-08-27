@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
-import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
@@ -35,9 +34,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public boolean serving = false;
 
     // Map from primary shard number to shard data structure.
-    public final Map<Integer, S> primaryShardMap = new ConcurrentHashMap<>(); // Public for testing.
-    // Map from replica shard number to shard data structure.
-    public final Map<Integer, S> replicaShardMap = new ConcurrentHashMap<>();
+    public final Map<Integer, S> shardMap = new ConcurrentHashMap<>(); // Public for testing.
     // Map from shard number to shard version number.
     final Map<Integer, Integer> shardVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
@@ -171,13 +168,9 @@ public class DataStore<R extends Row, S extends Shard> {
             }
         }
         coordinatorChannel.shutdownNow();
-        for (Map.Entry<Integer, S> entry: primaryShardMap.entrySet()) {
+        for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
             entry.getValue().destroy();
-            primaryShardMap.remove(entry.getKey());
-        }
-        for (Map.Entry<Integer, S> entry: replicaShardMap.entrySet()) {
-            entry.getValue().destroy();
-            replicaShardMap.remove(entry.getKey());
+            shardMap.remove(entry.getKey());
         }
         for (ManagedChannel c: dsIDToChannelMap.values()) {
             c.shutdownNow();
@@ -216,8 +209,7 @@ public class DataStore<R extends Row, S extends Shard> {
         ShardLock shardLock = new ShardLock();
         shardLock.systemLockLock();
         if (shardLockMap.putIfAbsent(shardNum, shardLock) == null) {
-            assert (!primaryShardMap.containsKey(shardNum));
-            assert (!replicaShardMap.containsKey(shardNum));
+            assert (!shardMap.containsKey(shardNum));
             ZKShardDescription zkShardDescription = zkCurator.getZKShardDescription(shardNum);
             if (zkShardDescription == null) {
                 Optional<S> shard = createNewShard(shardNum);
@@ -226,7 +218,7 @@ public class DataStore<R extends Row, S extends Shard> {
                     shardLock.systemLockUnlock();
                     return false;
                 }
-                primaryShardMap.put(shardNum, shard.get());
+                shardMap.put(shardNum, shard.get());
                 shardVersionMap.put(shardNum, 0);
                 logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             } else {
@@ -243,13 +235,13 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** Downloads the shard if not already present, evicting if necessary **/
     boolean ensureShardCached(int shardNum) {
-        if (!primaryShardMap.containsKey(shardNum)) {
+        if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
             Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber, true);
             if (shard.isEmpty()) {
                 return false;
             }
-            primaryShardMap.putIfAbsent(shardNum, shard.get());
+            shardMap.putIfAbsent(shardNum, shard.get());
         }
         return true;
     }
@@ -268,7 +260,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public void uploadShardToCloud(int shardNum) {
         long uploadStart = System.currentTimeMillis();
         Integer versionNumber = shardVersionMap.get(shardNum);
-        Shard shard = primaryShardMap.get(shardNum);
+        Shard shard = shardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {

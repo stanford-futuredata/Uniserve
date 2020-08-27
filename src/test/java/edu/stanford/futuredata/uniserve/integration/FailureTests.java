@@ -114,11 +114,11 @@ public class FailureTests {
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
                     int dsID = coordinator.consistentHash.getBucket(shardNum);
-                    KVShard s = dataStores.get(dsID).primaryShardMap.get(shardNum);
+                    KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
                     if (writeSuccess) {
                         assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                     } else {
-                        assertEquals(dataStores.get(coordinator.consistentHash.getBucket(0)).primaryShardMap.get(0).queryKey(0), s.queryKey(shardNum));
+                        assertEquals(dataStores.get(coordinator.consistentHash.getBucket(0)).shardMap.get(0).queryKey(0), s.queryKey(shardNum));
                     }
                 }
             }
@@ -166,12 +166,12 @@ public class FailureTests {
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
                     int dsID = coordinator.consistentHash.getBucket(shardNum);
-                    KVShard s = dataStores.get(dsID).primaryShardMap.get(shardNum);
+                    KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
                     if (!Objects.isNull(s)) {
                         if (writeSuccess) {
                             assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                         } else {
-                            assertEquals(dataStores.get(coordinator.consistentHash.getBucket(1)).primaryShardMap.get(1).queryKey(1), s.queryKey(shardNum));
+                            assertEquals(dataStores.get(coordinator.consistentHash.getBucket(1)).shardMap.get(1).queryKey(1), s.queryKey(shardNum));
                         }
                     }
                 }
@@ -217,7 +217,7 @@ public class FailureTests {
             assertEquals(Integer.valueOf(i), queryResponse);
         }
         for(DataStore<KVRow, KVShard> dataStore: dataStores) {
-            for(int shardNum: dataStore.primaryShardMap.keySet()) {
+            for(int shardNum: dataStore.shardMap.keySet()) {
                 dataStore.uploadShardToCloud(shardNum);
             }
         }

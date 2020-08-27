@@ -14,8 +14,6 @@ service CoordinatorDataStore {
     rpc loadShardReplica (LoadShardReplicaMessage) returns (LoadShardReplicaResponse) {}
     // Ping a datastore to see if it's alive.
     rpc CoordinatorPing (CoordinatorPingMessage) returns (CoordinatorPingResponse) {}
-    // Promote a replica shard to primary.
-    rpc PromoteReplicaShard (PromoteReplicaShardMessage) returns (PromoteReplicaShardResponse) {}
     // Remove a shard from a datastore.
     rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
     // Ask a datastore for shard usage information.
@@ -46,12 +44,6 @@ message LoadShardReplicaResponse {
 message CoordinatorPingMessage {}
 
 message CoordinatorPingResponse {}
-
-message PromoteReplicaShardMessage {
-    int32 shard = 1;
-}
-
-message PromoteReplicaShardResponse {}
 
 message RemoveShardMessage {
     int32 shard = 1;

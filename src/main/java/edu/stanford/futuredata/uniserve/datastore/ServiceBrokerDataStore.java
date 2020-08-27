@@ -4,7 +4,6 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
-import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
@@ -98,7 +97,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
                 if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
                     dataStore.ensureShardCached(shardNum);
-                    S shard = dataStore.primaryShardMap.get(shardNum);
+                    S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
                             preempt ? Collections.emptyList() // Do not touch replicas if resuming from a preemption.
@@ -178,7 +177,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             private void commitWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
-                S shard = dataStore.primaryShardMap.get(shardNum);
+                S shard = dataStore.shardMap.get(shardNum);
                 for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.COMMIT)
@@ -197,7 +196,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 long lastExistingTimestamp =
                         dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
                 for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                    m.updateView(dataStore.primaryShardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
+                    m.updateView(dataStore.shardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
                 }
                 // Upload the updated shard.
                 if (dataStore.dsCloud != null) {
@@ -212,7 +211,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
-                S shard = dataStore.primaryShardMap.get(shardNum);
+                S shard = dataStore.shardMap.get(shardNum);
                 if (preempt) {
                     writeQueryPlan.abort(shard);
                     return;
@@ -259,7 +258,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
         dataStore.ensureShardCached(localShardNum);
-        S localShard = dataStore.primaryShardMap.get(localShardNum);
+        S localShard = dataStore.shardMap.get(localShardNum);
         assert(localShard != null);
         List<Integer> partitionKeys = plan.getPartitionKeys(localShard);
         for (String tableName: plan.getQueriedTables()) {
@@ -406,7 +405,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         dataStore.shardLockMap.get(shardNum).writerLockLock();
         if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
             dataStore.ensureShardCached(shardNum);
-            S shard = dataStore.primaryShardMap.get(shardNum);
+            S shard = dataStore.shardMap.get(shardNum);
             if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
                 logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
                 dataStore.shardLockMap.get(shardNum).writerLockUnlock();
