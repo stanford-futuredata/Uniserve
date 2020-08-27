@@ -18,10 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -107,6 +104,9 @@ public class Coordinator {
 
     /** Stop serving requests and shutdown resources. */
     public void stopServing() {
+        if (cCloud != null) {
+            cCloud.shutdown();
+        }
         if (server != null) {
             server.shutdown();
         }
@@ -119,9 +119,6 @@ public class Coordinator {
             loadBalancer.join();
         } catch (InterruptedException ignored) {}
         zkCurator.close();
-        if (cCloud != null) {
-            cCloud.shutdown();
-        }
     }
 
     public void addReplica(int shardNum, int replicaID) {
@@ -250,23 +247,41 @@ public class Coordinator {
         }
         // Add a server.
         if (averageCpuUsage > addServerThreshold) {
-            logger.info("Adding DataStore");
-            boolean success = cCloud.addDataStore();
-            if (!success) {
-                logger.info("DataStore addition failed");
-            }
+            addDataStore();
             quiescence = quiescencePeriod;
         }
         // Remove a server.
         if (averageCpuUsage < removeServerThreshold) {
-            List<Integer> removeableDSIDs = dataStoresMap.keySet().stream()
-                    .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
-                    .filter(i -> dsIDToCloudID.containsKey(i))
-                    .collect(Collectors.toList());
-            if (removeableDSIDs.size() > 0) {
-                // TODO:  Remove a datastore.
-            }
+            removeDataStore();
+            quiescence = quiescencePeriod;
         }
+    }
+
+    public void addDataStore() {
+        logger.info("Adding DataStore");
+        if (!cCloud.addDataStore()) {
+            logger.error("DataStore addition failed");
+        }
+    }
+
+    public void removeDataStore() {
+        consistentHashLock.lock();
+        List<Integer> removeableDSIDs = dataStoresMap.keySet().stream()
+                .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
+                .filter(i -> dsIDToCloudID.containsKey(i))
+                .collect(Collectors.toList());
+        if (removeableDSIDs.size() > 0) {
+            Integer removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
+            Integer cloudID = dsIDToCloudID.get(removedDSID);
+            logger.info("Removing DataStore DS{} CloudID {}", removedDSID, cloudID);
+            consistentHash.removeBucket(removedDSID);
+            Set<Integer> otherDatastores = dataStoresMap.values().stream()
+                    .filter(i -> i.status.get() == DataStoreDescription.ALIVE && i.dsID != removedDSID)
+                    .map(i -> i .dsID).collect(Collectors.toSet());
+            assignShards(Set.of(removedDSID), otherDatastores);
+            cCloud.removeDataStore(cloudID);
+        }
+        consistentHashLock.unlock();
     }
 
     public void assignShards(Set<Integer> lostShards, Set<Integer> gainedShards) {

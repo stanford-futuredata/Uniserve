@@ -67,7 +67,7 @@ public class DataStore<R extends Row, S extends Shard> {
 
     public boolean runPingDaemon = true; // Public for testing
     private final PingDaemon pingDaemon;
-    private final static int pingDaemonSleepDurationMillis = 100;
+    public final static int pingDaemonSleepDurationMillis = 100;
     private final static int pingDaemonRefreshInterval = 10;
 
     // Collect execution times of all read queries.

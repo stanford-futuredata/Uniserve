@@ -42,6 +42,10 @@ public class ConsistentHash implements Serializable {
 
     public void removeBucket (int bucketNum) {
         lock.writeLock().lock();
+        if(!buckets.contains(bucketNum)) {
+            lock.writeLock().unlock();
+            return;
+        }
         for(int i = 0; i < numVirtualNodes; i++) {
             Integer hash = hashFunction(bucketNum + virtualOffset * i);
             hashRing.remove(hash);
