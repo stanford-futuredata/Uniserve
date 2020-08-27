@@ -27,7 +27,7 @@ public class DataStore<R extends Row, S extends Shard> {
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
 
     // Datastore metadata
-    public int dsID;
+    public int dsID = -1;
     private int cloudID;
     private final String dsHost;
     private final int dsPort;

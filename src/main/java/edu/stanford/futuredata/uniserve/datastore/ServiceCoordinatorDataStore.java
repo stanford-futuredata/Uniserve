@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
@@ -38,11 +37,11 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     }
 
     private LoadShardReplicaResponse loadShardReplicaHandler(LoadShardReplicaMessage request) {
-        int returnCode = loadShardReplica(request.getShard(), request.getIsReplacementPrimary());
+        int returnCode = addReplica(request.getShard(), request.getIsReplacementPrimary());
         return LoadShardReplicaResponse.newBuilder().setReturnCode(returnCode).build();
     }
 
-    private Integer loadShardReplica(int shardNum, boolean isReplacementPrimary) {
+    private Integer addReplica(int shardNum, boolean isReplacementPrimary) {
         long loadStart = System.currentTimeMillis();
         assert(!dataStore.shardMap.containsKey(shardNum));
         // Get shard info from ZK.
@@ -150,6 +149,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         shard.destroy();
         dataStore.shardMap.remove(shardNum);
         dataStore.writeLog.get(shardNum).clear();
+        dataStore.replicaDescriptionsMap.get(shardNum).forEach(i -> i.channel.shutdown());
         dataStore.replicaDescriptionsMap.get(shardNum).clear();
         dataStore.shardVersionMap.remove(shardNum);
         dataStore.shardLockMap.get(shardNum).systemLockUnlock();
@@ -217,14 +217,20 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         responseObserver.onCompleted();
     }
 
-    private ExecuteReshuffleResponse executeReshuffleHandler(ExecuteReshuffleMessage request) {
-        ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(request.getNewConsistentHash());
+    private ExecuteReshuffleResponse executeReshuffleHandler(ExecuteReshuffleMessage m) {
+        ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(m.getNewConsistentHash());
         ConsistentHash oldHash = dataStore.consistentHash;
+        dataStore.dsID = m.getDsID();
+        for (int shardNum: m.getShardListList()) {
+            if (newHash.getBucket(shardNum) == m.getDsID() && (oldHash == null || oldHash.getBucket(shardNum) != m.getDsID())) {
+                addReplica(shardNum, false);
+            }
+        }
         // By setting the consistent hash, ensure no new queries are processed after this point.
         dataStore.consistentHash = newHash;
         // Delete all shards to be shuffled out, if present.
         for (int shardNum: dataStore.shardLockMap.keySet()) {
-            if (oldHash.getBucket(shardNum) == dataStore.dsID && newHash.getBucket(shardNum) != dataStore.dsID) {
+            if (oldHash != null && oldHash.getBucket(shardNum) == m.getDsID() && newHash.getBucket(shardNum) != m.getDsID()) {
                 removeShard(shardNum);
             }
         }

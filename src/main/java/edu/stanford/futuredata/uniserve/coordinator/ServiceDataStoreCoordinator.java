@@ -13,6 +13,12 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceDataStoreCoordinator.class);
@@ -44,22 +50,16 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
         CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
         coordinator.consistentHash.addBucket(dsID);
-        ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
-        ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
-                .setNewConsistentHash(newConsistentHash).build();
-        for (DataStoreDescription otherDescription: coordinator.dataStoresMap.values()) {
-            if (otherDescription.status.get() == DataStoreDescription.ALIVE) {
-                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub =
-                        coordinator.dataStoreStubsMap.get(otherDescription.dsID);
-                otherStub.executeReshuffle(reshuffleMessage);
-            }
-        }
-        stub.executeReshuffle(reshuffleMessage);
         coordinator.dataStoreChannelsMap.put(dsID, channel);
         coordinator.dataStoreStubsMap.put(dsID, stub);
+        Set<Integer> otherDatastores = coordinator.dataStoresMap.values().stream()
+                .filter(i -> i.status.get() == DataStoreDescription.ALIVE)
+                .map(i -> i .dsID).collect(Collectors.toSet());
         coordinator.dataStoresMap.put(dsID, dsDescription);
         coordinator.zkCurator.setDSDescription(dsDescription);
-        coordinator.zkCurator.setConsistentHashFunction(coordinator.consistentHash);
+
+        coordinator.assignShards(otherDatastores, Set.of(dsID));
+
         coordinator.consistentHashLock.unlock();
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
         if (cloudID != -1) {
@@ -86,18 +86,10 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
                 logger.warn("DS{} Failure Detected", dsID);
                 coordinator.zkCurator.setDSDescription(dsDescription);
                 coordinator.consistentHash.removeBucket(dsID);
-                ByteString newConsistentHash = Utilities.objectToByteString(coordinator.consistentHash);
-                ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
-                        .setNewConsistentHash(newConsistentHash).build();
-                // TODO:  Parallelize
-                for (DataStoreDescription otherDescription: coordinator.dataStoresMap.values()) {
-                    if (otherDescription.status.get() == DataStoreDescription.ALIVE) {
-                        CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub otherStub =
-                                coordinator.dataStoreStubsMap.get(otherDescription.dsID);
-                        otherStub.executeReshuffle(reshuffleMessage);
-                    }
-                }
-                coordinator.zkCurator.setConsistentHashFunction(coordinator.consistentHash);
+                Set<Integer> otherDatastores = coordinator.dataStoresMap.values().stream()
+                        .filter(i -> i.status.get() == DataStoreDescription.ALIVE)
+                        .map(i -> i .dsID).collect(Collectors.toSet());
+                coordinator.assignShards(Collections.emptySet(), otherDatastores);
             }
             coordinator.consistentHashLock.unlock();
         }

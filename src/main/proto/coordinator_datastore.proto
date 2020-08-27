@@ -69,6 +69,8 @@ message NotifyReplicaRemovedResponse {}
 
 message ExecuteReshuffleMessage {
     bytes newConsistentHash = 1;
+    repeated int32 shardList = 2;
+    int32 dsID = 3;
 }
 
 message ExecuteReshuffleResponse {}

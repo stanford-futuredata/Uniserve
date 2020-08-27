@@ -175,7 +175,7 @@ public class KVStoreTests {
                 new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)),
                 zkHost, zkPort, "127.0.0.1", 8201, -1);
         dataStoreTwo.runPingDaemon = false;
-        dataStoreTwo.startServing();
+        assertEquals(0, dataStoreTwo.startServing());
 
         Thread.sleep(Broker.shardMapDaemonSleepDurationMillis * 2);
 

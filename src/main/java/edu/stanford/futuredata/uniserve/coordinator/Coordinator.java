@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.coordinator;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -268,13 +269,24 @@ public class Coordinator {
 
     public void assignShards(Set<Integer> lostShards, Set<Integer> gainedShards) {
         ByteString newConsistentHash = Utilities.objectToByteString(consistentHash);
-        ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
-                .setNewConsistentHash(newConsistentHash).build();
+        Set<Integer> shardsList = new HashSet<>();
+        for(TableInfo t: tableInfoMap.values()) {
+            int tableStart = t.id * Broker.SHARDS_PER_TABLE;
+            for (int i = tableStart; i < tableStart + t.numShards; i++) {
+                shardsList.add(i);
+            }
+        }
         // TODO:  Parallelize
-        for (int dsID: lostShards) {
+        for (int dsID: gainedShards) {
+            ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
+                    .setNewConsistentHash(newConsistentHash)
+                    .addAllShardList(shardsList).setDsID(dsID).build();
             dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
         }
-        for (int dsID: gainedShards) {
+        for (int dsID: lostShards) {
+            ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
+                    .setNewConsistentHash(newConsistentHash)
+                    .addAllShardList(shardsList).setDsID(dsID).build();
             dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
         }
         zkCurator.setConsistentHashFunction(consistentHash);
