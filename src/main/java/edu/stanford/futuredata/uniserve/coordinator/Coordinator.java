@@ -319,16 +319,25 @@ public class Coordinator {
         try {
             gainedLatch.await();
         } catch (InterruptedException ignored) {}
+        CountDownLatch consistentHashSetLatch = new CountDownLatch(lostShards.size());
         CountDownLatch lostLatch = new CountDownLatch(lostShards.size());
         for (int dsID: lostShards) {
             StreamObserver<ExecuteReshuffleResponse> lostObserver = new StreamObserver<>() {
+
+                boolean consistentHashSet = false;
+
                 @Override
                 public void onNext(ExecuteReshuffleResponse executeReshuffleResponse) {
+                    consistentHashSetLatch.countDown();
+                    consistentHashSet = true;
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
                     logger.warn("DS{} Reassignment Failure", dsID);
+                    if(!consistentHashSet) {
+                        consistentHashSetLatch.countDown();
+                    }
                     lostLatch.countDown();
                 }
 
@@ -343,9 +352,12 @@ public class Coordinator {
             CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffle(reshuffleMessage, lostObserver);
         }
         try {
-            lostLatch.await();
+            consistentHashSetLatch.await();
         } catch (InterruptedException ignored) {}
         zkCurator.setConsistentHashFunction(consistentHash);
+        try {
+            lostLatch.await();
+        } catch (InterruptedException ignored) {}
     }
 
     private class LoadBalancerDaemon extends Thread {
