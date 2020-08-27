@@ -11,6 +11,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -276,19 +278,58 @@ public class Coordinator {
                 shardsList.add(i);
             }
         }
-        // TODO:  Parallelize
+        CountDownLatch gainedLatch = new CountDownLatch(gainedShards.size());
         for (int dsID: gainedShards) {
+            StreamObserver<ExecuteReshuffleResponse> gainedObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(ExecuteReshuffleResponse executeReshuffleResponse) {
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("DS{} Reassignment Failure", dsID);
+                    gainedLatch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    gainedLatch.countDown();
+                }
+            };
             ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                     .setNewConsistentHash(newConsistentHash)
                     .addAllShardList(shardsList).setDsID(dsID).build();
-            dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
+            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffle(reshuffleMessage, gainedObserver);
         }
+        try {
+            gainedLatch.await();
+        } catch (InterruptedException ignored) {}
+        CountDownLatch lostLatch = new CountDownLatch(lostShards.size());
         for (int dsID: lostShards) {
+            StreamObserver<ExecuteReshuffleResponse> lostObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(ExecuteReshuffleResponse executeReshuffleResponse) {
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("DS{} Reassignment Failure", dsID);
+                    lostLatch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    lostLatch.countDown();
+                }
+            };
             ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                     .setNewConsistentHash(newConsistentHash)
                     .addAllShardList(shardsList).setDsID(dsID).build();
-            dataStoreStubsMap.get(dsID).executeReshuffle(reshuffleMessage);
+            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffle(reshuffleMessage, lostObserver);
         }
+        try {
+            lostLatch.await();
+        } catch (InterruptedException ignored) {}
         zkCurator.setConsistentHashFunction(consistentHash);
     }
 
