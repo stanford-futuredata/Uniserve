@@ -196,7 +196,7 @@ public class Broker {
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
                 @Override
                 public void onNext(AnchoredReadQueryResponse r) {
-                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle
+                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
                     intermediates.add(r.getResponse());
                 }
 
@@ -267,7 +267,7 @@ public class Broker {
             StreamObserver<ShuffleReadQueryResponse> responseObserver = new StreamObserver<>() {
                 @Override
                 public void onNext(ShuffleReadQueryResponse r) {
-                    assert (r.getReturnCode() == Broker.QUERY_SUCCESS); // TODO:  Handle
+                    assert (r.getReturnCode() == Broker.QUERY_SUCCESS);
                     intermediates.add(r.getResponse());
                 }
 

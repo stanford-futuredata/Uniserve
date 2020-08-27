@@ -105,6 +105,10 @@ public class LoadBalancerTests {
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
         Pair<Set<Integer>, Set<Integer>> lostGained = LoadBalancer.balanceLoad(load, coordinator.consistentHash);
         coordinator.assignShards(lostGained.getValue0(), lostGained.getValue1());
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (i != j) {
