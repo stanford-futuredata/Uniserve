@@ -203,9 +203,7 @@ public class Broker {
                 @Override
                 public void onError(Throwable throwable) {
                     logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
-                    try {
-                        Thread.sleep(shardMapDaemonSleepDurationMillis);
-                    } catch (InterruptedException ignored) {}
+                    shardMapUpdateDaemon.updateMap();
                     int newDSID = consistentHash.getBucket(anchorShardNum);
                     ManagedChannel channel = dsIDToChannelMap.get(newDSID);
                     BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
