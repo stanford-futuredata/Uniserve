@@ -242,6 +242,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 return false;
             }
             shardMap.putIfAbsent(shardNum, shard.get());
+            shardVersionMap.put(shardNum, z.versionNumber);
         }
         return true;
     }

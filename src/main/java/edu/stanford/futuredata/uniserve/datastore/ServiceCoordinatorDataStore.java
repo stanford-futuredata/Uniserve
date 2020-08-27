@@ -50,8 +50,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         assert (zkShardDescription != null);
         String cloudName = zkShardDescription.cloudName;
         int replicaVersion = zkShardDescription.versionNumber;
-        ConsistentHash c = dataStore.zkCurator.getConsistentHashFunction();
-        int primaryDSID = c.getBucket(shardNum);
         // Download the shard.
         Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion, true);
         if (loadedShard.isEmpty()) {
@@ -60,17 +58,12 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         // Load but lock the replica until it has been bootstrapped.
         S shard = loadedShard.get();
-        if (!dataStore.shardLockMap.containsKey(shardNum)) {
-            ShardLock lock = new ShardLock();
-            lock.systemLockLock();
-            dataStore.shardLockMap.put(shardNum, lock);
-        } else {
-            dataStore.shardLockMap.get(shardNum).systemLockLock();
-        }
-        dataStore.QPSMap.put(shardNum, new ConcurrentHashMap<>());
-        dataStore.shardMap.put(shardNum, loadedShard.get());
+        dataStore.createShardMetadata(shardNum);
+        dataStore.shardMap.put(shardNum, shard);
 
         // Set up a connection to the primary.
+        ConsistentHash c = dataStore.zkCurator.getConsistentHashFunction();
+        int primaryDSID = c.getBucket(shardNum);
         DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(primaryDSID);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryDSDescription.host, primaryDSDescription.port).usePlaintext().build();
         DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
@@ -117,10 +110,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             }
         }
         channel.shutdown();
-        dataStore.writeLog.put(shardNum, new ConcurrentHashMap<>());
         dataStore.shardVersionMap.put(shardNum, replicaVersion);
-        dataStore.replicaDescriptionsMap.put(shardNum, new ArrayList<>());
-        dataStore.shardLockMap.get(shardNum).systemLockUnlock();
         if (isReplacementPrimary) {
             logger.info("DS{} Loaded replacement primary shard {} version {}. Load time: {}ms", dataStore.dsID, shardNum, replicaVersion, System.currentTimeMillis() - loadStart);
         } else {
@@ -142,7 +132,11 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
     }
 
     private RemoveShardResponse removeShardHandler(RemoveShardMessage message) {
-        Integer shardNum = message.getShard();
+        removeShard(message.getShard());
+        return RemoveShardResponse.newBuilder().build();
+    }
+
+    private void removeShard(int shardNum) {
         dataStore.shardLockMap.get(shardNum).systemLockLock();
         assert(dataStore.shardMap.containsKey(shardNum));
         S shard = dataStore.shardMap.getOrDefault(shardNum, null);
@@ -155,14 +149,11 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         shard.destroy();
         dataStore.shardMap.remove(shardNum);
-        dataStore.writeLog.remove(shardNum);
-        dataStore.replicaDescriptionsMap.remove(shardNum);
+        dataStore.writeLog.get(shardNum).clear();
+        dataStore.replicaDescriptionsMap.get(shardNum).clear();
         dataStore.shardVersionMap.remove(shardNum);
-        dataStore.shardTimestampMap.remove(shardNum);
-        dataStore.materializedViewMap.remove(shardNum);
         dataStore.shardLockMap.get(shardNum).systemLockUnlock();
         logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
-        return RemoveShardResponse.newBuilder().build();
     }
 
     @Override
@@ -234,13 +225,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         // Delete all shards to be shuffled out, if present.
         for (int shardNum: dataStore.shardLockMap.keySet()) {
             if (oldHash.getBucket(shardNum) == dataStore.dsID && newHash.getBucket(shardNum) != dataStore.dsID) {
-                dataStore.shardLockMap.get(shardNum).systemLockLock();
-                S shard = dataStore.shardMap.get(shardNum);
-                if (shard != null) {
-                    shard.destroy();
-                }
-                dataStore.shardMap.remove(shardNum);
-                dataStore.shardLockMap.get(shardNum).systemLockUnlock();
+                removeShard(shardNum);
             }
         }
         // After this returns, no more queries can be executed on shards to be shuffled off this server.
