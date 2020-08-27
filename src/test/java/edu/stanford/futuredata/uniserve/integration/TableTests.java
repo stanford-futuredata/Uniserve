@@ -51,8 +51,7 @@ public class TableTests {
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
@@ -60,8 +59,7 @@ public class TableTests {
                     new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
             dataStore.runPingDaemon = false;
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            assertTrue(dataStore.startServing());
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new TableQueryEngine());
@@ -89,8 +87,7 @@ public class TableTests {
         int numShards = 4;
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
@@ -98,8 +95,7 @@ public class TableTests {
                     new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
                     zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
             dataStore.runPingDaemon = false;
-            int d_r = dataStore.startServing();
-            assertEquals(0, d_r);
+            assertTrue(dataStore.startServing());
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort, new TableQueryEngine());

@@ -85,14 +85,14 @@ public class Coordinator {
     }
 
     /** Start serving requests. */
-    public int startServing() {
+    public boolean startServing() {
         try {
             server.start();
             zkCurator.registerCoordinator(coordinatorHost, coordinatorPort);
         } catch (Exception e) {
             logger.warn("Coordinator startup failed: {}", e.getMessage());
             this.stopServing();
-            return 1;
+            return false;
         }
         logger.info("Coordinator server started, listening on " + coordinatorPort);
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -102,7 +102,7 @@ public class Coordinator {
             }
         });
         loadBalancer.start();
-        return 0;
+        return true;
     }
 
     /** Stop serving requests and shutdown resources. */

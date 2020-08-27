@@ -20,6 +20,7 @@ import java.util.Map;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AWSAutoScalingTests {
     private static final Logger logger = LoggerFactory.getLogger(AWSAutoScalingTests.class);
@@ -52,12 +53,10 @@ public class AWSAutoScalingTests {
         CoordinatorCloud cCloud = new AWSCoordinatorCloud(ami, launchDataStoreScript, instanceType);
         Coordinator coordinator = new Coordinator(cCloud, zkHost, zkPort, serverHost, 7777);
         coordinator.runLoadBalancerDaemon = false;
-        int c_r = coordinator.startServing();
-        assertEquals(0, c_r);
+        assertTrue(coordinator.startServing());
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
                 Path.of("/var/tmp/KVUniserve","shard"), zkHost, zkPort,"127.0.0.1",  8300, -1);
-        int d_r = dataStore.startServing();
-        assertEquals(0, d_r);
+        assertTrue(dataStore.startServing());
 
         Map<Integer, Double> overLoadedMap = Map.of(0, 0.9);
         coordinator.autoScale(overLoadedMap);

@@ -97,8 +97,9 @@ public class DataStore<R extends Row, S extends Shard> {
         pingDaemon = new PingDaemon();
     }
 
-    /** Start serving requests. */
-    public int startServing() {
+    /** Start serving requests.
+     * @return*/
+    public boolean startServing() {
         // Start serving.
         assert(!serving);
         serving = true;
@@ -106,7 +107,7 @@ public class DataStore<R extends Row, S extends Shard> {
             server.start();
         } catch (IOException e) {
             logger.warn("DataStore startup failed: {}", e.getMessage());
-            return 1;
+            return false;
         }
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
@@ -124,7 +125,7 @@ public class DataStore<R extends Row, S extends Shard> {
         } else {
             logger.warn("DataStore--Coordinator lookup failed");
             shutDown();
-            return 1;
+            return false;
         }
         logger.info("DataStore server started, listening on " + dsPort);
         coordinatorChannel =
@@ -139,7 +140,7 @@ public class DataStore<R extends Row, S extends Shard> {
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
             shutDown();
-            return 1;
+            return false;
         }
         pingDaemon.start();
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -148,7 +149,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 DataStore.this.shutDown();
             }
         });
-        return 0;
+        return true;
     }
 
     /** Stop serving requests and shutdown resources. */

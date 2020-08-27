@@ -75,8 +75,7 @@ public class KVExecutable {
 
     private static void runCoordinator(String zkHost, int zkPort, String cHost, int cPort) throws InterruptedException {
         Coordinator coordinator = new Coordinator(null, zkHost, zkPort, cHost, cPort);
-        int c_r = coordinator.startServing();
-        assert(c_r == 0);
+        coordinator.startServing();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             coordinator.stopServing();
             KVStoreTests.cleanUp(zkHost, zkPort);
@@ -86,8 +85,7 @@ public class KVExecutable {
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) throws InterruptedException {
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, cloudID);
-        int d_r = dataStore.startServing();
-        assert(d_r == 0);
+        dataStore.startServing();
         Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));
         Thread.sleep(Long.MAX_VALUE);
     }
