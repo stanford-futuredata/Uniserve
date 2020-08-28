@@ -194,15 +194,8 @@ public class Broker {
                     setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
                     .setTxID(txID).setTargetShards(serializedTargetShards).build();
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
-                @Override
-                public void onNext(AnchoredReadQueryResponse r) {
-                    assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
-                    intermediates.add(r.getResponse());
-                }
 
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                private void retry() {
                     shardMapUpdateDaemon.updateMap();
                     int newDSID = consistentHash.getBucket(anchorShardNum);
                     ManagedChannel channel = dsIDToChannelMap.get(newDSID);
@@ -211,8 +204,25 @@ public class Broker {
                 }
 
                 @Override
+                public void onNext(AnchoredReadQueryResponse r) {
+                    if (r.getReturnCode() == QUERY_RETRY) {
+                        logger.warn("Got QUERY_RETRY from DS{}", dsID);
+                        retry();
+                    } else {
+                        assert (r.getReturnCode() == QUERY_SUCCESS);
+                        intermediates.add(r.getResponse());
+                        latch.countDown();
+                    }
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                    retry();
+                }
+
+                @Override
                 public void onCompleted() {
-                    latch.countDown();
                 }
             };
             stub.anchoredReadQuery(m, responseObserver);
