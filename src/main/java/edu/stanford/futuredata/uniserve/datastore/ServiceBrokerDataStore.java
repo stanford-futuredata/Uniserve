@@ -262,8 +262,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         assert(localShard != null);
         List<Integer> partitionKeys = plan.getPartitionKeys(localShard);
         for (String tableName: plan.getQueriedTables()) {
-            S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-            ephemeralShards.put(tableName, ephemeralShard);
+            if (plan.getQueriedTables().size() > 1) {
+                S ephemeralShard = dataStore.createNewShard(DataStore.ephemeralShardNum.decrementAndGet()).get();
+                ephemeralShards.put(tableName, ephemeralShard);
+            }
             if (!tableName.equals(anchorTableName)) {
                 List<Integer> targetShards = allTargetShards.get(tableName);
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();

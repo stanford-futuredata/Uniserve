@@ -270,7 +270,10 @@ public class Coordinator {
                 .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
                 .filter(i -> dsIDToCloudID.containsKey(i))
                 .collect(Collectors.toList());
-        if (removeableDSIDs.size() > 0) {
+        long numActiveDataStores = dataStoresMap.keySet().stream()
+                .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
+                .count();
+        if (numActiveDataStores > 1 && removeableDSIDs.size() > 0) {
             Integer removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
             Integer cloudID = dsIDToCloudID.get(removedDSID);
             logger.info("Removing DataStore DS{} CloudID {}", removedDSID, cloudID);
