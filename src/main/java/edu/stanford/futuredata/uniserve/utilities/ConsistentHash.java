@@ -42,9 +42,11 @@ public class ConsistentHash implements Serializable {
 
     public void removeBucket (int bucketNum) {
         lock.writeLock().lock();
-        if(!buckets.contains(bucketNum)) {
-            lock.writeLock().unlock();
-            return;
+        assert(buckets.contains(bucketNum));
+        for (Map.Entry<Integer, Integer> e: reassignmentMap.entrySet()) {
+            if (e.getValue() == bucketNum) {
+                reassignmentMap.remove(e.getKey());
+            }
         }
         for(int i = 0; i < numVirtualNodes; i++) {
             Integer hash = hashFunction(bucketNum + virtualOffset * i);

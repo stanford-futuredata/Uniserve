@@ -265,7 +265,6 @@ public class Coordinator {
     }
 
     public void removeDataStore() {
-        consistentHashLock.lock();
         List<Integer> removeableDSIDs = dataStoresMap.keySet().stream()
                 .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
                 .filter(i -> dsIDToCloudID.containsKey(i))
@@ -282,9 +281,9 @@ public class Coordinator {
                     .filter(i -> i.status.get() == DataStoreDescription.ALIVE && i.dsID != removedDSID)
                     .map(i -> i .dsID).collect(Collectors.toSet());
             assignShards(Set.of(removedDSID), otherDatastores);
+            dataStoresMap.get(removedDSID).status.set(DataStoreDescription.DEAD);
             cCloud.removeDataStore(cloudID);
         }
-        consistentHashLock.unlock();
     }
 
     public void assignShards(Set<Integer> lostShards, Set<Integer> gainedShards) {
@@ -363,6 +362,8 @@ public class Coordinator {
         } catch (InterruptedException ignored) {}
     }
 
+    public Map<Integer, Integer> cachedQPSLoad = null;
+
     private class LoadBalancerDaemon extends Thread {
         @Override
         public void run() {
@@ -379,17 +380,18 @@ public class Coordinator {
                 logger.info("Collected memory usages: {}", memoryUsages);
                 if (qpsLoad.size() > 0) {
                     consistentHashLock.lock();
+                    cachedQPSLoad = qpsLoad;
                     Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(qpsLoad, consistentHash);
                     Set<Integer> lostShards = changes.getValue0();
                     Set<Integer> gainedShards = changes.getValue1();
                     logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
                     assignShards(lostShards, gainedShards);
-                    consistentHashLock.unlock();
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
                     if (cCloud != null) {
                         autoScale(serverCpuUsage);
                     }
+                    consistentHashLock.unlock();
                 }
             }
         }

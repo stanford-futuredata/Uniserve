@@ -1,11 +1,9 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
-import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -14,8 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -41,7 +37,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         int port = m.getPort();
         int cloudID = m.getCloudID();
         coordinator.consistentHashLock.lock();
-        int dsID = coordinator.dataStoreNumber.getAndIncrement();
+        Integer dsID = coordinator.dataStoreNumber.getAndIncrement();
         if (cloudID != -1) {
             assert(cloudID >= 0);
             coordinator.dsIDToCloudID.put(dsID, cloudID);
@@ -58,6 +54,9 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.dataStoresMap.put(dsID, dsDescription);
         coordinator.zkCurator.setDSDescription(dsDescription);
 
+        if (coordinator.cachedQPSLoad != null) {
+            LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash, dsID);
+        }
         coordinator.assignShards(otherDatastores, Set.of(dsID));
 
         coordinator.consistentHashLock.unlock();

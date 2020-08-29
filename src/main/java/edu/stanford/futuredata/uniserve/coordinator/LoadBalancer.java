@@ -20,6 +20,10 @@ public class LoadBalancer {
      * @return List of dsIDs that lost shards, list of dsIDs that gained shards.
      */
     public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads, ConsistentHash consistentHash) {
+        return balanceLoad(shardLoads, consistentHash, null);
+    }
+
+    public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads, ConsistentHash consistentHash, Integer newServer) {
         Set<Integer> lostShards = new HashSet<>();
         Set<Integer> gainedShards = new HashSet<>();
         Map<Integer, Integer> serverLoads = new HashMap<>();
@@ -45,7 +49,8 @@ public class LoadBalancer {
                 Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().filter(i -> shardLoads.get(i) > 0).max(Comparator.comparing(shardLoads::get)).orElse(null);
                 assert(mostLoadedShard != null);
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);
-                if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad + epsilon) {
+                if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad + epsilon &&
+                        (newServer == null || overLoadedServer.equals(newServer) || underLoadedServer.equals(newServer))) {
                     consistentHash.reassignmentMap.put(mostLoadedShard, underLoadedServer);
                     serverLoads.merge(overLoadedServer, -1 * shardLoads.get(mostLoadedShard), Integer::sum);
                     serverLoads.merge(underLoadedServer, shardLoads.get(mostLoadedShard), Integer::sum);

@@ -18,10 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class AutoScalingTests {
     private static final Logger logger = LoggerFactory.getLogger(AutoScalingTests.class);
@@ -40,8 +40,8 @@ public class AutoScalingTests {
     }
 
     @Test
-    public void testCoordinatorLoadBalance() throws InterruptedException {
-        logger.info("testCoordinatorLoadBalance");
+    public void testBasicAutoScaling() throws InterruptedException {
+        logger.info("testBasicAutoScaling");
         int numShards = 4;
         Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
                 zkHost, zkPort, "127.0.0.1", 7777);
@@ -51,7 +51,10 @@ public class AutoScalingTests {
         coordinator.addDataStore();
         coordinator.addDataStore();
         coordinator.addDataStore();
-        coordinator.addDataStore();
+
+        coordinator.cachedQPSLoad = Map.of(0, 1, 1, 1, 2, 1, 3, 1,
+                Broker.SHARDS_PER_TABLE, 0, Broker.SHARDS_PER_TABLE + 1, 0,
+                Broker.SHARDS_PER_TABLE + 2, 0, Broker.SHARDS_PER_TABLE + 3, 0);
 
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
 
@@ -66,6 +69,8 @@ public class AutoScalingTests {
         assertTrue(broker.writeQuery(writeQueryPlan,
                 List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
 
+        coordinator.addDataStore();
+
         AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         AnchoredReadQueryPlan<KVShard, Integer> one = new KVReadQueryPlanGet("table1",1);
@@ -75,6 +80,21 @@ public class AutoScalingTests {
         AnchoredReadQueryPlan<KVShard, Integer> three = new KVReadQueryPlanGet("table1", 3);
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
+        Thread.sleep(1000);
+
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+                if (i != j) {
+                    assertNotEquals(coordinator.consistentHash.getBucket(i), coordinator.consistentHash.getBucket(j));
+                }
+            }
+        }
+
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
+
         coordinator.removeDataStore();
 
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
@@ -82,7 +102,20 @@ public class AutoScalingTests {
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
-        Thread.sleep(1000);
+        coordinator.removeDataStore();
+
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
+
+        coordinator.removeDataStore();
+
+        assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+        assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
+
         coordinator.stopServing();
         broker.shutdown();
     }
