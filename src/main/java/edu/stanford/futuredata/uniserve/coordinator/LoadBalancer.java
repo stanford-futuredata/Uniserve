@@ -11,6 +11,8 @@ import java.util.stream.Collectors;
 public class LoadBalancer {
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
 
+    public static Integer epsilonRatio = 5;
+
     /**
      * Balance cluster load.
      * @param shardLoads Mapping from shard number to load.
@@ -35,7 +37,7 @@ public class LoadBalancer {
         serverMinQueue.addAll(serverLoads.keySet());
         serverMaxQueue.addAll(serverLoads.keySet());
         double averageLoad = shardLoads.values().stream().mapToDouble(i -> i).sum() / serverLoads.size();
-        double epsilon = averageLoad / 5;
+        double epsilon = averageLoad / epsilonRatio;
         while (serverMaxQueue.size() > 0 && serverLoads.get(serverMaxQueue.peek()) > averageLoad + epsilon) {
             Integer overLoadedServer = serverMaxQueue.remove();
             while (serverToShards.get(overLoadedServer).size() > 0 && serverLoads.get(overLoadedServer) > averageLoad + epsilon) {
