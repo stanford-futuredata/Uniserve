@@ -45,7 +45,7 @@ public class LoadBalancer {
                 Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().filter(i -> shardLoads.get(i) > 0).max(Comparator.comparing(shardLoads::get)).orElse(null);
                 assert(mostLoadedShard != null);
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);
-                if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad) {
+                if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad + epsilon) {
                     consistentHash.reassignmentMap.put(mostLoadedShard, underLoadedServer);
                     serverLoads.merge(overLoadedServer, -1 * shardLoads.get(mostLoadedShard), Integer::sum);
                     serverLoads.merge(underLoadedServer, shardLoads.get(mostLoadedShard), Integer::sum);
