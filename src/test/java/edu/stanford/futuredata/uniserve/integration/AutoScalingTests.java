@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.integration;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
@@ -11,14 +12,14 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
 import edu.stanford.futuredata.uniserve.localcloud.LocalCoordinatorCloud;
+import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -115,6 +116,71 @@ public class AutoScalingTests {
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
+
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+//    @Test
+    public void testMoreAutoscaling() throws InterruptedException {
+        logger.info("testMoreAutoscaling");
+        int numShards = 24;
+        Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
+                zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        assertTrue(coordinator.startServing());
+
+        coordinator.addDataStore();
+
+        coordinator.cachedQPSLoad = new HashMap<>();
+        for (int i = 0; i < numShards; i++) {
+            coordinator.cachedQPSLoad.put(i, 1);
+        }
+
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+
+        assertTrue(broker.createTable("table1", numShards));
+
+        List<KVRow> rows = new ArrayList<>();
+        for (int i = 0; i < numShards; i++) {
+            rows.add(new KVRow(i, i));
+        }
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
+        assertTrue(broker.writeQuery(writeQueryPlan, rows));
+
+        for(int i = 0; i < 4; i++) {
+            coordinator.addDataStore();
+            Thread.sleep(500);
+            coordinator.consistentHashLock.lock();
+            Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            Set<Integer> lostShards = changes.getValue0();
+            Set<Integer> gainedShards = changes.getValue1();
+            logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+            coordinator.assignShards(lostShards, gainedShards);
+            changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            assertEquals(0, changes.getValue0().size());
+            assertEquals(0, changes.getValue1().size());
+            coordinator.consistentHashLock.unlock();
+            for(int j = 0; j < numShards; j++) {
+                AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
+                assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+            }
+        }
+
+        for(int i = 0; i < 4; i++) {
+            coordinator.consistentHashLock.lock();
+            coordinator.removeDataStore();
+            Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            Set<Integer> lostShards = changes.getValue0();
+            Set<Integer> gainedShards = changes.getValue1();
+            logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+            coordinator.assignShards(lostShards, gainedShards);
+            coordinator.consistentHashLock.unlock();
+            for(int j = 0; j < numShards; j++) {
+                AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
+                assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
+            }
+        }
 
         coordinator.stopServing();
         broker.shutdown();

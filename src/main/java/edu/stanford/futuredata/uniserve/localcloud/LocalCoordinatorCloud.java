@@ -30,6 +30,7 @@ public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements Co
                 factory, Path.of(String.format("/var/tmp/KVUniserve%d", cloudID)),
                 "127.0.0.1", 2181, "127.0.0.1", 8500 + cloudID, cloudID);
         dataStores.put(cloudID, dataStore);
+        dataStore.runPingDaemon = false;
         return dataStore.startServing();
     }
 
@@ -41,10 +42,6 @@ public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements Co
 
     @Override
     public void shutdown() {
-        dataStores.values().forEach(i -> i.runPingDaemon = false);
-        try {
-            Thread.sleep(DataStore.pingDaemonSleepDurationMillis * 3);
-        } catch (InterruptedException ignored) { }
         dataStores.values().forEach(DataStore::shutDown);
     }
 }

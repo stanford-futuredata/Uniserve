@@ -45,7 +45,12 @@ public class LoadBalancer {
         while (serverMaxQueue.size() > 0 && serverLoads.get(serverMaxQueue.peek()) > averageLoad + epsilon) {
             Integer overLoadedServer = serverMaxQueue.remove();
             while (serverToShards.get(overLoadedServer).size() > 0 && serverLoads.get(overLoadedServer) > averageLoad + epsilon) {
-                Integer underLoadedServer = serverMinQueue.remove();
+                Integer underLoadedServer;
+                if (newServer == null || serverLoads.get(newServer) > averageLoad + epsilon) {
+                    underLoadedServer = serverMinQueue.remove();
+                } else {
+                    underLoadedServer = newServer;
+                }
                 Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().filter(i -> shardLoads.get(i) > 0).max(Comparator.comparing(shardLoads::get)).orElse(null);
                 assert(mostLoadedShard != null);
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);

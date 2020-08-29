@@ -43,11 +43,13 @@ public class ConsistentHash implements Serializable {
     public void removeBucket (int bucketNum) {
         lock.writeLock().lock();
         assert(buckets.contains(bucketNum));
+        List<Integer> toRemove = new ArrayList<>();
         for (Map.Entry<Integer, Integer> e: reassignmentMap.entrySet()) {
             if (e.getValue() == bucketNum) {
-                reassignmentMap.remove(e.getKey());
+                toRemove.add(e.getKey());
             }
         }
+        toRemove.forEach(reassignmentMap::remove);
         for(int i = 0; i < numVirtualNodes; i++) {
             Integer hash = hashFunction(bucketNum + virtualOffset * i);
             hashRing.remove(hash);
