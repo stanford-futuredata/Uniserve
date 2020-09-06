@@ -220,7 +220,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
+        if (!dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
             logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
@@ -264,7 +264,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (dataStore.consistentHash.getBucket(shardNum) != dataStore.dsID) {
+        if (!dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
             logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             responseObserver.onNext(ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());

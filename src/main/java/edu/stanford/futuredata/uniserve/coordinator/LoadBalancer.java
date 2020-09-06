@@ -32,9 +32,11 @@ public class LoadBalancer {
         serverToShards.putAll(consistentHash.buckets.stream().collect(Collectors.toMap(i -> i, i -> new ArrayList<>())));
         for (int shardNum: shardLoads.keySet()) {
             int shardLoad = shardLoads.get(shardNum);
-            int serverNum = consistentHash.getBucket(shardNum);
-            serverLoads.merge(serverNum, shardLoad, Integer::sum);
-            serverToShards.get(serverNum).add(shardNum);
+            List<Integer> serverNums = consistentHash.getBuckets(shardNum);
+            for (Integer serverNum: serverNums) {
+                serverLoads.merge(serverNum, shardLoad, Integer::sum);
+                serverToShards.get(serverNum).add(shardNum);
+            }
         }
         PriorityQueue<Integer> serverMinQueue = new PriorityQueue<>(Comparator.comparing(serverLoads::get));
         PriorityQueue<Integer> serverMaxQueue = new PriorityQueue<>(Comparator.comparing(serverLoads::get).reversed());
@@ -56,7 +58,7 @@ public class LoadBalancer {
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);
                 if (serverLoads.get(underLoadedServer) + shardLoads.get(mostLoadedShard) <= averageLoad + epsilon &&
                         (newServer == null || overLoadedServer.equals(newServer) || underLoadedServer.equals(newServer))) {
-                    consistentHash.reassignmentMap.put(mostLoadedShard, underLoadedServer);
+                    consistentHash.reassignmentMap.put(mostLoadedShard, new ArrayList<>(List.of(underLoadedServer)));
                     serverLoads.merge(overLoadedServer, -1 * shardLoads.get(mostLoadedShard), Integer::sum);
                     serverLoads.merge(underLoadedServer, shardLoads.get(mostLoadedShard), Integer::sum);
                     lostShards.add(overLoadedServer);

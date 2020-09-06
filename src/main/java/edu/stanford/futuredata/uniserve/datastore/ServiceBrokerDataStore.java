@@ -95,7 +95,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
-                if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
+                if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
@@ -252,7 +252,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         String anchorTableName = plan.getAnchorTable();
         dataStore.createShardMetadata(localShardNum);
         dataStore.shardLockMap.get(localShardNum).readerLockLock();
-        if (dataStore.consistentHash.getBucket(localShardNum) != dataStore.dsID) {
+        if (!dataStore.consistentHash.getBuckets(localShardNum).contains(dataStore.dsID)) {
             logger.warn("DS{} Got anchored read request for unassigned local shard {}", dataStore.dsID, localShardNum);
             dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
             return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
@@ -271,7 +271,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
                 CountDownLatch latch = new CountDownLatch(targetShards.size());
                 for (int targetShard : targetShards) {
-                    int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                    int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
@@ -292,7 +292,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         public void onError(Throwable throwable) {
                             logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
                             // TODO: First remove all ByteStrings added from this shard.
-                            int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                            int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                             ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                             DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                             stub.anchoredShuffle(g, this);
@@ -347,7 +347,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
             CountDownLatch latch = new CountDownLatch(targetShards.size());
             for (int targetShard : targetShards) {
-                int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                 ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                 DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                 ShuffleMessage g = ShuffleMessage.newBuilder()
@@ -368,7 +368,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     public void onError(Throwable throwable) {
                         logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
                         // TODO: First remove all ByteStrings added from this shard.
-                        int targetDSID = dataStore.consistentHash.getBucket(targetShard); // TODO:  If it's already here, use it.
+                        int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                         ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                         DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                         stub.shuffle(g, this);
@@ -405,7 +405,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         AnchoredReadQueryPlan<S, Object> r = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).writerLockLock();
-        if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
+        if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
@@ -451,7 +451,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         String name = m.getName();
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (dataStore.consistentHash.getBucket(shardNum) == dataStore.dsID) {
+        if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
             dataStore.ensureShardCached(shardNum);
             MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
             ByteString intermediate = v.getLatestView();

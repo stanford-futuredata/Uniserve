@@ -187,7 +187,7 @@ public class Broker {
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
         for (int anchorShardNum: anchorTableShards) {
-            int dsID = consistentHash.getBucket(anchorShardNum);
+            int dsID = consistentHash.getRandomBucket(anchorShardNum);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
@@ -197,7 +197,7 @@ public class Broker {
 
                 private void retry() {
                     shardMapUpdateDaemon.updateMap();
-                    int newDSID = consistentHash.getBucket(anchorShardNum);
+                    int newDSID = consistentHash.getRandomBucket(anchorShardNum);
                     ManagedChannel channel = dsIDToChannelMap.get(newDSID);
                     BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
                     stub.anchoredReadQuery(m, this);
@@ -379,7 +379,7 @@ public class Broker {
     }
 
     private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubForShard(int shard) {
-        int dsID = consistentHash.getBucket(shard);
+        int dsID = consistentHash.getRandomBucket(shard);
         ManagedChannel channel = dsIDToChannelMap.get(dsID);
         assert(channel != null);
         return BrokerDataStoreGrpc.newBlockingStub(channel);

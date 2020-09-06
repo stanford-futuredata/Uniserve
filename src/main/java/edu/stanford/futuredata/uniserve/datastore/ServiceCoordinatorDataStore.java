@@ -62,7 +62,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
 
         // Set up a connection to the primary.
         ConsistentHash c = dataStore.zkCurator.getConsistentHashFunction();
-        int primaryDSID = c.getBucket(shardNum);
+        int primaryDSID = c.getBuckets(shardNum).get(0);
         DataStoreDescription primaryDSDescription = dataStore.zkCurator.getDSDescription(primaryDSID);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(primaryDSDescription.host, primaryDSDescription.port).usePlaintext().build();
         DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub primaryBlockingStub = DataStoreDataStoreGrpc.newBlockingStub(channel);
@@ -217,7 +217,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         ConsistentHash oldHash = dataStore.consistentHash;
         dataStore.dsID = m.getDsID();
         for (int shardNum: m.getShardListList()) {
-            if (newHash.getBucket(shardNum) == m.getDsID() && (oldHash == null || oldHash.getBucket(shardNum) != m.getDsID())) {
+            if (newHash.getBuckets(shardNum).contains(m.getDsID()) && (oldHash == null || !oldHash.getBuckets(shardNum).contains(m.getDsID()))) {
                 addReplica(shardNum, false);
             }
         }
@@ -226,7 +226,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
         // Delete all shards to be shuffled out, if present.
         for (int shardNum: dataStore.shardLockMap.keySet()) {
-            if (oldHash != null && oldHash.getBucket(shardNum) == m.getDsID() && newHash.getBucket(shardNum) != m.getDsID()) {
+            if (oldHash != null && oldHash.getBuckets(shardNum).contains(m.getDsID()) && !newHash.getBuckets(shardNum).contains(m.getDsID())) {
                 removeShard(shardNum);
             }
         }

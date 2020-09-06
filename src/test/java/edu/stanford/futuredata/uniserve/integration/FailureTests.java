@@ -113,12 +113,12 @@ public class FailureTests {
                 }
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
-                    int dsID = coordinator.consistentHash.getBucket(shardNum);
+                    int dsID = coordinator.consistentHash.getRandomBucket(shardNum);
                     KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
                     if (writeSuccess) {
                         assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                     } else {
-                        assertEquals(dataStores.get(coordinator.consistentHash.getBucket(0)).shardMap.get(0).queryKey(0), s.queryKey(shardNum));
+                        assertEquals(dataStores.get(coordinator.consistentHash.getRandomBucket(0)).shardMap.get(0).queryKey(0), s.queryKey(shardNum));
                     }
                 }
             }
@@ -165,13 +165,13 @@ public class FailureTests {
                 }
                 boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
-                    int dsID = coordinator.consistentHash.getBucket(shardNum);
+                    int dsID = coordinator.consistentHash.getRandomBucket(shardNum);
                     KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
                     if (!Objects.isNull(s)) {
                         if (writeSuccess) {
                             assertEquals(Optional.of(i % 2), s.queryKey(shardNum));
                         } else {
-                            assertEquals(dataStores.get(coordinator.consistentHash.getBucket(1)).shardMap.get(1).queryKey(1), s.queryKey(shardNum));
+                            assertEquals(dataStores.get(coordinator.consistentHash.getRandomBucket(1)).shardMap.get(1).queryKey(1), s.queryKey(shardNum));
                         }
                     }
                 }

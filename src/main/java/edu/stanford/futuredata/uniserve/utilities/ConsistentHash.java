@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.utilities;
 
 import java.io.Serializable;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -19,7 +20,7 @@ public class ConsistentHash implements Serializable {
     private static final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     // A mapping of keys reassigned away from their consistent-hash buckets.
-    public final Map<Integer, Integer> reassignmentMap = new HashMap<>();
+    public final Map<Integer, List<Integer>> reassignmentMap = new HashMap<>();
 
     public final Set<Integer> buckets = new HashSet<>();
 
@@ -40,12 +41,14 @@ public class ConsistentHash implements Serializable {
         lock.writeLock().unlock();
     }
 
-    public void removeBucket (int bucketNum) {
+    public void removeBucket (Integer bucketNum) {
         lock.writeLock().lock();
         assert(buckets.contains(bucketNum));
         List<Integer> toRemove = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> e: reassignmentMap.entrySet()) {
-            if (e.getValue() == bucketNum) {
+        for (Map.Entry<Integer, List<Integer>> e: reassignmentMap.entrySet()) {
+            List<Integer> replicasList = e.getValue();
+            replicasList.remove(bucketNum);
+            if (replicasList.size() == 0) {
                 toRemove.add(e.getKey());
             }
         }
@@ -60,9 +63,28 @@ public class ConsistentHash implements Serializable {
         lock.writeLock().unlock();
     }
 
-    public int getBucket(int key) {
+    public List<Integer> getBuckets(int key) {
         if (reassignmentMap.containsKey(key)) {
             return reassignmentMap.get(key);
+        }
+        lock.readLock().lock();
+        int hash = hashFunction(key);
+        for (int n : hashRing) {
+            if (hash < n) {
+                int ret = hashToBucket.get(n);
+                lock.readLock().unlock();
+                return List.of(ret);
+            }
+        }
+        int ret = hashToBucket.get(hashRing.get(0));
+        lock.readLock().unlock();
+        return List.of(ret);
+    }
+
+    public Integer getRandomBucket(int key) {
+        if (reassignmentMap.containsKey(key)) {
+            List<Integer> keys = reassignmentMap.get(key);
+            return keys.get(ThreadLocalRandom.current().nextInt(keys.size()));
         }
         lock.readLock().lock();
         int hash = hashFunction(key);

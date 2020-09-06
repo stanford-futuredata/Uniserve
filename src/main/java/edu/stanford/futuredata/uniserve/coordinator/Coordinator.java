@@ -128,7 +128,7 @@ public class Coordinator {
             logger.info("AddReplica failed for shard {} DEAD DataStore {}", shardNum, replicaID);
             return;
         }
-        int primaryDataStore = consistentHash.getBucket(shardNum);
+        int primaryDataStore = consistentHash.getRandomBucket(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.putIfAbsent(shardNum, new ArrayList<>());
         if (replicaDataStores == null) {
             replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
@@ -165,7 +165,7 @@ public class Coordinator {
 
     public void removeShard(int shardNum, int targetID) {
         shardMapLock.lock();
-        int primaryDataStore = consistentHash.getBucket(shardNum);
+        int primaryDataStore = consistentHash.getRandomBucket(shardNum);
         List<Integer> replicaDataStores = shardToReplicaDataStoreMap.get(shardNum);
         if (primaryDataStore == targetID) {
             logger.error("Cannot remove shard {} from primary {}", shardNum, targetID);
@@ -186,7 +186,7 @@ public class Coordinator {
                 logger.warn("Shard {} remove RPC failed on DataStore {}", shardNum, targetID);
             }
             shardMapLock.lock();
-            primaryDataStore = consistentHash.getBucket(shardNum);
+            primaryDataStore = consistentHash.getRandomBucket(shardNum);
             NotifyReplicaRemovedMessage nm = NotifyReplicaRemovedMessage.newBuilder().setDsID(targetID).setShard(shardNum).build();
             try {
                 NotifyReplicaRemovedResponse r = dataStoreStubsMap.get(primaryDataStore).notifyReplicaRemoved(nm);

@@ -86,7 +86,7 @@ public class AutoScalingTests {
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (i != j) {
-                    assertNotEquals(coordinator.consistentHash.getBucket(i), coordinator.consistentHash.getBucket(j));
+                    assertNotEquals(coordinator.consistentHash.getRandomBucket(i), coordinator.consistentHash.getRandomBucket(j));
                 }
             }
         }
