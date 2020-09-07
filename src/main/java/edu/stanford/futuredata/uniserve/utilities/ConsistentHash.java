@@ -6,6 +6,10 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+/**
+ * A consistent hashing function that assigns shards to servers (buckets).
+ * Consistent hashing assignments can be overriden by the "reassignment map", modified by the load balancer.
+ */
 public class ConsistentHash implements Serializable {
 
     private final List<Integer> hashRing = new ArrayList<>();
@@ -29,6 +33,7 @@ public class ConsistentHash implements Serializable {
         return (int) (m * (k * A - Math.floor(k * A)));
     }
 
+    // Add a bucket (server) to the consistent hash.
     public void addBucket(int bucketNum) {
         lock.writeLock().lock();
         for(int i = 0; i < numVirtualNodes; i++) {
@@ -41,6 +46,7 @@ public class ConsistentHash implements Serializable {
         lock.writeLock().unlock();
     }
 
+    // Remove a bucket (server) from the consistent hash.
     public void removeBucket (Integer bucketNum) {
         lock.writeLock().lock();
         assert(buckets.contains(bucketNum));
@@ -63,6 +69,8 @@ public class ConsistentHash implements Serializable {
         lock.writeLock().unlock();
     }
 
+    // Get all buckets a key (shard) is assigned to.  By default, a shard is only assigned to one server, but
+    // load balancer replication may assign it to more.
     public List<Integer> getBuckets(int key) {
         if (reassignmentMap.containsKey(key)) {
             return reassignmentMap.get(key);
@@ -81,6 +89,7 @@ public class ConsistentHash implements Serializable {
         return List.of(ret);
     }
 
+    // Get a random bucket (server) to which a key (shard) is assigned.
     public Integer getRandomBucket(int key) {
         if (reassignmentMap.containsKey(key)) {
             List<Integer> keys = reassignmentMap.get(key);

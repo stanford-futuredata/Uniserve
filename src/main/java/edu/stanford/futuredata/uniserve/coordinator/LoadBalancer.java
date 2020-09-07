@@ -15,15 +15,17 @@ public class LoadBalancer {
 
     /**
      * Balance cluster load.
-     * @param shardLoads Mapping from shard number to load.
-     * @param consistentHash Coordinator consistent hash, whose reassignment map will be modified.
-     * @return List of dsIDs that lost shards, list of dsIDs that gained shards.
+     * @param shardLoads A map from shard number to the load (queries per second) on that shard.
+     * @param consistentHash The coordinator's consistent hash.  The load balancer will modify its reassignment map.
+     * @param newServer Optional parameter.  If set, shards will only be added to or removed from the specified server.
+     * @return A pair of lists of servers:  first those that lost shards in balancing, then those that gained shards.
      */
     public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads, ConsistentHash consistentHash) {
         return balanceLoad(shardLoads, consistentHash, null);
     }
 
-    public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads, ConsistentHash consistentHash, Integer newServer) {
+    public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads,
+                                                               ConsistentHash consistentHash, Integer newServer) {
         Set<Integer> lostShards = new HashSet<>();
         Set<Integer> gainedShards = new HashSet<>();
         Map<Integer, Integer> serverLoads = new HashMap<>();
