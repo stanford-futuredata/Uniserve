@@ -280,13 +280,14 @@ public class Coordinator {
             Set<Integer> otherDatastores = dataStoresMap.values().stream()
                     .filter(i -> i.status.get() == DataStoreDescription.ALIVE && i.dsID != removedDSID)
                     .map(i -> i .dsID).collect(Collectors.toSet());
-            assignShards(Set.of(removedDSID), otherDatastores);
+            assignShards();
             dataStoresMap.get(removedDSID).status.set(DataStoreDescription.DEAD);
             cCloud.removeDataStore(cloudID);
         }
     }
 
-    public void assignShards(Set<Integer> lostShards, Set<Integer> gainedShards) {
+    public void assignShards(){
+        Set<Integer> servers = consistentHash.buckets;
         ByteString newConsistentHash = Utilities.objectToByteString(consistentHash);
         Set<Integer> shardsList = new HashSet<>();
         for(TableInfo t: tableInfoMap.values()) {
@@ -295,8 +296,9 @@ public class Coordinator {
                 shardsList.add(i);
             }
         }
-        CountDownLatch gainedLatch = new CountDownLatch(gainedShards.size());
-        for (int dsID: gainedShards) {
+        // Add assigned shards.
+        CountDownLatch gainedLatch = new CountDownLatch(servers.size());
+        for (int dsID: servers) {
             StreamObserver<ExecuteReshuffleResponse> gainedObserver = new StreamObserver<>() {
                 @Override
                 public void onNext(ExecuteReshuffleResponse executeReshuffleResponse) {
@@ -316,30 +318,24 @@ public class Coordinator {
             ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                     .setNewConsistentHash(newConsistentHash)
                     .addAllShardList(shardsList).setDsID(dsID).build();
-            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffle(reshuffleMessage, gainedObserver);
+            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffleAdd(reshuffleMessage, gainedObserver);
         }
         try {
             gainedLatch.await();
         } catch (InterruptedException ignored) {}
-        CountDownLatch consistentHashSetLatch = new CountDownLatch(lostShards.size());
-        CountDownLatch lostLatch = new CountDownLatch(lostShards.size());
-        for (int dsID: lostShards) {
+        // Set the new consistent hash globally.
+        zkCurator.setConsistentHashFunction(consistentHash);
+        // Remove unassigned shards.
+        CountDownLatch lostLatch = new CountDownLatch(servers.size());
+        for (int dsID: servers) {
             StreamObserver<ExecuteReshuffleResponse> lostObserver = new StreamObserver<>() {
-
-                boolean consistentHashSet = false;
-
                 @Override
                 public void onNext(ExecuteReshuffleResponse executeReshuffleResponse) {
-                    consistentHashSetLatch.countDown();
-                    consistentHashSet = true;
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
                     logger.warn("DS{} Reassignment Failure", dsID);
-                    if(!consistentHashSet) {
-                        consistentHashSetLatch.countDown();
-                    }
                     lostLatch.countDown();
                 }
 
@@ -351,12 +347,8 @@ public class Coordinator {
             ExecuteReshuffleMessage reshuffleMessage = ExecuteReshuffleMessage.newBuilder()
                     .setNewConsistentHash(newConsistentHash)
                     .addAllShardList(shardsList).setDsID(dsID).build();
-            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffle(reshuffleMessage, lostObserver);
+            CoordinatorDataStoreGrpc.newStub(dataStoreChannelsMap.get(dsID)).executeReshuffleRemove(reshuffleMessage, lostObserver);
         }
-        try {
-            consistentHashSetLatch.await();
-        } catch (InterruptedException ignored) {}
-        zkCurator.setConsistentHashFunction(consistentHash);
         try {
             lostLatch.await();
         } catch (InterruptedException ignored) {}
@@ -385,7 +377,7 @@ public class Coordinator {
                     Set<Integer> lostShards = changes.getValue0();
                     Set<Integer> gainedShards = changes.getValue1();
                     logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
-                    assignShards(lostShards, gainedShards);
+                    assignShards();
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
                     if (cCloud != null) {

@@ -11,7 +11,6 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -57,7 +56,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         if (coordinator.cachedQPSLoad != null) {
             DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash, dsID);
         }
-        coordinator.assignShards(otherDatastores, Set.of(dsID));
+        coordinator.assignShards();
 
         coordinator.consistentHashLock.unlock();
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
@@ -88,7 +87,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
                 Set<Integer> otherDatastores = coordinator.dataStoresMap.values().stream()
                         .filter(i -> i.status.get() == DataStoreDescription.ALIVE)
                         .map(i -> i .dsID).collect(Collectors.toSet());
-                coordinator.assignShards(Collections.emptySet(), otherDatastores);
+                coordinator.assignShards();
             }
             coordinator.consistentHashLock.unlock();
         }

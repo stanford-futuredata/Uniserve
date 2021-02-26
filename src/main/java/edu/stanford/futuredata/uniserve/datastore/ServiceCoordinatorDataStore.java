@@ -211,10 +211,13 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         return NotifyReplicaRemovedResponse.newBuilder().build();
     }
 
+    private ConsistentHash oldHash;
+
     @Override
-    public void executeReshuffle(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
+    public void executeReshuffleAdd(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
         ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(m.getNewConsistentHash());
         ConsistentHash oldHash = dataStore.consistentHash;
+        this.oldHash = oldHash;
         dataStore.dsID = m.getDsID();
         for (int shardNum: m.getShardListList()) {
             if (newHash.getBuckets(shardNum).contains(m.getDsID()) && (oldHash == null || !oldHash.getBuckets(shardNum).contains(m.getDsID()))) {
@@ -224,6 +227,13 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         // By setting the consistent hash, ensure no new queries are processed after this point.
         dataStore.consistentHash = newHash;
         responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void executeReshuffleRemove(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
+        ConsistentHash newHash = dataStore.consistentHash;
+        ConsistentHash oldHash = this.oldHash;
         // Delete all shards to be shuffled out, if present.
         for (int shardNum: dataStore.shardLockMap.keySet()) {
             if (oldHash != null && oldHash.getBuckets(shardNum).contains(m.getDsID()) && !newHash.getBuckets(shardNum).contains(m.getDsID())) {
@@ -231,6 +241,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
             }
         }
         // After this returns, no more queries can be executed on shards to be shuffled off this server.
+        responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
         responseObserver.onCompleted();
     }
 }

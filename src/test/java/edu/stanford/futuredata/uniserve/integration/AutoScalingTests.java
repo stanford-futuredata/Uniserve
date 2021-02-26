@@ -156,7 +156,7 @@ public class AutoScalingTests {
             Set<Integer> lostShards = changes.getValue0();
             Set<Integer> gainedShards = changes.getValue1();
             logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
-            coordinator.assignShards(lostShards, gainedShards);
+            coordinator.assignShards();
             changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
             assertEquals(0, changes.getValue0().size());
             assertEquals(0, changes.getValue1().size());
@@ -174,7 +174,7 @@ public class AutoScalingTests {
             Set<Integer> lostShards = changes.getValue0();
             Set<Integer> gainedShards = changes.getValue1();
             logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
-            coordinator.assignShards(lostShards, gainedShards);
+            coordinator.assignShards();
             coordinator.consistentHashLock.unlock();
             for(int j = 0; j < numShards; j++) {
                 AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
