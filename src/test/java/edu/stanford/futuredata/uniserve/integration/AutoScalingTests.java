@@ -2,7 +2,7 @@ package edu.stanford.futuredata.uniserve.integration;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
-import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
@@ -152,12 +152,12 @@ public class AutoScalingTests {
             coordinator.addDataStore();
             Thread.sleep(500);
             coordinator.consistentHashLock.lock();
-            Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
             Set<Integer> lostShards = changes.getValue0();
             Set<Integer> gainedShards = changes.getValue1();
             logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
             coordinator.assignShards(lostShards, gainedShards);
-            changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
             assertEquals(0, changes.getValue0().size());
             assertEquals(0, changes.getValue1().size());
             coordinator.consistentHashLock.unlock();
@@ -170,7 +170,7 @@ public class AutoScalingTests {
         for(int i = 0; i < 4; i++) {
             coordinator.consistentHashLock.lock();
             coordinator.removeDataStore();
-            Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
+            Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
             Set<Integer> lostShards = changes.getValue0();
             Set<Integer> gainedShards = changes.getValue1();
             logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);

@@ -381,7 +381,7 @@ public class Coordinator {
                 if (qpsLoad.size() > 0) {
                     consistentHashLock.lock();
                     cachedQPSLoad = qpsLoad;
-                    Pair<Set<Integer>, Set<Integer>> changes = LoadBalancer.balanceLoad(qpsLoad, consistentHash);
+                    Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(qpsLoad, consistentHash);
                     Set<Integer> lostShards = changes.getValue0();
                     Set<Integer> gainedShards = changes.getValue1();
                     logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);

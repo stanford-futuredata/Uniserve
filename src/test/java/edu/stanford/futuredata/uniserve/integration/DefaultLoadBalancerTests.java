@@ -3,7 +3,7 @@ package edu.stanford.futuredata.uniserve.integration;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
-import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -27,8 +27,8 @@ import java.util.*;
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
 
-public class LoadBalancerTests {
-    private static final Logger logger = LoggerFactory.getLogger(LoadBalancerTests.class);
+public class DefaultLoadBalancerTests {
+    private static final Logger logger = LoggerFactory.getLogger(DefaultLoadBalancerTests.class);
 
     private static String zkHost = "127.0.0.1";
     private static Integer zkPort = 2181;
@@ -52,7 +52,7 @@ public class LoadBalancerTests {
         c.addBucket(2);
         c.addBucket(3);
         Map<Integer, Integer> shardLoads = Map.of(0, 1, 1, 1, 2, 1, 3, 1);
-        LoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (i != j) {
@@ -101,7 +101,7 @@ public class LoadBalancerTests {
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
-        Pair<Set<Integer>, Set<Integer>> lostGained = LoadBalancer.balanceLoad(load, coordinator.consistentHash);
+        Pair<Set<Integer>, Set<Integer>> lostGained = DefaultLoadBalancer.balanceLoad(load, coordinator.consistentHash);
         coordinator.assignShards(lostGained.getValue0(), lostGained.getValue1());
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
@@ -136,11 +136,11 @@ public class LoadBalancerTests {
         c.addBucket(2);
         c.addBucket(3);
         Map<Integer, Integer> shardLoads = Map.of(0, 10, 1, 1, 2, 1, 3, 1);
-        LoadBalancer.balanceLoad(shardLoads, c);
-        LoadBalancer.balanceLoad(shardLoads, c);
-        LoadBalancer.balanceLoad(shardLoads, c);
-        LoadBalancer.balanceLoad(shardLoads, c);
-        LoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
+        DefaultLoadBalancer.balanceLoad(shardLoads, c);
         for (int i = 0; i < 4; i++) {
             assert(c.getBuckets(0).contains(i));
         }
@@ -188,7 +188,7 @@ public class LoadBalancerTests {
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
         for (int i = 0; i < 5; i++) {
-            Pair<Set<Integer>, Set<Integer>> lostGained = LoadBalancer.balanceLoad(load, coordinator.consistentHash);
+            Pair<Set<Integer>, Set<Integer>> lostGained = DefaultLoadBalancer.balanceLoad(load, coordinator.consistentHash);
             coordinator.assignShards(lostGained.getValue0(), lostGained.getValue1());
         }
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
@@ -213,7 +213,7 @@ public class LoadBalancerTests {
 
         load = coordinator.collectLoad().getValue0();
         for (int i = 0; i < 5; i++) {
-            Pair<Set<Integer>, Set<Integer>> lostGained = LoadBalancer.balanceLoad(load, coordinator.consistentHash);
+            Pair<Set<Integer>, Set<Integer>> lostGained = DefaultLoadBalancer.balanceLoad(load, coordinator.consistentHash);
             coordinator.assignShards(lostGained.getValue0(), lostGained.getValue1());
         }
 

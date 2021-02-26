@@ -8,8 +8,8 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class LoadBalancer {
-    private static final Logger logger = LoggerFactory.getLogger(LoadBalancer.class);
+public class DefaultLoadBalancer {
+    private static final Logger logger = LoggerFactory.getLogger(DefaultLoadBalancer.class);
 
     public static Integer epsilonRatio = 5;
 

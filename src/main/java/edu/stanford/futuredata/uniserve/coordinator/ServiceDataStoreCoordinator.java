@@ -55,7 +55,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.zkCurator.setDSDescription(dsDescription);
 
         if (coordinator.cachedQPSLoad != null) {
-            LoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash, dsID);
+            DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash, dsID);
         }
         coordinator.assignShards(otherDatastores, Set.of(dsID));
 
