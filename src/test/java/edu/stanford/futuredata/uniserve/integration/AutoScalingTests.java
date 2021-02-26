@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.integration;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -44,7 +45,7 @@ public class AutoScalingTests {
         logger.info("testBasicAutoScaling");
         int numShards = 4;
         Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
-                new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+                new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
 
@@ -125,7 +126,7 @@ public class AutoScalingTests {
         logger.info("testMoreAutoscaling");
         int numShards = 24;
         Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
-                new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+                new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
 

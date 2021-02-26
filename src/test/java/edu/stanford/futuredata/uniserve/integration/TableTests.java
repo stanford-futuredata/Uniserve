@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.integration;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
@@ -49,7 +50,7 @@ public class TableTests {
     public void testShuffleMostFrequent() {
         logger.info("testShuffleMostFrequent");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
         int numDataStores = 4;
@@ -85,7 +86,7 @@ public class TableTests {
     public void testShufflePopularState() {
         logger.info("testShufflePopularState");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
         int numDataStores = 4;

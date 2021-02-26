@@ -32,6 +32,7 @@ public class Coordinator {
     private final Server server;
     final CoordinatorCurator zkCurator;
     final LoadBalancer loadBalancer;
+    final AutoScaler autoscaler;
 
     private final CoordinatorCloud cCloud;
 
@@ -69,10 +70,11 @@ public class Coordinator {
     // the operation, lock, retrieve the local copies, set the ZK mirrors to the local copies, unlock.
     public final Lock shardMapLock = new ReentrantLock();
 
-    public Coordinator(CoordinatorCloud cCloud, LoadBalancer loadBalancer, String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
+    public Coordinator(CoordinatorCloud cCloud, LoadBalancer loadBalancer, AutoScaler autoScaler, String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
         this.coordinatorPort = coordinatorPort;
         this.loadBalancer = loadBalancer;
+        this.autoscaler = autoScaler;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
         this.server = ServerBuilder.forPort(coordinatorPort)
                 .addService(new ServiceDataStoreCoordinator(this))
@@ -229,35 +231,6 @@ public class Coordinator {
         return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
     }
 
-    private int quiescence = 0;
-    public final int quiescencePeriod = 2;
-    public final double addServerThreshold = 0.7;
-    public final double removeServerThreshold = 0.3;
-
-    public void autoScale(Map<Integer, Double> serverCpuUsage) {
-        OptionalDouble averageCpuUsageOpt = serverCpuUsage.values().stream().mapToDouble(i -> i).average();
-        if (averageCpuUsageOpt.isEmpty()) {
-            return;
-        }
-        double averageCpuUsage = averageCpuUsageOpt.getAsDouble();
-        logger.info("Average CPU Usage: {}", averageCpuUsage);
-        // After acting, wait quiescencePeriod cycles before acting again for CPU to rebalance.
-        if (quiescence > 0) {
-            quiescence--;
-            return;
-        }
-        // Add a server.
-        if (averageCpuUsage > addServerThreshold) {
-            addDataStore();
-            quiescence = quiescencePeriod;
-        }
-        // Remove a server.
-        if (averageCpuUsage < removeServerThreshold) {
-            removeDataStore();
-            quiescence = quiescencePeriod;
-        }
-    }
-
     public void addDataStore() {
         logger.info("Adding DataStore");
         if (!cCloud.addDataStore()) {
@@ -394,7 +367,12 @@ public class Coordinator {
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
                     if (cCloud != null) {
-                        autoScale(serverCpuUsage);
+                        int action = autoscaler.autoscale(serverCpuUsage);
+                        if (action == AutoScaler.ADD) {
+                            addDataStore();
+                        } else if (action == AutoScaler.REMOVE) {
+                            removeDataStore();
+                        }
                     }
                     consistentHashLock.unlock();
                 }

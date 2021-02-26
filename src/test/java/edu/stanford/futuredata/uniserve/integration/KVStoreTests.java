@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.integration;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
@@ -78,7 +79,7 @@ public class KVStoreTests {
     public void testSingleKey() {
         logger.info("testSingleKey");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
@@ -110,7 +111,7 @@ public class KVStoreTests {
     public void testMultiKey() {
         logger.info("testMultiKey");
         int numShards = 2;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -153,7 +154,7 @@ public class KVStoreTests {
     public void testAddingServers() throws InterruptedException {
         logger.info("testAddingServers");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
 
@@ -204,7 +205,7 @@ public class KVStoreTests {
     @Test
     public void testBroadcastJoin() {
         logger.info("testBroadcastJoin");
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -243,7 +244,7 @@ public class KVStoreTests {
     public void testSimultaneousReadQuery() throws InterruptedException {
         logger.info("testSimultaneousReadQuery");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -298,7 +299,7 @@ public class KVStoreTests {
     public void testReplication() {
         logger.info("testReplication");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
@@ -353,7 +354,7 @@ public class KVStoreTests {
     public void testAddRemoveReplicas() throws InterruptedException {
         logger.info("testAddRemoveReplicas");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -440,7 +441,7 @@ public class KVStoreTests {
     public void testAbortedWrite() {
         logger.info("testAbortedWrite");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
@@ -470,7 +471,7 @@ public class KVStoreTests {
     public void testShardUpload() {
         logger.info("testShardUpload");
         int numShards = 1;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
@@ -496,7 +497,7 @@ public class KVStoreTests {
     public void testSimultaneousWrites() throws InterruptedException {
         logger.info("testSimultaneousWrites");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -558,7 +559,7 @@ public class KVStoreTests {
     public void testSimultaneousWritesReplicas() throws InterruptedException {
         logger.info("testSimultaneousWritesReplicas");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -631,7 +632,7 @@ public class KVStoreTests {
     public void testMaterializedViews() {
         logger.info("testMaterializedViews");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();

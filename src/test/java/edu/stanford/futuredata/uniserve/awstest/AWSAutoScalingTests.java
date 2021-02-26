@@ -4,9 +4,7 @@ import com.amazonaws.services.ec2.model.InstanceType;
 import com.amazonaws.util.EC2MetadataUtils;
 import edu.stanford.futuredata.uniserve.awscloud.AWSCoordinatorCloud;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
-import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
-import edu.stanford.futuredata.uniserve.coordinator.CoordinatorCloud;
-import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
+import edu.stanford.futuredata.uniserve.coordinator.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
@@ -52,7 +50,8 @@ public class AWSAutoScalingTests {
         String ami = "ami-032d8d51f6f913bb5";
         InstanceType instanceType = InstanceType.T2Micro;
         CoordinatorCloud cCloud = new AWSCoordinatorCloud(ami, launchDataStoreScript, instanceType);
-        Coordinator coordinator = new Coordinator(cCloud, new DefaultLoadBalancer(), zkHost, zkPort, serverHost, 7777);
+        AutoScaler autoScaler = new DefaultAutoScaler();
+        Coordinator coordinator = new Coordinator(cCloud, new DefaultLoadBalancer(), autoScaler, zkHost, zkPort, serverHost, 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),
@@ -60,12 +59,14 @@ public class AWSAutoScalingTests {
         assertTrue(dataStore.startServing());
 
         Map<Integer, Double> overLoadedMap = Map.of(0, 0.9);
-        coordinator.autoScale(overLoadedMap);
+        assertEquals(AutoScaler.ADD, autoScaler.autoscale(overLoadedMap));
+        coordinator.addDataStore();
 
         Thread.sleep(120000);
 
         Map<Integer, Double> underLoadedMap = Map.of(0, 0.2, 1, 0.2);
-        coordinator.autoScale(underLoadedMap);
+        assertEquals(AutoScaler.REMOVE, autoScaler.autoscale(underLoadedMap));
+        coordinator.removeDataStore();
 
         Thread.sleep(5000);
 
