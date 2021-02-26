@@ -4,6 +4,7 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
+import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -24,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -50,7 +50,8 @@ public class LoadBalancerTests {
         logger.info("testLoadBalancer");
         Map<Integer, Integer> shardLoads = Map.of(0, 1, 1, 1, 2, 1, 3, 1);
         Map<Integer, Integer> startingLocations = Map.of(0, 1, 1, 1, 2, 1 ,3, 1);
-        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(Set.of(0, 1, 2, 3), Set.of(0, 1, 2, 3), shardLoads, startingLocations);
+        LoadBalancer loadBalancer = new DefaultLoadBalancer();
+        Map<Integer, Integer> updatedLocations = loadBalancer.balanceLoad(Set.of(0, 1, 2, 3), Set.of(0, 1, 2, 3), shardLoads, startingLocations);
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (i != j) {
@@ -64,7 +65,7 @@ public class LoadBalancerTests {
     public void testCoordinatorLoadBalance() {
         logger.info("testCoordinatorLoadBalance");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7777);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
         int numDataStores = 4;

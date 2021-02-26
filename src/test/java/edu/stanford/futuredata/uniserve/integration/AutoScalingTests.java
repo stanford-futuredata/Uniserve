@@ -12,7 +12,6 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
 import edu.stanford.futuredata.uniserve.localcloud.LocalCoordinatorCloud;
-import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -20,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,7 +44,7 @@ public class AutoScalingTests {
         logger.info("testBasicAutoScaling");
         int numShards = 4;
         Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
-                zkHost, zkPort, "127.0.0.1", 7777);
+                new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
 
@@ -127,7 +125,7 @@ public class AutoScalingTests {
         logger.info("testMoreAutoscaling");
         int numShards = 24;
         Coordinator coordinator = new Coordinator(new LocalCoordinatorCloud<KVRow, KVShard>(new KVShardFactory()),
-                zkHost, zkPort, "127.0.0.1", 7777);
+                new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
 

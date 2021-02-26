@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.integration;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
@@ -47,7 +48,7 @@ public class FailureTests {
     public void testSingleFailure() throws InterruptedException {
         logger.info("testSingleFailure");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7778);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -89,7 +90,7 @@ public class FailureTests {
     public void testBrokerFailDuringWrite() throws InterruptedException {
         logger.info("testBrokerFailDuringWrite");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -136,7 +137,7 @@ public class FailureTests {
     public void testDataStoreFailDuringWrite() throws InterruptedException {
         logger.info("testDataStoreFailDuringWrite");
         int numShards = 4;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
@@ -194,7 +195,7 @@ public class FailureTests {
     public void testFailureWithChangingReplicas() {
         logger.info("testFailureWithChangingReplicas");
         int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, "127.0.0.1", 7779);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, "127.0.0.1", 7779);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();

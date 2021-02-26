@@ -12,7 +12,6 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-import org.javatuples.Pair;
 import org.javatuples.Triplet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +31,7 @@ public class Coordinator {
     private final int coordinatorPort;
     private final Server server;
     final CoordinatorCurator zkCurator;
+    final LoadBalancer loadBalancer;
 
     private final CoordinatorCloud cCloud;
 
@@ -60,7 +60,7 @@ public class Coordinator {
     public Map<Integer, Integer> dsIDToCloudID = new ConcurrentHashMap<>();
 
     public boolean runLoadBalancerDaemon = true;
-    private final LoadBalancerDaemon loadBalancer;
+    private final LoadBalancerDaemon loadBalancerDaemon;
     public static int loadBalancerSleepDurationMillis = 60000;
     public final Semaphore loadBalancerSemaphore = new Semaphore(0);
 
@@ -69,15 +69,16 @@ public class Coordinator {
     // the operation, lock, retrieve the local copies, set the ZK mirrors to the local copies, unlock.
     public final Lock shardMapLock = new ReentrantLock();
 
-    public Coordinator(CoordinatorCloud cCloud, String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
+    public Coordinator(CoordinatorCloud cCloud, LoadBalancer loadBalancer, String zkHost, int zkPort, String coordinatorHost, int coordinatorPort) {
         this.coordinatorHost = coordinatorHost;
         this.coordinatorPort = coordinatorPort;
+        this.loadBalancer = loadBalancer;
         zkCurator = new CoordinatorCurator(zkHost, zkPort);
         this.server = ServerBuilder.forPort(coordinatorPort)
                 .addService(new ServiceDataStoreCoordinator(this))
                 .addService(new ServiceBrokerCoordinator(this))
                 .build();
-        loadBalancer = new LoadBalancerDaemon();
+        this.loadBalancerDaemon = new LoadBalancerDaemon();
         this.cCloud = cCloud;
     }
 
@@ -98,7 +99,7 @@ public class Coordinator {
                 Coordinator.this.stopServing();
             }
         });
-        loadBalancer.start();
+        loadBalancerDaemon.start();
         return true;
     }
 
@@ -115,8 +116,8 @@ public class Coordinator {
         }
         runLoadBalancerDaemon = false;
         try {
-            loadBalancer.interrupt();
-            loadBalancer.join();
+            loadBalancerDaemon.interrupt();
+            loadBalancerDaemon.join();
         } catch (InterruptedException ignored) {}
         zkCurator.close();
     }
@@ -359,7 +360,7 @@ public class Coordinator {
         Set<Integer> shards = qpsLoad.keySet();
         Set<Integer> servers = consistentHash.buckets;
         Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, consistentHash::getRandomBucket));
-        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, qpsLoad, currentLocations);
+        Map<Integer, Integer> updatedLocations = loadBalancer.balanceLoad(shards, servers, qpsLoad, currentLocations);
         consistentHash.reassignmentMap.clear();
         for (int shardNum: updatedLocations.keySet()) {
             int newServerNum = updatedLocations.get(shardNum);

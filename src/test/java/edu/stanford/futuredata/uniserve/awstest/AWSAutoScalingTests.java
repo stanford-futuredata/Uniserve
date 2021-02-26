@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.awscloud.AWSCoordinatorCloud;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.CoordinatorCloud;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
@@ -51,7 +52,7 @@ public class AWSAutoScalingTests {
         String ami = "ami-032d8d51f6f913bb5";
         InstanceType instanceType = InstanceType.T2Micro;
         CoordinatorCloud cCloud = new AWSCoordinatorCloud(ami, launchDataStoreScript, instanceType);
-        Coordinator coordinator = new Coordinator(cCloud, zkHost, zkPort, serverHost, 7777);
+        Coordinator coordinator = new Coordinator(cCloud, new DefaultLoadBalancer(), zkHost, zkPort, serverHost, 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(),

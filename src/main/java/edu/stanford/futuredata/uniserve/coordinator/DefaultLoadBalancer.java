@@ -1,14 +1,12 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
-import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class DefaultLoadBalancer {
+public class DefaultLoadBalancer implements LoadBalancer {
     private static final Logger logger = LoggerFactory.getLogger(DefaultLoadBalancer.class);
 
     public static Integer epsilonRatio = 5;
@@ -16,7 +14,7 @@ public class DefaultLoadBalancer {
     /**
      * Balance cluster load.
      */
-    public static Map<Integer, Integer> balanceLoad(Set<Integer> shards, Set<Integer> servers,
+    public Map<Integer, Integer> balanceLoad(Set<Integer> shards, Set<Integer> servers,
                                                                Map<Integer, Integer> shardLoads,
                                                                Map<Integer, Integer> currentLocations) {
         Map<Integer, Integer> updatedLocations = new HashMap<>(currentLocations);

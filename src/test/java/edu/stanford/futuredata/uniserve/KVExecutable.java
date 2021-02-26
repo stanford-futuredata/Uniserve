@@ -4,6 +4,7 @@ import com.amazonaws.util.EC2MetadataUtils;
 import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
+import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
@@ -74,7 +75,7 @@ public class KVExecutable {
     }
 
     private static void runCoordinator(String zkHost, int zkPort, String cHost, int cPort) throws InterruptedException {
-        Coordinator coordinator = new Coordinator(null, zkHost, zkPort, cHost, cPort);
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), zkHost, zkPort, cHost, cPort);
         coordinator.startServing();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             coordinator.stopServing();
