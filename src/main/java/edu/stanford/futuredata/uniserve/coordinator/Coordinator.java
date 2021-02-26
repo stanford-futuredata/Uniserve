@@ -354,6 +354,21 @@ public class Coordinator {
         } catch (InterruptedException ignored) {}
     }
 
+    // Assumes consistentHashLock is held.
+    public void rebalanceConsistentHash(Map<Integer, Integer> qpsLoad) {
+        Set<Integer> shards = qpsLoad.keySet();
+        Set<Integer> servers = consistentHash.buckets;
+        Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, consistentHash::getRandomBucket));
+        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, qpsLoad, currentLocations);
+        consistentHash.reassignmentMap.clear();
+        for (int shardNum: updatedLocations.keySet()) {
+            int newServerNum = updatedLocations.get(shardNum);
+            if (newServerNum != consistentHash.getRandomBucket(shardNum)) {
+                consistentHash.reassignmentMap.put(shardNum, new ArrayList<>(List.of(newServerNum)));
+            }
+        }
+    }
+
     public Map<Integer, Integer> cachedQPSLoad = null;
 
     private class LoadBalancerDaemon extends Thread {
@@ -373,17 +388,7 @@ public class Coordinator {
                 if (qpsLoad.size() > 0) {
                     consistentHashLock.lock();
                     cachedQPSLoad = qpsLoad;
-                    Set<Integer> shards = qpsLoad.keySet();
-                    Set<Integer> servers = consistentHash.buckets;
-                    Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, consistentHash::getRandomBucket));
-                    Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, qpsLoad, currentLocations);
-                    consistentHash.reassignmentMap.clear();
-                    for (int shardNum: updatedLocations.keySet()) {
-                        int newServerNum = updatedLocations.get(shardNum);
-                        if (newServerNum != consistentHash.getRandomBucket(shardNum)) {
-                            consistentHash.reassignmentMap.put(shardNum, new ArrayList<>(List.of(newServerNum)));
-                        }
-                    }
+                    rebalanceConsistentHash(qpsLoad);
                     assignShards();
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);

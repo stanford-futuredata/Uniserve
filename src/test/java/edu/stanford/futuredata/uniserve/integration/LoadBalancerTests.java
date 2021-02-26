@@ -99,17 +99,7 @@ public class LoadBalancerTests {
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
-        Set<Integer> shards = load.keySet();
-        Set<Integer> servers = coordinator.consistentHash.buckets;
-        Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, coordinator.consistentHash::getRandomBucket));
-        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, load, currentLocations);
-        coordinator.consistentHash.reassignmentMap.clear();
-        for (int shardNum: updatedLocations.keySet()) {
-            int newServerNum = updatedLocations.get(shardNum);
-            if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
-                coordinator.consistentHash.reassignmentMap.put(shardNum, List.of(newServerNum));
-            }
-        }
+        coordinator.rebalanceConsistentHash(load);
         coordinator.assignShards();
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));

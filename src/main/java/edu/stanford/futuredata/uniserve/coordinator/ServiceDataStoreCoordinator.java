@@ -57,17 +57,7 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.zkCurator.setDSDescription(dsDescription);
 
         if (coordinator.cachedQPSLoad != null) {
-            Set<Integer> shards = coordinator.cachedQPSLoad.keySet();
-            Set<Integer> servers = coordinator.consistentHash.buckets;
-            Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, coordinator.consistentHash::getRandomBucket));
-            Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, coordinator.cachedQPSLoad, currentLocations);
-            coordinator.consistentHash.reassignmentMap.clear();
-            for (int shardNum: updatedLocations.keySet()) {
-                int newServerNum = updatedLocations.get(shardNum);
-                if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
-                    coordinator.consistentHash.reassignmentMap.put(shardNum, new ArrayList<>(List.of(newServerNum)));
-                }
-            }
+            coordinator.rebalanceConsistentHash(coordinator.cachedQPSLoad);
         }
         coordinator.assignShards();
 
