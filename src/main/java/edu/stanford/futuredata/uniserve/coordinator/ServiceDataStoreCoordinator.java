@@ -11,6 +11,9 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -54,7 +57,17 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         coordinator.zkCurator.setDSDescription(dsDescription);
 
         if (coordinator.cachedQPSLoad != null) {
-            DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash, dsID);
+            Set<Integer> shards = coordinator.cachedQPSLoad.keySet();
+            Set<Integer> servers = coordinator.consistentHash.buckets;
+            Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, coordinator.consistentHash::getRandomBucket));
+            Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, coordinator.cachedQPSLoad, currentLocations);
+            coordinator.consistentHash.reassignmentMap.clear();
+            for (int shardNum: updatedLocations.keySet()) {
+                int newServerNum = updatedLocations.get(shardNum);
+                if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
+                    coordinator.consistentHash.reassignmentMap.put(shardNum, new ArrayList<>(List.of(newServerNum)));
+                }
+            }
         }
         coordinator.assignShards();
 

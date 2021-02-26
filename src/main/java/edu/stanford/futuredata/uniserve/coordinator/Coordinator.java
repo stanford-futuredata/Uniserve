@@ -373,10 +373,17 @@ public class Coordinator {
                 if (qpsLoad.size() > 0) {
                     consistentHashLock.lock();
                     cachedQPSLoad = qpsLoad;
-                    Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(qpsLoad, consistentHash);
-                    Set<Integer> lostShards = changes.getValue0();
-                    Set<Integer> gainedShards = changes.getValue1();
-                    logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+                    Set<Integer> shards = qpsLoad.keySet();
+                    Set<Integer> servers = consistentHash.buckets;
+                    Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, consistentHash::getRandomBucket));
+                    Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, qpsLoad, currentLocations);
+                    consistentHash.reassignmentMap.clear();
+                    for (int shardNum: updatedLocations.keySet()) {
+                        int newServerNum = updatedLocations.get(shardNum);
+                        if (newServerNum != consistentHash.getRandomBucket(shardNum)) {
+                            consistentHash.reassignmentMap.put(shardNum, new ArrayList<>(List.of(newServerNum)));
+                        }
+                    }
                     assignShards();
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);

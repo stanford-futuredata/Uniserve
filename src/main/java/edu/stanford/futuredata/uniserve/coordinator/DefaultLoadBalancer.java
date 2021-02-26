@@ -15,30 +15,20 @@ public class DefaultLoadBalancer {
 
     /**
      * Balance cluster load.
-     * @param shardLoads A map from shard number to the load (queries per second) on that shard.
-     * @param consistentHash The coordinator's consistent hash.  The load balancer will modify its reassignment map.
-     * @param newServer Optional parameter.  If set, shards will only be added to or removed from the specified server.
-     * @return A pair of lists of servers:  first those that lost shards in balancing, then those that gained shards.
      */
-    public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads, ConsistentHash consistentHash) {
-        return balanceLoad(shardLoads, consistentHash, null);
-    }
-
-    public static Pair<Set<Integer>, Set<Integer>> balanceLoad(Map<Integer, Integer> shardLoads,
-                                                               ConsistentHash consistentHash, Integer newServer) {
-        Set<Integer> lostShards = new HashSet<>();
-        Set<Integer> gainedShards = new HashSet<>();
+    public static Map<Integer, Integer> balanceLoad(Set<Integer> shards, Set<Integer> servers,
+                                                               Map<Integer, Integer> shardLoads,
+                                                               Map<Integer, Integer> currentLocations) {
+        Map<Integer, Integer> updatedLocations = new HashMap<>(currentLocations);
         Map<Integer, Integer> serverLoads = new HashMap<>();
         Map<Integer, List<Integer>> serverToShards = new HashMap<>();
-        serverLoads.putAll(consistentHash.buckets.stream().collect(Collectors.toMap(i -> i, i -> 0)));
-        serverToShards.putAll(consistentHash.buckets.stream().collect(Collectors.toMap(i -> i, i -> new ArrayList<>())));
-        for (int shardNum: shardLoads.keySet()) {
+        serverLoads.putAll(servers.stream().collect(Collectors.toMap(i -> i, i -> 0)));
+        serverToShards.putAll(servers.stream().collect(Collectors.toMap(i -> i, i -> new ArrayList<>())));
+        for (int shardNum: shards) {
             int shardLoad = shardLoads.get(shardNum);
-            List<Integer> serverNums = consistentHash.getBuckets(shardNum);
-            for (Integer serverNum: serverNums) {
-                serverLoads.merge(serverNum, shardLoad / serverNums.size(), Integer::sum);
-                serverToShards.get(serverNum).add(shardNum);
-            }
+            int serverNum = currentLocations.get(shardNum);
+            serverLoads.merge(serverNum, shardLoad, Integer::sum);
+            serverToShards.get(serverNum).add(shardNum);
         }
         PriorityQueue<Integer> serverMinQueue = new PriorityQueue<>(Comparator.comparing(serverLoads::get));
         serverMinQueue.addAll(serverLoads.keySet());
@@ -52,33 +42,22 @@ public class DefaultLoadBalancer {
             while (serverToShards.get(overLoadedServer).stream().anyMatch(i -> shardLoads.get(i) > 0)
                     && serverLoads.get(overLoadedServer) > averageLoad + epsilon) {
                 Integer underLoadedServer;
-                if (newServer == null || serverLoads.get(newServer) > averageLoad + epsilon) {
-                    underLoadedServer = serverMinQueue.remove();
-                } else {
-                    underLoadedServer = newServer;
-                }
+                underLoadedServer = serverMinQueue.remove();
                 Integer mostLoadedShard = serverToShards.get(overLoadedServer).stream().filter(i -> shardLoads.get(i) > 0)
-                        .max(Comparator.comparing(i -> shardLoads.get(i) / consistentHash.getBuckets(i).size())).orElse(null);
+                        .max(Comparator.comparing(shardLoads::get)).orElse(null);
                 assert(mostLoadedShard != null);
-                int mostLoadedShardLoad = shardLoads.get(mostLoadedShard) / consistentHash.getBuckets(mostLoadedShard).size();
+                int mostLoadedShardLoad = shardLoads.get(mostLoadedShard);
                 serverToShards.get(overLoadedServer).remove(mostLoadedShard);
-                if (serverLoads.get(underLoadedServer) + mostLoadedShardLoad <= averageLoad + epsilon &&
-                        (newServer == null || overLoadedServer.equals(newServer) || underLoadedServer.equals(newServer))) {
-                    if (consistentHash.reassignmentMap.containsKey(mostLoadedShard)) {
-                        consistentHash.reassignmentMap.get(mostLoadedShard).remove(overLoadedServer);
-                        consistentHash.reassignmentMap.get(mostLoadedShard).add(underLoadedServer);
-                    } else {
-                        consistentHash.reassignmentMap.put(mostLoadedShard, new ArrayList<>(List.of(underLoadedServer)));
-                    }
+                if (serverLoads.get(underLoadedServer) + mostLoadedShardLoad <= averageLoad + epsilon) {
+                    assert(updatedLocations.get(mostLoadedShard).equals(overLoadedServer));
+                    updatedLocations.put(mostLoadedShard, underLoadedServer);
                     serverLoads.merge(overLoadedServer, -1 * mostLoadedShardLoad, Integer::sum);
                     serverLoads.merge(underLoadedServer, mostLoadedShardLoad, Integer::sum);
-                    lostShards.add(overLoadedServer);
-                    gainedShards.add(underLoadedServer);
                     logger.info("Shard {} transferred from DS{} to DS{}", mostLoadedShard, overLoadedServer, underLoadedServer);
                 }
                 serverMinQueue.add(underLoadedServer);
             }
         }
-        return new Pair<>(lostShards, gainedShards);
+        return updatedLocations;
     }
 }

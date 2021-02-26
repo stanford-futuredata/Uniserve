@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -152,14 +153,18 @@ public class AutoScalingTests {
             coordinator.addDataStore();
             Thread.sleep(500);
             coordinator.consistentHashLock.lock();
-            Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
-            Set<Integer> lostShards = changes.getValue0();
-            Set<Integer> gainedShards = changes.getValue1();
-            logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+            Set<Integer> shards = coordinator.cachedQPSLoad.keySet();
+            Set<Integer> servers = coordinator.consistentHash.buckets;
+            Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(j -> j, coordinator.consistentHash::getRandomBucket));
+            Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, coordinator.cachedQPSLoad, currentLocations);
+            coordinator.consistentHash.reassignmentMap.clear();
+            for (int shardNum: updatedLocations.keySet()) {
+                int newServerNum = updatedLocations.get(shardNum);
+                if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
+                    coordinator.consistentHash.reassignmentMap.put(shardNum, List.of(newServerNum));
+                }
+            }
             coordinator.assignShards();
-            changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
-            assertEquals(0, changes.getValue0().size());
-            assertEquals(0, changes.getValue1().size());
             coordinator.consistentHashLock.unlock();
             for(int j = 0; j < numShards; j++) {
                 AnchoredReadQueryPlan<KVShard, Integer> zero = new KVReadQueryPlanGet("table1",0);
@@ -170,10 +175,17 @@ public class AutoScalingTests {
         for(int i = 0; i < 4; i++) {
             coordinator.consistentHashLock.lock();
             coordinator.removeDataStore();
-            Pair<Set<Integer>, Set<Integer>> changes = DefaultLoadBalancer.balanceLoad(coordinator.cachedQPSLoad, coordinator.consistentHash);
-            Set<Integer> lostShards = changes.getValue0();
-            Set<Integer> gainedShards = changes.getValue1();
-            logger.info("Lost shards: {}  Gained shards: {}", lostShards, gainedShards);
+            Set<Integer> shards = coordinator.cachedQPSLoad.keySet();
+            Set<Integer> servers = coordinator.consistentHash.buckets;
+            Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(j -> j, coordinator.consistentHash::getRandomBucket));
+            Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, coordinator.cachedQPSLoad, currentLocations);
+            coordinator.consistentHash.reassignmentMap.clear();
+            for (int shardNum: updatedLocations.keySet()) {
+                int newServerNum = updatedLocations.get(shardNum);
+                if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
+                    coordinator.consistentHash.reassignmentMap.put(shardNum, List.of(newServerNum));
+                }
+            }
             coordinator.assignShards();
             coordinator.consistentHashLock.unlock();
             for(int j = 0; j < numShards; j++) {

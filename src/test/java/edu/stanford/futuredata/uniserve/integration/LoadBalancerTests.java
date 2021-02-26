@@ -13,8 +13,6 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
-import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
-import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -22,7 +20,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,17 +48,13 @@ public class LoadBalancerTests {
     @Test
     public void testLoadBalancer() {
         logger.info("testLoadBalancer");
-        ConsistentHash c = new ConsistentHash();
-        c.addBucket(0);
-        c.addBucket(1);
-        c.addBucket(2);
-        c.addBucket(3);
         Map<Integer, Integer> shardLoads = Map.of(0, 1, 1, 1, 2, 1, 3, 1);
-        DefaultLoadBalancer.balanceLoad(shardLoads, c);
+        Map<Integer, Integer> startingLocations = Map.of(0, 1, 1, 1, 2, 1 ,3, 1);
+        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(Set.of(0, 1, 2, 3), Set.of(0, 1, 2, 3), shardLoads, startingLocations);
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 if (i != j) {
-                    assertNotEquals(c.getRandomBucket(i), c.getRandomBucket(j));
+                    assertNotEquals(updatedLocations.get(i), updatedLocations.get(j));
                 }
             }
         }
@@ -101,7 +99,17 @@ public class LoadBalancerTests {
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(three));
 
         Map<Integer, Integer> load = coordinator.collectLoad().getValue0();
-        Pair<Set<Integer>, Set<Integer>> lostGained = DefaultLoadBalancer.balanceLoad(load, coordinator.consistentHash);
+        Set<Integer> shards = load.keySet();
+        Set<Integer> servers = coordinator.consistentHash.buckets;
+        Map<Integer, Integer> currentLocations = shards.stream().collect(Collectors.toMap(i -> i, coordinator.consistentHash::getRandomBucket));
+        Map<Integer, Integer> updatedLocations = DefaultLoadBalancer.balanceLoad(shards, servers, load, currentLocations);
+        coordinator.consistentHash.reassignmentMap.clear();
+        for (int shardNum: updatedLocations.keySet()) {
+            int newServerNum = updatedLocations.get(shardNum);
+            if (newServerNum != coordinator.consistentHash.getRandomBucket(shardNum)) {
+                coordinator.consistentHash.reassignmentMap.put(shardNum, List.of(newServerNum));
+            }
+        }
         coordinator.assignShards();
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
