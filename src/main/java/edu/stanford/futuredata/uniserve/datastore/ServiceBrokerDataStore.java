@@ -58,7 +58,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
                         t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
                         t.acquireLock();
-                        responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan, false));
+                        responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
                     } else {
                         responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
                     }
@@ -69,7 +69,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert (lastState == DataStore.PREPARE);
-                    abortWriteQuery(shardNum, txID, writeQueryPlan, false);
+                    abortWriteQuery(shardNum, txID, writeQueryPlan);
                     lastState = writeState;
                     t.releaseLock();
                 }
@@ -83,7 +83,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     if (dataStore.zkCurator.getTransactionStatus(txID) == DataStore.COMMIT) {
                         commitWriteQuery(shardNum, txID, writeQueryPlan);
                     } else {
-                        abortWriteQuery(shardNum, txID, writeQueryPlan, false);
+                        abortWriteQuery(shardNum, txID, writeQueryPlan);
                     }
                     t.releaseLock();
                 }
@@ -94,14 +94,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 responseObserver.onCompleted();
             }
 
-            private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
+            private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
-                            preempt ? Collections.emptyList() // Do not touch replicas if resuming from a preemption.
-                            : dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
+                            dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
                     int numReplicas = replicaStubs.size();
                     R[] rowArray;
                     rowArray = (R[]) rows.toArray(new Row[0]);
@@ -153,9 +152,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         replicaObservers.add(observer);
                     }
                     boolean primaryWriteSuccess = writeQueryPlan.preCommit(shard, rows);
-                    if (!preempt) {
-                        lastState = DataStore.PREPARE;
-                    }
+                    lastState = DataStore.PREPARE;
                     try {
                         prepareSemaphore.acquire(numReplicas);
                     } catch (InterruptedException e) {
@@ -202,12 +199,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 }
             }
 
-            private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan, boolean preempt) {
+            private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 S shard = dataStore.shardMap.get(shardNum);
-                if (preempt) {
-                    writeQueryPlan.abort(shard);
-                    return;
-                }
                 for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.ABORT)
