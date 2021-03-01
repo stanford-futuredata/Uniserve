@@ -31,15 +31,18 @@ public class DataStore<R extends Row, S extends Shard> {
     private int cloudID;
     private final String dsHost;
     private final int dsPort;
+    final boolean readWriteAtomicity;
     public boolean serving = false;
 
-    // Map from primary shard number to shard data structure.
+    // Map from shard number to shard data structure.
     public final Map<Integer, S> shardMap = new ConcurrentHashMap<>(); // Public for testing.
+    // Map from shard number to old versions.  TODO:  Delete older versions.
+    final Map<Integer, Map<Long, S>> multiVersionShardMap = new ConcurrentHashMap<>();
     // Map from shard number to shard version number.
     final Map<Integer, Integer> shardVersionMap = new ConcurrentHashMap<>();
     // Map from shard number to access lock.
     final Map<Integer, ShardLock> shardLockMap = new ConcurrentHashMap<>();
-    // Map from shard number to maps from version number to write query and data.
+    // Map from shard number to maps from version number to write query and data.  TODO:  Clean older entries.
     final Map<Integer, Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>>> writeLog = new ConcurrentHashMap<>();
     // Map from primary shard number to list of replica descriptions for that shard.
     final Map<Integer, List<ReplicaDescription>> replicaDescriptionsMap = new ConcurrentHashMap<>();
@@ -79,10 +82,11 @@ public class DataStore<R extends Row, S extends Shard> {
 
     ConsistentHash consistentHash;
 
-    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) {
+    public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID, boolean readWriteAtomicity) {
         this.dsHost = dsHost;
         this.dsPort = dsPort;
         this.dsCloud = dsCloud;
+        this.readWriteAtomicity = readWriteAtomicity;
         this.shardFactory = shardFactory;
         this.baseDirectory = baseDirectory;
         this.server = ServerBuilder.forPort(dsPort)
@@ -226,6 +230,7 @@ public class DataStore<R extends Row, S extends Shard> {
             QPSMap.put(shardNum, new ConcurrentHashMap<>());
             writeLog.put(shardNum, new ConcurrentHashMap<>());
             replicaDescriptionsMap.put(shardNum, new ArrayList<>());
+            multiVersionShardMap.put(shardNum, new ConcurrentHashMap<>());
         }
         shardLock.systemLockUnlock();
         return true;
@@ -235,7 +240,7 @@ public class DataStore<R extends Row, S extends Shard> {
     boolean ensureShardCached(int shardNum) {
         if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
-            Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber, true);
+            Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
             if (shard.isEmpty()) {
                 return false;
             }
@@ -269,13 +274,13 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     /** Synchronously download a shard from the cloud **/
-    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber, boolean materializedViews) {
+    public Optional<S> downloadShardFromCloud(int shardNum, String cloudName, int versionNumber) {
         long downloadStart = System.currentTimeMillis();
         Path downloadDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber));
         File downloadDirFile = downloadDirectory.toFile();
         if (!downloadDirFile.exists()) {
             boolean mkdirs = downloadDirFile.mkdirs();
-            if (!mkdirs) {
+            if (!mkdirs && !downloadDirFile.exists()) {
                 logger.warn("DS{} Shard {} version {} mkdirs failed: {}", dsID, shardNum, versionNumber, downloadDirFile.getAbsolutePath());
                 return Optional.empty();
             }

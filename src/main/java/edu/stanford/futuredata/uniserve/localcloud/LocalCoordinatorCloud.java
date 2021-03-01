@@ -27,8 +27,8 @@ public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements Co
     public boolean addDataStore() {
         int cloudID = this.cloudID.getAndIncrement();
         DataStore<R, S> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                factory, Path.of(String.format("/var/tmp/KVUniserve%d", cloudID)),
-                "127.0.0.1", 2181, "127.0.0.1", 8500 + cloudID, cloudID);
+                factory, Path.of(String.format("/var/tmp/KVUniserve%d", cloudID)), "127.0.0.1", 2181, "127.0.0.1", 8500 + cloudID, cloudID, false
+        );
         dataStores.put(cloudID, dataStore);
         dataStore.runPingDaemon = false;
         return dataStore.startServing();

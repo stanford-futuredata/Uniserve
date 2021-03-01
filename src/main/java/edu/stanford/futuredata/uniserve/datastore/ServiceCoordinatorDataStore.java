@@ -50,7 +50,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         String cloudName = zkShardDescription.cloudName;
         int replicaVersion = zkShardDescription.versionNumber;
         // Download the shard.
-        Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion, true);
+        Optional<S> loadedShard = dataStore.downloadShardFromCloud(shardNum, cloudName, replicaVersion);
         if (loadedShard.isEmpty()) {
             logger.error("DS{} Shard load failed {}", dataStore.dsID, shardNum);
             return 1;

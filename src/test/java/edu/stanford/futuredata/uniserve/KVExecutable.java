@@ -86,7 +86,7 @@ public class KVExecutable {
     }
 
     private static void runDataStore(String zkHost, int zkPort, String dsHost, int dsPort, int cloudID) throws InterruptedException {
-        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, cloudID);
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, dsHost, dsPort, cloudID, false);
         dataStore.startServing();
         Runtime.getRuntime().addShutdownHook(new Thread(dataStore::shutDown));
         Thread.sleep(Long.MAX_VALUE);

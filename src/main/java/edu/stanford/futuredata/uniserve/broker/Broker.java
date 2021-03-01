@@ -60,6 +60,7 @@ public class Broker {
     ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
 
     AtomicLong txIDs = new AtomicLong(0); // TODO:  Put in ZooKeeper.
+    long lastCommittedVersion = 0; // TODO:  Put in ZooKeeper.
 
 
     /*
@@ -153,6 +154,8 @@ public class Broker {
                 assert(false);
             }
         }
+        lastCommittedVersion = txID;
+        logger.info("Write completed. Rows: {}. Version: {}.", rows.size(), lastCommittedVersion);
         assert (queryStatus.get() != QUERY_RETRY);
         zkCurator.releaseWriteLock();
         return queryStatus.get() == QUERY_SUCCESS;
@@ -186,13 +189,14 @@ public class Broker {
         int numReducers = anchorTableShards.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
+        long lcv = lastCommittedVersion;
         for (int anchorShardNum: anchorTableShards) {
             int dsID = consistentHash.getRandomBucket(anchorShardNum);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
                     setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
-                    .setTxID(txID).setTargetShards(serializedTargetShards).build();
+                    .setTxID(txID).setLastCommittedVersion(lcv).setTargetShards(serializedTargetShards).build();
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
 
                 private void retry() {

@@ -28,6 +28,8 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,8 +84,8 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
-        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
-                Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1);
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
+        );
         dataStore.startServing();
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         assertTrue(broker.createTable("table1", numShards));
@@ -117,8 +119,8 @@ public class KVStoreTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
-                    Path.of("/var/tmp/KVUniserve"), zkHost, zkPort,"127.0.0.1",  8100 + i, -1);
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -159,8 +161,8 @@ public class KVStoreTests {
         coordinator.startServing();
 
         DataStore<KVRow, KVShard>  dataStoreOne = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)),
-                zkHost, zkPort, "127.0.0.1", 8200, -1);
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8200, -1, false
+        );
         dataStoreOne.runPingDaemon = false;
         dataStoreOne.startServing();
 
@@ -174,8 +176,8 @@ public class KVStoreTests {
         assertTrue(broker.writeQuery(writeQueryPlan, rows));
 
         DataStore<KVRow, KVShard>  dataStoreTwo = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)),
-                zkHost, zkPort, "127.0.0.1", 8201, -1);
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
+        );
         dataStoreTwo.runPingDaemon = false;
         assertTrue(dataStoreTwo.startServing());
 
@@ -212,8 +214,8 @@ public class KVStoreTests {
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -251,8 +253,8 @@ public class KVStoreTests {
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -306,8 +308,8 @@ public class KVStoreTests {
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -361,8 +363,8 @@ public class KVStoreTests {
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -444,8 +446,8 @@ public class KVStoreTests {
         Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
-        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(),
-                Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1);
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
+        );
         dataStore.startServing();
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         broker.createTable("table", numShards);
@@ -475,8 +477,8 @@ public class KVStoreTests {
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                new KVShardFactory(), Path.of("/var/tmp/KVUniserve"),
-                zkHost, zkPort, "127.0.0.1", 8000, -1);
+                new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
+        );
         dataStore.startServing();
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
         broker.createTable("table", numShards);
@@ -485,7 +487,7 @@ public class KVStoreTests {
         boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assertTrue(writeSuccess);
 
-        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1, true);
+        Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1);
         assertTrue(shard.isPresent());
 
         dataStore.shutDown();
@@ -504,8 +506,8 @@ public class KVStoreTests {
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null,
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -566,8 +568,8 @@ public class KVStoreTests {
         int numDatastores = numShards;
         for (int i = 0; i < numDatastores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -617,6 +619,69 @@ public class KVStoreTests {
                     logger.info("{}", e);
                 }
             }
+        }
+
+        for(Thread t: threads) {
+            t.join();
+        }
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testReadWriteAtomicity() throws InterruptedException {
+        logger.info("testReadWriteAtomicity");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1, true
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+
+        List<Thread> threads = new ArrayList<>();
+
+        long startTime = System.currentTimeMillis();
+        for (int threadNum = 0; threadNum < 2; threadNum++) {
+            int finalThreadNum = threadNum;
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 10000) {
+                    List<KVRow> insertList = new ArrayList<>();
+                    for (int i = 0; i < numShards; i++) {
+                        insertList.add(new KVRow(i, finalThreadNum));
+                    }
+                    WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+
+        Thread.sleep(500);
+
+        for (int threadNum = 0; threadNum < 20; threadNum++) {
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 10000) {
+                    KVReadQueryPlanSumGet p = new KVReadQueryPlanSumGet(IntStream.range(0, numShards).boxed().collect(Collectors.toList()));
+                    Integer bob = broker.anchoredReadQuery(p);
+                    assertEquals(0, bob % numShards);
+                }
+            });
+            t.start();
+            threads.add(t);
         }
 
         for(Thread t: threads) {

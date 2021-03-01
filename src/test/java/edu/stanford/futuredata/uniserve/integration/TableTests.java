@@ -57,8 +57,8 @@ public class TableTests {
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
             DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             assertTrue(dataStore.startServing());
             dataStores.add(dataStore);
@@ -93,8 +93,8 @@ public class TableTests {
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
             DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             assertTrue(dataStore.startServing());
             dataStores.add(dataStore);

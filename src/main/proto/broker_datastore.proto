@@ -33,7 +33,8 @@ message AnchoredReadQueryMessage {
     bytes serializedQuery = 2;
     int32 numReducers = 3;
     int64 txID = 4;
-    bytes targetShards = 5;
+    int64 lastCommittedVersion = 5;
+    bytes targetShards = 6;
 }
 
 message AnchoredReadQueryResponse {

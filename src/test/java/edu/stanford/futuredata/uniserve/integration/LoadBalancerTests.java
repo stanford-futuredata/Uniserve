@@ -73,8 +73,8 @@ public class LoadBalancerTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
-                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
-                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1);
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
             dataStore.runPingDaemon = false;
             assertTrue(dataStore.startServing());
             dataStores.add(dataStore);

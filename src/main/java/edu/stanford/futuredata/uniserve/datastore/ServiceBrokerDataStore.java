@@ -5,6 +5,7 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
 import org.javatuples.Pair;
@@ -97,7 +98,20 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             private WriteQueryResponse prepareWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
                     dataStore.ensureShardCached(shardNum);
-                    S shard = dataStore.shardMap.get(shardNum);
+                    S shard;
+                    if (dataStore.readWriteAtomicity) {
+                        ZKShardDescription z = dataStore.zkCurator.getZKShardDescription(shardNum);
+                        if (z == null) {
+                            shard = dataStore.shardMap.get(shardNum); // This is the first commit.
+                        } else {
+                            Optional<S> shardOpt = dataStore.downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
+                            assert (shardOpt.isPresent());
+                            shard = shardOpt.get();
+                        }
+                        dataStore.multiVersionShardMap.get(shardNum).put(txID, shard);
+                    } else {
+                        shard = dataStore.shardMap.get(shardNum);
+                    }
                     assert(shard != null);
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
                             dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
@@ -174,7 +188,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             private void commitWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
-                S shard = dataStore.shardMap.get(shardNum);
+                S shard;
+                if (dataStore.readWriteAtomicity) {
+                    shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);
+                } else {
+                    shard = dataStore.shardMap.get(shardNum);
+                }
                 for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.COMMIT)
@@ -183,6 +202,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     observer.onCompleted();
                 }
                 writeQueryPlan.commit(shard);
+                dataStore.shardMap.put(shardNum, shard);
                 int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
@@ -200,7 +220,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
 
             private void abortWriteQuery(int shardNum, long txID, WriteQueryPlan<R, S> writeQueryPlan) {
-                S shard = dataStore.shardMap.get(shardNum);
                 for (StreamObserver<ReplicaWriteMessage> observer : replicaObservers) {
                     ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                             .setWriteState(DataStore.ABORT)
@@ -208,7 +227,15 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     observer.onNext(rm);
                     observer.onCompleted();
                 }
-                writeQueryPlan.abort(shard);
+                if (dataStore.readWriteAtomicity) {
+                    S shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);
+                    writeQueryPlan.abort(shard);
+                    shard.destroy();
+                    dataStore.multiVersionShardMap.get(shardNum).remove(txID);
+                } else {
+                    S shard = dataStore.shardMap.get(shardNum);
+                    writeQueryPlan.abort(shard);
+                }
                 try {
                     commitSemaphore.acquire(replicaObservers.size());
                 } catch (InterruptedException e) {
@@ -243,7 +270,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
         dataStore.ensureShardCached(localShardNum);
-        S localShard = dataStore.shardMap.get(localShardNum);
+        S localShard;
+        if (dataStore.readWriteAtomicity) {
+            long lastCommittedVersion = m.getLastCommittedVersion();
+            if (dataStore.multiVersionShardMap.get(localShardNum).containsKey(lastCommittedVersion)) {
+                localShard = dataStore.multiVersionShardMap.get(localShardNum).get(lastCommittedVersion);
+            } else { // TODO: Retrieve the older version from somewhere else?
+                logger.info("DS{} missing shard {} version {}", dataStore.dsID, localShardNum, lastCommittedVersion);
+                return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+            }
+        } else {
+            localShard = dataStore.shardMap.get(localShardNum);
+        }
         assert(localShard != null);
         List<Integer> partitionKeys = plan.getPartitionKeys(localShard);
         for (String tableName: plan.getQueriedTables()) {
