@@ -8,7 +8,10 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.kvmockinterface.*;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
@@ -23,9 +26,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadInfo;
-import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -535,19 +535,6 @@ public class KVStoreTests {
             threads.add(t);
         }
 
-        Thread.sleep(2000);
-        ThreadMXBean mbean = ManagementFactory.getThreadMXBean();
-        long[] ds = mbean.findDeadlockedThreads();
-        if (ds != null) {
-            ThreadInfo[] ts = mbean.getThreadInfo(ds);
-            for (ThreadInfo t : ts) {
-                logger.info("{} {} {}", t, t.getThreadState(), t.getStackTrace());
-                for (StackTraceElement e : t.getStackTrace()) {
-                    logger.info("{}", e);
-                }
-            }
-        }
-
         for(Thread t: threads) {
             t.join();
         }
@@ -608,19 +595,6 @@ public class KVStoreTests {
             threads.add(t);
         }
 
-        Thread.sleep(2000);
-        ThreadMXBean mbean = ManagementFactory.getThreadMXBean();
-        long[] ds = mbean.findDeadlockedThreads();
-        if (ds != null) {
-            ThreadInfo[] ts = mbean.getThreadInfo(ds);
-            for (ThreadInfo t : ts) {
-                logger.info("{} {} {}", t, t.getThreadState(), t.getStackTrace());
-                for (StackTraceElement e : t.getStackTrace()) {
-                    logger.info("{}", e);
-                }
-            }
-        }
-
         for(Thread t: threads) {
             t.join();
         }
@@ -652,6 +626,80 @@ public class KVStoreTests {
         broker.createTable("table", numShards);
 
         List<Thread> threads = new ArrayList<>();
+
+        long startTime = System.currentTimeMillis();
+        for (int threadNum = 0; threadNum < 2; threadNum++) {
+            int finalThreadNum = threadNum;
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 10000) {
+                    List<KVRow> insertList = new ArrayList<>();
+                    for (int i = 0; i < numShards; i++) {
+                        insertList.add(new KVRow(i, finalThreadNum));
+                    }
+                    WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+
+        Thread.sleep(500);
+
+        for (int threadNum = 0; threadNum < 20; threadNum++) {
+            Thread t = new Thread(() -> {
+                while (System.currentTimeMillis() < startTime + 10000) {
+                    KVReadQueryPlanSumGet p = new KVReadQueryPlanSumGet(IntStream.range(0, numShards).boxed().collect(Collectors.toList()));
+                    Integer bob = broker.anchoredReadQuery(p);
+                    assertEquals(0, bob % numShards);
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+
+        for(Thread t: threads) {
+            t.join();
+        }
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testReadWriteAtomicityReplicas() throws InterruptedException {
+        logger.info("testReadWriteAtomicityReplicas");
+        int numShards = 4;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDatastores = numShards;
+        for (int i = 0; i < numDatastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),
+                    zkHost, zkPort, "127.0.0.1", 8200 + i, -1, true
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+
+        List<Thread> threads = new ArrayList<>();
+
+        List<KVRow> firstList = new ArrayList<>();
+        for (int i = 0; i < numShards; i++) {
+            firstList.add(new KVRow(i, 0));
+        }
+        WriteQueryPlan<KVRow, KVShard> firstPlan = new KVWriteQueryPlanInsert();
+        assertTrue(broker.writeQuery(firstPlan, firstList));
+
+        for (int i = 0; i < numShards; i++) {
+            coordinator.addReplica(i, (i + 1) % numShards);
+        }
 
         long startTime = System.currentTimeMillis();
         for (int threadNum = 0; threadNum < 2; threadNum++) {

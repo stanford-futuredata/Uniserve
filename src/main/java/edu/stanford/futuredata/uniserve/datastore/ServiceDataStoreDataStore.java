@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
@@ -133,7 +134,20 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
             private ReplicaWriteResponse prepareReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
                 if (dataStore.shardMap.containsKey(shardNum)) {
-                    S shard = dataStore.shardMap.get(shardNum);
+                    S shard;
+                    if (dataStore.readWriteAtomicity) {
+                        ZKShardDescription z = dataStore.zkCurator.getZKShardDescription(shardNum);
+                        if (z == null) {
+                            shard = dataStore.shardMap.get(shardNum); // This is the first commit.
+                        } else {
+                            Optional<S> shardOpt = dataStore.downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
+                            assert (shardOpt.isPresent());
+                            shard = shardOpt.get();
+                        }
+                        dataStore.multiVersionShardMap.get(shardNum).put(txID, shard);
+                    } else {
+                        shard = dataStore.shardMap.get(shardNum);
+                    }
                     boolean success =  writeQueryPlan.preCommit(shard, rows);
                     if (success) {
                         return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
@@ -146,9 +160,14 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 }
             }
 
-            private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-                S shard = dataStore.shardMap.get(shardNum);
+            private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {                S shard;
+                if (dataStore.readWriteAtomicity) {
+                    shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);
+                } else {
+                    shard = dataStore.shardMap.get(shardNum);
+                }
                 writeQueryPlan.commit(shard);
+                dataStore.shardMap.put(shardNum, shard);
                 int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
@@ -156,8 +175,15 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
 
             private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
-                S shard = dataStore.shardMap.get(shardNum);
-                writeQueryPlan.abort(shard);
+                if (dataStore.readWriteAtomicity) {
+                    S shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);
+                    writeQueryPlan.abort(shard);
+                    shard.destroy();
+                    dataStore.multiVersionShardMap.get(shardNum).remove(txID);
+                } else {
+                    S shard = dataStore.shardMap.get(shardNum);
+                    writeQueryPlan.abort(shard);
+                }
             }
         };
     }
@@ -193,7 +219,20 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
         if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumReducers()) {
             dataStore.ensureShardCached(shardNum);
-            S shard = dataStore.shardMap.get(shardNum);
+            S shard;
+            if (dataStore.readWriteAtomicity) {
+                long lastCommittedVersion = m.getLastCommittedVersion();
+                if (dataStore.multiVersionShardMap.get(shardNum).containsKey(lastCommittedVersion)) {
+                    shard = dataStore.multiVersionShardMap.get(shardNum).get(lastCommittedVersion);
+                } else { // TODO: Retrieve the older version from somewhere else?
+                    logger.info("DS{} missing shard {} version {}", dataStore.dsID, shardNum, lastCommittedVersion);
+                    responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build());
+                    responseObserver.onCompleted();
+                    return;
+                }
+            } else {
+                shard = dataStore.shardMap.get(shardNum);
+            }
             assert (shard != null);
             Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, txPartitionKeys.get(mapID));
             txShuffledData.put(mapID, mapperResult);

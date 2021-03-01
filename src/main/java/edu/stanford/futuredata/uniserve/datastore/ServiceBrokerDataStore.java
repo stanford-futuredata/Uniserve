@@ -271,8 +271,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         }
         dataStore.ensureShardCached(localShardNum);
         S localShard;
+        long lastCommittedVersion = m.getLastCommittedVersion();
         if (dataStore.readWriteAtomicity) {
-            long lastCommittedVersion = m.getLastCommittedVersion();
             if (dataStore.multiVersionShardMap.get(localShardNum).containsKey(lastCommittedVersion)) {
                 localShard = dataStore.multiVersionShardMap.get(localShardNum).get(lastCommittedVersion);
             } else { // TODO: Retrieve the older version from somewhere else?
@@ -299,7 +299,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
                             .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerShardNum(localShardNum)
-                            .setSerializedQuery(m.getSerializedQuery())
+                            .setSerializedQuery(m.getSerializedQuery()).setLastCommittedVersion(lastCommittedVersion)
                             .setTxID(m.getTxID()).addAllPartitionKeys(partitionKeys).build();
                     StreamObserver<AnchoredShuffleResponse> responseObserver = new StreamObserver<>() {
                         @Override

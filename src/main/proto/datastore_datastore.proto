@@ -67,6 +67,7 @@ message AnchoredShuffleMessage {
     int32 reducerShardNum = 4;
     int32 numReducers = 5;
     bytes serializedQuery = 6;
+    int64 lastCommittedVersion = 7;
 }
 
 message AnchoredShuffleResponse {
