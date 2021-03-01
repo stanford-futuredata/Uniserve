@@ -190,14 +190,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
-                // Update materialized views.
-                long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
-                long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
-                long lastExistingTimestamp =
-                        dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
-                for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                    m.updateView(dataStore.shardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
-                }
                 // Upload the updated shard.
                 if (dataStore.dsCloud != null) {
                     dataStore.uploadShardToCloud(shardNum);
@@ -391,76 +383,5 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ByteString b = plan.reducer(ephemeralData, ephemeralShards);
         ephemeralShards.values().forEach(S::destroy);
         return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
-    }
-
-    @Override
-    public void registerMaterializedView(RegisterMaterializedViewMessage request, StreamObserver<RegisterMaterializedViewResponse> responseObserver) {
-        responseObserver.onNext(registerMaterializedViewHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private RegisterMaterializedViewResponse registerMaterializedViewHandler(RegisterMaterializedViewMessage m) {
-        int shardNum = m.getShard();
-        String name = m.getName();
-        AnchoredReadQueryPlan<S, Object> r = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
-        dataStore.createShardMetadata(shardNum);
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
-        if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-            dataStore.ensureShardCached(shardNum);
-            S shard = dataStore.shardMap.get(shardNum);
-            if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
-                logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
-                dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-                return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
-            }
-            Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
-            ByteString intermediate = r.queryShard(Collections.singletonList(shard));
-            MaterializedView v = new MaterializedView(r, timestamp, intermediate);
-            dataStore.materializedViewMap.get(shardNum).put(name, v);
-            int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
-            dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
-            // Upload the shard updated with the new MV.
-            if (dataStore.dsCloud != null) {
-                dataStore.uploadShardToCloud(shardNum);
-            }
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            List<DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub> replicaStubs =
-                    dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> DataStoreDataStoreGrpc.newBlockingStub(i.channel)).collect(Collectors.toList());
-            for (DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub : replicaStubs) {
-                ReplicaRegisterMVResponse response =
-                        stub.replicaRegisterMV(ReplicaRegisterMVMessage.newBuilder().setShard(shardNum).setName(name).
-                        setSerializedQuery(m.getSerializedQuery()).build());
-                assert (response.getReturnCode() == Broker.QUERY_SUCCESS);
-            }
-            return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
-        } else {
-            logger.warn("DS{} Got MV request for unassigned shard {}", dataStore.dsID, shardNum);
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return RegisterMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
-        }
-    }
-
-    @Override
-    public void queryMaterializedView(QueryMaterializedViewMessage request, StreamObserver<QueryMaterializedViewResponse> responseObserver) {
-        responseObserver.onNext(queryMaterializedViewHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private QueryMaterializedViewResponse queryMaterializedViewHandler(QueryMaterializedViewMessage m) {
-        int shardNum = m.getShard();
-        String name = m.getName();
-        dataStore.createShardMetadata(shardNum);
-        dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-            dataStore.ensureShardCached(shardNum);
-            MaterializedView v = dataStore.materializedViewMap.get(shardNum).get(name);
-            ByteString intermediate = v.getLatestView();
-            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-            return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(intermediate).build();
-        } else {
-            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
-            logger.warn("DS{} Got MV query for unassigned shard {} or name {}", dataStore.dsID, shardNum, name);
-            return QueryMaterializedViewResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
-        }
     }
 }

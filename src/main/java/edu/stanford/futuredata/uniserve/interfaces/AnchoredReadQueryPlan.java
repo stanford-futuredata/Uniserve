@@ -15,12 +15,6 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     Map<String, List<Integer>> keysForQuery();
     // Which table does not need shuffling?
     String getAnchorTable();
-    // This function will execute on each shard containing at least one key from keysForQuery.
-    ByteString queryShard(List<S> shard); // TODO:  Have MVs use the standard (shuffle) interface.
-    // For incrementally updated materialized views, query all rows whose timestamps satisfy startTime < t <= endTime
-    ByteString queryShard(S shard, long startTime, long endTime);
-    // Combine multiple intermediates into one.
-    ByteString combineIntermediates(List<ByteString> intermediates);
     // Get partition keys.
     List<Integer> getPartitionKeys(S s); // TODO:  Maybe this shouldn't be integer.
     // Mapper.

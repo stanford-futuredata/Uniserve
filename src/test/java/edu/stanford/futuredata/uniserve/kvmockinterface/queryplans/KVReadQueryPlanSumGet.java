@@ -34,28 +34,6 @@ public class KVReadQueryPlanSumGet implements AnchoredReadQueryPlan<KVShard, Int
     }
 
     @Override
-    public ByteString queryShard(List<KVShard> shard) {
-        int sum = 0;
-        for (Integer key : keys) {
-            Optional<Integer> value = shard.get(0).queryKey(key);
-            if (value.isPresent()) {
-                sum += value.get();
-            }
-        }
-        return Utilities.objectToByteString(sum);
-    }
-
-    @Override
-    public ByteString queryShard(KVShard shard, long startTime, long endTime) {
-        return null;
-    }
-
-    @Override
-    public ByteString combineIntermediates(List<ByteString> intermediates) {
-        return null;
-    }
-
-    @Override
     public List<Integer> getPartitionKeys(KVShard s) {
         return null;
     }

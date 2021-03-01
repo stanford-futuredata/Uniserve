@@ -102,14 +102,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     assert(lastState == DataStore.PREPARE);
                     commitReplicaWrite(shardNum, writeQueryPlan, rowList);
                     lastState = writeState;
-                    long firstWrittenTimestamp = rowList.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
-                    long lastWrittenTimestamp = rowList.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
-                    long lastExistingTimestamp =
-                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
-                    // Update materialized views.
-                    for (MaterializedView m: dataStore.materializedViewMap.get(shardNum).values()) {
-                        m.updateView(dataStore.shardMap.get(shardNum), firstWrittenTimestamp, lastExistingTimestamp);
-                    }
                     t.releaseLock();
                 } else if (writeState == DataStore.ABORT) {
                     assert(lastState == DataStore.PREPARE);
@@ -168,37 +160,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 writeQueryPlan.abort(shard);
             }
         };
-    }
-
-    @Override
-    public void replicaRegisterMV(ReplicaRegisterMVMessage request, StreamObserver<ReplicaRegisterMVResponse> responseObserver) {
-        responseObserver.onNext(registerReplicaMVHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private ReplicaRegisterMVResponse registerReplicaMVHandler(ReplicaRegisterMVMessage m) {
-        int shardNum = m.getShard();
-        String name = m.getName();
-        AnchoredReadQueryPlan<S, Object> r = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
-        S shard = dataStore.shardMap.get(shardNum);
-        if (shard != null) {
-            if (dataStore.materializedViewMap.get(shardNum).containsKey(name)) {
-                logger.warn("DS{} Shard {} reused MV name {}", dataStore.dsID, shardNum, name);
-                dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-                return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
-            }
-            Long timestamp = dataStore.shardTimestampMap.getOrDefault(shardNum, Long.MIN_VALUE);
-            ByteString intermediate = r.queryShard(Collections.singletonList(shard));
-            MaterializedView v = new MaterializedView(r, timestamp, intermediate);
-            dataStore.materializedViewMap.get(shardNum).put(name, v);
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
-        } else {
-            logger.warn("DS{} Got MV request for absent shard {}", dataStore.dsID, shardNum);
-            dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-            return ReplicaRegisterMVResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
-        }
     }
 
     @Override

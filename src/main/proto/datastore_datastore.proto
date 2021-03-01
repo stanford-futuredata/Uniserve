@@ -14,8 +14,6 @@ service DataStoreDataStore {
     rpc ReplicaWrite (stream ReplicaWriteMessage) returns (stream ReplicaWriteResponse) {}
     // DataStorePing a datastore to see if it's alive.
     rpc DataStorePing (DataStorePingMessage) returns (DataStorePingResponse) {}
-    // Register a materialized view on a replica.
-    rpc ReplicaRegisterMV (ReplicaRegisterMVMessage) returns (ReplicaRegisterMVResponse) {}
     // Get data for an anchored shuffle.
     rpc AnchoredShuffle (AnchoredShuffleMessage) returns (stream AnchoredShuffleResponse) {}
     // Get data for a shuffle.

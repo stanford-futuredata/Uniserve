@@ -307,56 +307,6 @@ public class Broker {
         return ret;
     }
 
-    public <S extends Shard, V> boolean registerMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
-        List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
-        List<Integer> shardNums;
-        TableInfo tableInfo = getTableInfo(readQueryPlan.getQueriedTables().get(0));
-        int tableID = tableInfo.id;
-        int numShards = tableInfo.numShards;
-        if (partitionKeys.contains(-1)) {
-            // -1 is a wildcard--run on all shards.
-            shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
-        } else {
-            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
-        }
-        for (int shardNum: shardNums) {
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = getStubForShard(shardNum);
-            ByteString serializedQuery = Utilities.objectToByteString(readQueryPlan);
-            RegisterMaterializedViewMessage m = RegisterMaterializedViewMessage.newBuilder().
-                    setShard(shardNum).setName(name).setSerializedQuery(serializedQuery).build();
-            RegisterMaterializedViewResponse r = stub.registerMaterializedView(m);
-            if (r.getReturnCode() != Broker.QUERY_SUCCESS) {
-                // TODO:  Handle retries and do full rollbacks on failure.
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public <S extends Shard, V> V queryMaterializedView(AnchoredReadQueryPlan<S, V> readQueryPlan, String name) {
-        List<Integer> partitionKeys = readQueryPlan.keysForQuery().get(readQueryPlan.getQueriedTables().get(0));
-        List<Integer> shardNums;
-        TableInfo tableInfo = getTableInfo(readQueryPlan.getQueriedTables().get(0));
-        int tableID = tableInfo.id;
-        int numShards = tableInfo.numShards;
-        if (partitionKeys.contains(-1)) {
-            // -1 is a wildcard--run on all shards.
-            shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards).boxed().collect(Collectors.toList());
-        } else {
-            shardNums = partitionKeys.stream().map(i -> keyToShard(tableID, numShards, i)).distinct().collect(Collectors.toList());
-        }
-        List<ByteString> intermediates = new ArrayList<>();
-        for (int shardNum: shardNums) {
-            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = getStubForShard(shardNum);
-            QueryMaterializedViewMessage m = QueryMaterializedViewMessage.newBuilder().
-                    setShard(shardNum).setName(name).build();
-            QueryMaterializedViewResponse r = stub.queryMaterializedView(m);
-            assert r.getReturnCode() == Broker.QUERY_SUCCESS; // TODO:  Handle retries and failures.
-            intermediates.add(r.getResponse());
-        }
-        return readQueryPlan.aggregateShardQueries(intermediates);
-    }
-
     /*
      * PRIVATE FUNCTIONS
      */

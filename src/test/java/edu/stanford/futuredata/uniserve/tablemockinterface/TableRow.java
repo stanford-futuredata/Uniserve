@@ -17,11 +17,6 @@ public class TableRow implements Row {
         return this.key;
     }
 
-    @Override
-    public long getTimeStamp() {
-        return 1;
-    }
-
     public Map<String, Integer> getRow() {
         return row;
     }

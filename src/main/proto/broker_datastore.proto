@@ -14,10 +14,6 @@ service BrokerDataStore {
     rpc AnchoredReadQuery (AnchoredReadQueryMessage) returns (AnchoredReadQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
-    // Register a materialized view on a DataStore.
-    rpc RegisterMaterializedView (RegisterMaterializedViewMessage) returns (RegisterMaterializedViewResponse);
-    // Query a materialized view.
-    rpc QueryMaterializedView (QueryMaterializedViewMessage) returns (QueryMaterializedViewResponse);
 }
 
 message WriteQueryMessage {
@@ -54,26 +50,6 @@ message ShuffleReadQueryMessage {
 }
 
 message ShuffleReadQueryResponse {
-    int32 returnCode = 1;
-    bytes response = 2;
-}
-
-message RegisterMaterializedViewMessage {
-    int32 shard = 1;
-    bytes serializedQuery = 2;
-    string name = 3;
-}
-
-message RegisterMaterializedViewResponse {
-    int32 returnCode = 1;
-}
-
-message QueryMaterializedViewMessage {
-    int32 shard = 1;
-    string name = 2;
-}
-
-message QueryMaterializedViewResponse {
     int32 returnCode = 1;
     bytes response = 2;
 }

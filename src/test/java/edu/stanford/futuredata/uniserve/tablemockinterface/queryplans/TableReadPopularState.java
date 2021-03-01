@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
@@ -9,7 +8,10 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class TableReadPopularState implements ShuffleReadQueryPlan<TableShard, Integer> {
 

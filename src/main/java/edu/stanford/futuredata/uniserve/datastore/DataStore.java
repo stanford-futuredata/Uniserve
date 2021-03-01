@@ -47,8 +47,6 @@ public class DataStore<R extends Row, S extends Shard> {
     final Map<Integer, Long> shardTimestampMap = new ConcurrentHashMap<>();
     // Map from Unix second timestamp to number of read queries made during that timestamp, per shard.
     final Map<Integer, Map<Long, Integer>> QPSMap = new ConcurrentHashMap<>();
-    // Map from tuples of name and shard to materialized view.
-    final Map<Integer, Map<String, MaterializedView>> materializedViewMap = new ConcurrentHashMap<>();
     // Map from table names to tableInfos.
     private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
     // Map from dsID to a ManagedChannel.
@@ -228,7 +226,6 @@ public class DataStore<R extends Row, S extends Shard> {
             QPSMap.put(shardNum, new ConcurrentHashMap<>());
             writeLog.put(shardNum, new ConcurrentHashMap<>());
             replicaDescriptionsMap.put(shardNum, new ArrayList<>());
-            materializedViewMap.put(shardNum, new ConcurrentHashMap<>());
         }
         shardLock.systemLockUnlock();
         return true;
@@ -248,15 +245,6 @@ public class DataStore<R extends Row, S extends Shard> {
         return true;
     }
 
-    public void serializeMaterializedViews(int shardNum, Path dir) throws IOException {
-        Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
-        FileOutputStream f = new FileOutputStream(mvFile.toFile());
-        ObjectOutputStream o = new ObjectOutputStream(f);
-        o.writeObject(new Pair<>(materializedViewMap.get(shardNum), shardTimestampMap.get(shardNum)));
-        o.close();
-        f.close();
-    }
-
     /** Synchronously upload a shard to the cloud; assumes shard write lock is held **/
     // TODO:  Safely delete old versions.
     public void uploadShardToCloud(int shardNum) {
@@ -269,12 +257,6 @@ public class DataStore<R extends Row, S extends Shard> {
             logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
             return;
         }
-        try {
-            serializeMaterializedViews(shardNum, shardDirectory.get());
-        } catch (IOException e) {
-            logger.warn("DS{} Shard {} MV serialization failed", dsID, shardNum);
-            return;
-        }
         // Upload the shard's data.
         Optional<String> cloudName = dsCloud.uploadShardToCloud(shardDirectory.get(), Integer.toString(shardNum), versionNumber);
         if (cloudName.isEmpty()) {
@@ -284,17 +266,6 @@ public class DataStore<R extends Row, S extends Shard> {
         // Notify the coordinator about the upload.
         zkCurator.setZKShardDescription(shardNum, cloudName.get(), versionNumber);
         logger.info("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
-    }
-
-    public void deserializeMaterializedViews(int shardNum, Path dir) throws IOException, ClassNotFoundException {
-        Path mvFile = Path.of(dir.toString(), "__uniserve__mv.obj");
-        FileInputStream f = new FileInputStream(mvFile.toFile());
-        ObjectInputStream o = new ObjectInputStream(f);
-        Pair<ConcurrentHashMap<String, MaterializedView>, Long> mv = (Pair<ConcurrentHashMap<String, MaterializedView>, Long>) o.readObject();
-        o.close();
-        f.close();
-        materializedViewMap.put(shardNum, mv.getValue0());
-        shardTimestampMap.put(shardNum, mv.getValue1());
     }
 
     /** Synchronously download a shard from the cloud **/
@@ -316,15 +287,6 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
         Optional<S> shard = shardFactory.createShardFromDir(targetDirectory, shardNum);
-        if (shard.isPresent() && materializedViews) {
-            try {
-                deserializeMaterializedViews(shardNum, targetDirectory);
-            } catch (IOException | ClassNotFoundException e) {
-                logger.warn("DS{} Shard {} MV deserialization failed", dsID, shardNum);
-                shard.get().destroy();
-                return Optional.empty();
-            }
-        }
         logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
     }

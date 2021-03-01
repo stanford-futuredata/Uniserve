@@ -96,14 +96,6 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
                     List<R> rows = Arrays.asList(rowsList.get(i));
                     assert(query.preCommit(shard, rows));
                     query.commit(shard);
-                    // Update all materialized views.
-                    long firstWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).min().getAsLong();
-                    long lastWrittenTimestamp = rows.stream().mapToLong(Row::getTimeStamp).max().getAsLong();
-                    long lastExistingTimestamp =
-                            dataStore.shardTimestampMap.compute(shardNum, (k, v) -> v == null ? lastWrittenTimestamp : Long.max(v, lastWrittenTimestamp));
-                    for (MaterializedView mv: dataStore.materializedViewMap.get(shardNum).values()) {
-                        mv.updateView(shard, firstWrittenTimestamp, lastExistingTimestamp);
-                    }
                 }
                 replicaVersion = r.getVersionNumber();
             }

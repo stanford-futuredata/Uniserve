@@ -41,21 +41,6 @@ public class KVReadQueryPlanGet implements AnchoredReadQueryPlan<KVShard, Intege
     }
 
     @Override
-    public ByteString queryShard(List<KVShard> shard) {
-        return null;
-    }
-
-    @Override
-    public ByteString queryShard(KVShard shard, long startTime, long endTime) {
-        return null;
-    }
-
-    @Override
-    public ByteString combineIntermediates(List<ByteString> intermediates) {
-        return null;
-    }
-
-    @Override
     public List<Integer> getPartitionKeys(KVShard s) {
         return null;
     }
