@@ -337,8 +337,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         }
         AnchoredReadQueryResponse r;
         try {
-            ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
-            r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+            if (plan.returnTableName().isEmpty()) {
+                ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
+                r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+            } else {
+                int intermediateShardNum = DataStore.ephemeralShardNum.decrementAndGet();
+                S intermediateShard = dataStore.createNewShard(intermediateShardNum).get();
+                plan.reducer(localShard, ephemeralData, ephemeralShards, intermediateShard);
+                HashMap<Integer, Integer> intermediateShardLocation =
+                        new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
+                ByteString b = Utilities.objectToByteString(intermediateShardLocation);
+                r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+            }
         } catch (Exception e) {
             logger.warn("Read Query Exception: {}", e.getMessage());
             r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();

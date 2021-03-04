@@ -235,7 +235,17 @@ public class Broker {
             latch.await();
         } catch (InterruptedException ignored) { }
         long aggStart = System.nanoTime();
-        V ret =  plan.aggregateShardQueries(intermediates);
+        V ret;
+        if (plan.returnTableName().isEmpty()) {
+            ret = plan.aggregateShardQueries(intermediates);
+        } else {
+            List<Map<Integer, Integer>> shardLocations = intermediates.stream()
+                    .map(i -> (Map<Integer, Integer>) Utilities.byteStringToObject(i))
+                    .collect(Collectors.toList());
+            Map<Integer, Integer> combinedShardLocations = new HashMap<>();
+            shardLocations.forEach(i -> i.forEach(combinedShardLocations::put));
+            ret = (V) Map.of(plan.returnTableName().get(), combinedShardLocations);
+        }
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;

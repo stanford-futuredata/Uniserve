@@ -6,7 +6,16 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVIntermediateSumGet;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanSumGet;
+import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableQueryEngine;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
@@ -21,9 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -122,6 +129,42 @@ public class TableTests {
 
         ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
         assertEquals(9, broker.shuffleReadQuery(r));
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testMultiStageQuery() {
+        logger.info("testMultiStageQuery");
+        int numShards = 2;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+        List<KVRow> rows = new ArrayList<>();
+        for (int i = 1; i < 11; i++) {
+            rows.add(new KVRow(i, i));
+        }
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        assertTrue(writeSuccess);
+
+        AnchoredReadQueryPlan<KVShard, Map<String, Map<Integer, Integer>>> readQueryPlan =
+                new KVIntermediateSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        Map<String, Map<Integer, Integer>> queryResponse = broker.anchoredReadQuery(readQueryPlan);
+        logger.info("{}", queryResponse);
 
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
