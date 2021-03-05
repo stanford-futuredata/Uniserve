@@ -35,6 +35,7 @@ message AnchoredReadQueryMessage {
     int64 txID = 4;
     int64 lastCommittedVersion = 5;
     bytes targetShards = 6;
+    bytes intermediateShards = 7;
 }
 
 message AnchoredReadQueryResponse {

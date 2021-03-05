@@ -153,6 +153,47 @@ public class KVStoreTests {
     }
 
     @Test
+    public void testMultiStageQuery() {
+        logger.info("testMultiStageQuery");
+        int numShards = 2;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+        List<KVRow> rows = new ArrayList<>();
+        for (int i = 1; i < 11; i++) {
+            rows.add(new KVRow(i, i));
+        }
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        assertTrue(writeSuccess);
+
+        AnchoredReadQueryPlan<KVShard, Map<String, Map<Integer, Integer>>> readQueryPlan =
+                new KVIntermediateSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        Map<String, Map<Integer, Integer>> queryResponse = broker.anchoredReadQuery(readQueryPlan);
+        assertEquals(1, queryResponse.size());
+        assertEquals(numShards, queryResponse.get("intermediate1").size());
+
+        AnchoredReadQueryPlan<KVShard, Integer> p = new KVFilterSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        Integer ret = broker.anchoredReadQuery(p);
+        assertEquals(10, ret);
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
     public void testAddingServers() throws InterruptedException {
         logger.info("testAddingServers");
         int numShards = 5;

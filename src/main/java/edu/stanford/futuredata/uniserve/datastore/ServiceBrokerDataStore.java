@@ -258,6 +258,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         AnchoredReadQueryPlan<S, Object> plan =
                 (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
+        Map<String, Map<Integer, Integer>> intermediateShards = (Map<String, Map<Integer, Integer>>) Utilities.byteStringToObject(m.getIntermediateShards());
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();
         int localShardNum = m.getTargetShard();
@@ -294,13 +295,16 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
                 CountDownLatch latch = new CountDownLatch(targetShards.size());
                 for (int targetShard : targetShards) {
-                    int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+                    int targetDSID = intermediateShards.containsKey(tableName) ?
+                            intermediateShards.get(tableName).get(targetShard) :
+                            dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
                             .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerShardNum(localShardNum)
                             .setSerializedQuery(m.getSerializedQuery()).setLastCommittedVersion(lastCommittedVersion)
-                            .setTxID(m.getTxID()).addAllPartitionKeys(partitionKeys).build();
+                            .setTxID(m.getTxID()).addAllPartitionKeys(partitionKeys)
+                            .setTargetShardIntermediate(intermediateShards.containsKey(tableName)).build();
                     StreamObserver<AnchoredShuffleResponse> responseObserver = new StreamObserver<>() {
                         @Override
                         public void onNext(AnchoredShuffleResponse r) {
@@ -342,7 +346,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
             } else {
                 int intermediateShardNum = DataStore.ephemeralShardNum.decrementAndGet();
-                S intermediateShard = dataStore.createNewShard(intermediateShardNum).get();
+                dataStore.createShardMetadata(intermediateShardNum);
+                S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
                 plan.reducer(localShard, ephemeralData, ephemeralShards, intermediateShard);
                 HashMap<Integer, Integer> intermediateShardLocation =
                         new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));

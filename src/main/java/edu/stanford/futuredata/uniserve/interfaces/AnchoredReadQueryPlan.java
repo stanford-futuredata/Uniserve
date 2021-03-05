@@ -16,6 +16,8 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     Map<String, List<Integer>> keysForQuery();
     // Which table does not need shuffling?
     String getAnchorTable();
+    // For multi-stage queries.
+    default List<AnchoredReadQueryPlan<S, Map<String, Map<Integer, Integer>>>> getSubQueries() {return List.of();}
     // Get partition keys.
     List<Integer> getPartitionKeys(S s);
     // Mapper.
@@ -23,7 +25,7 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     // Reducer.
     ByteString reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
     // Reducer.
-    default void reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, S returnShard) { };
+    default void reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, S returnShard) { }
     // Return an aggregate or shard?  (Default aggregate)
     default Optional<String> returnTableName() {return Optional.empty();}
     // The query will return the result of this function executed on all results from queryShard.

@@ -182,7 +182,14 @@ public class Broker {
             }
             targetShards.put(tableName, shardNums);
         }
+        HashMap<String, Map<Integer, Integer>> intermediateShards = new HashMap<>();
+        for(AnchoredReadQueryPlan<S, Map<String, Map<Integer, Integer>>> p: plan.getSubQueries()) {
+            Map<String, Map<Integer, Integer>> subQueryShards = anchoredReadQuery(p);
+            intermediateShards.putAll(subQueryShards);
+            subQueryShards.forEach((k, v) -> targetShards.put(k, new ArrayList<>(v.keySet())));
+        }
         ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
+        ByteString serializedIntermediateShards = Utilities.objectToByteString(intermediateShards);
         ByteString serializedQuery = Utilities.objectToByteString(plan);
         String anchorTable = plan.getAnchorTable();
         List<Integer> anchorTableShards = targetShards.get(anchorTable);
@@ -196,7 +203,8 @@ public class Broker {
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
                     setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
-                    .setTxID(txID).setLastCommittedVersion(lcv).setTargetShards(serializedTargetShards).build();
+                    .setTxID(txID).setLastCommittedVersion(lcv).setTargetShards(serializedTargetShards)
+                    .setIntermediateShards(serializedIntermediateShards).build();
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
 
                 private void retry() {
@@ -244,7 +252,9 @@ public class Broker {
                     .collect(Collectors.toList());
             Map<Integer, Integer> combinedShardLocations = new HashMap<>();
             shardLocations.forEach(i -> i.forEach(combinedShardLocations::put));
-            ret = (V) Map.of(plan.returnTableName().get(), combinedShardLocations);
+            Map<String, Map<Integer, Integer>> s = Map.of(plan.returnTableName().get(), combinedShardLocations);
+            intermediateShards.putAll(s);
+            ret = (V) intermediateShards;
         }
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
