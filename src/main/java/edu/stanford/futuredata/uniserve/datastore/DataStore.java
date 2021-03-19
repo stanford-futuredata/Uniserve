@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
 import edu.stanford.futuredata.uniserve.*;
+import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
@@ -62,7 +63,7 @@ public class DataStore<R extends Row, S extends Shard> {
     final Path baseDirectory;
     private DataStoreCoordinatorGrpc.DataStoreCoordinatorBlockingStub coordinatorStub = null;
     private ManagedChannel coordinatorChannel = null;
-    static final AtomicInteger ephemeralShardNum = new AtomicInteger(Integer.MAX_VALUE);
+    public final AtomicInteger ephemeralShardNum = new AtomicInteger(Integer.MAX_VALUE);
 
     public static int qpsReportTimeInterval = 60; // In seconds -- should be same as load balancer interval.
 
@@ -139,6 +140,7 @@ public class DataStore<R extends Row, S extends Shard> {
             RegisterDataStoreResponse r = coordinatorStub.registerDataStore(m);
             assert r.getReturnCode() == 0;
             this.dsID = r.getDataStoreID();
+            ephemeralShardNum.set(Integer.MAX_VALUE - Broker.SHARDS_PER_TABLE * dsID);
         } catch (StatusRuntimeException e) {
             logger.error("Coordinator Unreachable: {}", e.getStatus());
             shutDown();

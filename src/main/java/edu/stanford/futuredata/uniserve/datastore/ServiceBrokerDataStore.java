@@ -287,7 +287,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         List<Integer> partitionKeys = plan.getPartitionKeys(localShard);
         for (String tableName: plan.getQueriedTables()) {
             if (plan.getQueriedTables().size() > 1) {
-                S ephemeralShard = dataStore.createNewShard(DataStore.ephemeralShardNum.decrementAndGet()).get();
+                S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
                 ephemeralShards.put(tableName, ephemeralShard);
             }
             if (!tableName.equals(anchorTableName)) {
@@ -345,7 +345,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
                 r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
             } else {
-                int intermediateShardNum = DataStore.ephemeralShardNum.decrementAndGet();
+                int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
                 dataStore.createShardMetadata(intermediateShardNum);
                 S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
                 plan.reducer(localShard, ephemeralData, ephemeralShards, intermediateShard);
@@ -379,7 +379,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();
         for (String tableName: plan.getQueriedTables()) {
-            S ephemeralShard = dataStore.createNewShard(DataStore.ephemeralShardNum.decrementAndGet()).get();
+            S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
             ephemeralShards.put(tableName, ephemeralShard);
             List<Integer> targetShards = allTargetShards.get(tableName);
             List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
