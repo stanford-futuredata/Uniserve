@@ -125,6 +125,7 @@ public class Broker {
 
     public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
+        long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
         for (R row: rows) {
@@ -155,7 +156,8 @@ public class Broker {
             }
         }
         lastCommittedVersion = txID;
-        logger.info("Write completed. Rows: {}. Version: {}.", rows.size(), lastCommittedVersion);
+        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
+                System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         zkCurator.releaseWriteLock();
         return queryStatus.get() == QUERY_SUCCESS;

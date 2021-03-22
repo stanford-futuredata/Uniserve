@@ -59,7 +59,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
                         t = new WriteLockerThread(dataStore.shardLockMap.get(shardNum));
                         t.acquireLock();
+                        long tStart = System.currentTimeMillis();
                         responseObserver.onNext(prepareWriteQuery(shardNum, txID, writeQueryPlan));
+                        logger.info("DS{} Write {} Execution Time: {}", dataStore.dsID, txID, System.currentTimeMillis() - tStart);
                     } else {
                         responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
                     }
