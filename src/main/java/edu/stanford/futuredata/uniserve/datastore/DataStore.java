@@ -34,6 +34,7 @@ public class DataStore<R extends Row, S extends Shard> {
     private final int dsPort;
     final boolean readWriteAtomicity;
     public boolean serving = false;
+    public boolean useReflink = false;
 
     // Map from shard number to shard data structure.
     public final Map<Integer, S> shardMap = new ConcurrentHashMap<>(); // Public for testing.
@@ -296,6 +297,41 @@ public class DataStore<R extends Row, S extends Shard> {
         Optional<S> shard = shardFactory.createShardFromDir(targetDirectory, shardNum);
         logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
+    }
+
+    public Optional<S> copyShardToDir(int shardNum, String cloudName, int versionNumber) {
+        long copyStart = System.currentTimeMillis();
+        Shard shard = shardMap.get(shardNum);
+        // Load the shard's data into files.
+        Optional<Path> shardDirectory = shard.shardToData();
+        if (shardDirectory.isEmpty()) {
+            logger.warn("DS{} Shard {} serialization failed", dsID, shardNum);
+            return Optional.empty();
+        }
+        Path targetDirectory = Path.of(baseDirectory.toString(), Integer.toString(versionNumber), cloudName);
+        File targetDirFile = targetDirectory.toFile();
+        if (!targetDirFile.exists()) {
+            boolean mkdirs = targetDirFile.mkdirs();
+            if (!mkdirs && !targetDirFile.exists()) {
+                logger.warn("DS{} Shard {} version {} mkdirs failed: {}", dsID, shardNum, versionNumber, targetDirFile.getAbsolutePath());
+                return Optional.empty();
+            }
+        }
+
+        try {
+            ProcessBuilder copier = new ProcessBuilder("cp", "-R", "--reflink", String.format("%s/*", shardDirectory.get().toString()),
+                    targetDirectory.toString());
+            logger.info("Copy Command: {}", copier.command());
+            Process writerProcess = copier.inheritIO().start();
+            writerProcess.waitFor();
+        } catch (InterruptedException | IOException e) {
+            logger.warn("DS{} Shard {} version {} copy failed: {}", dsID, shardNum, versionNumber, targetDirFile.getAbsolutePath());
+            return Optional.empty();
+        }
+
+        Optional<S> retShard = shardFactory.createShardFromDir(targetDirectory, shardNum);
+        logger.info("DS{} Shard {}-{} copy succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - copyStart);
+        return retShard;
     }
 
     ManagedChannel getChannelForDSID(int dsID) {

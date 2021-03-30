@@ -106,7 +106,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         if (z == null) {
                             shard = dataStore.shardMap.get(shardNum); // This is the first commit.
                         } else {
-                            Optional<S> shardOpt = dataStore.downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
+                            Optional<S> shardOpt =
+                                    dataStore.useReflink ?
+                                            dataStore.copyShardToDir(shardNum, z.cloudName, z.versionNumber) :
+                                            dataStore.downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
                             assert (shardOpt.isPresent());
                             shard = shardOpt.get();
                         }
