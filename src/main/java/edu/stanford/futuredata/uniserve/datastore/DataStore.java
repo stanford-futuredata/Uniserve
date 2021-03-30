@@ -319,7 +319,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
 
         try {
-            ProcessBuilder copier = new ProcessBuilder("src/main/resources/copy.sh", String.format("%s/*", shardDirectory.get().toString()),
+            ProcessBuilder copier = new ProcessBuilder("src/main/resources/copy_shard.sh", String.format("%s/*", shardDirectory.get().toString()),
                     targetDirectory.toString());
             logger.info("Copy Command: {}", copier.command());
             Process writerProcess = copier.inheritIO().start();
