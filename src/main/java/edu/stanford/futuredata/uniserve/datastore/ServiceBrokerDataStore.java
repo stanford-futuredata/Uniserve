@@ -209,8 +209,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 writeQueryPlan.commit(shard);
                 dataStore.shardMap.put(shardNum, shard);
                 int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
-                Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
-                shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+                if (rows.size() < 10000) {
+                    Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+                    shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
+                }
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
                 // Upload the updated shard.
                 if (dataStore.dsCloud != null) {
