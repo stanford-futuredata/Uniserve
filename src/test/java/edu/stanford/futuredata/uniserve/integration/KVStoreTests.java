@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
@@ -94,6 +95,38 @@ public class KVStoreTests {
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
         assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+
+        AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet("table1", 1);
+        assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(readQueryPlan));
+
+        WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
+        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3))));
+
+        AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVReadQueryPlanGet("table2", 1);
+        assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(readQueryPlan2));
+
+        dataStore.shutDown();
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testSingleKeySimpleWrite() {
+        logger.info("testSingleKeySimpleWrite");
+        int numShards = 1;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
+        );
+        dataStore.startServing();
+        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        assertTrue(broker.createTable("table1", numShards));
+        assertTrue(broker.createTable("table2", numShards));
+        assertFalse(broker.createTable("table1", numShards + 1));
+
+        SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert("table1");
+        assertTrue(broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet("table1", 1);
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(readQueryPlan));

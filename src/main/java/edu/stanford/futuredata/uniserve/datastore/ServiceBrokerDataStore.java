@@ -253,6 +253,89 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         };
     }
+
+    @Override
+    public StreamObserver<WriteQueryMessage> simpleWriteQuery(StreamObserver<WriteQueryResponse> responseObserver) {
+        return new StreamObserver<>() {
+            int shardNum;
+            long txID;
+            SimpleWriteQueryPlan<R, S> writeQueryPlan;
+            List<R[]> rowArrayList = new ArrayList<>();
+            int lastState = DataStore.COLLECT;
+            List<R> rows;
+            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
+
+            @Override
+            public void onNext(WriteQueryMessage writeQueryMessage) {
+                int writeState = writeQueryMessage.getWriteState();
+                if (writeState == DataStore.COLLECT) {
+                    assert (lastState == DataStore.COLLECT);
+                    shardNum = writeQueryMessage.getShard();
+                    dataStore.createShardMetadata(shardNum);
+                    txID = writeQueryMessage.getTxID();
+                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
+                    rowArrayList.add(rowChunk);
+                } else if (writeState == DataStore.PREPARE) {
+                    assert (lastState == DataStore.COLLECT);
+                    rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    if (dataStore.shardLockMap.containsKey(shardNum)) {
+                        long tStart = System.currentTimeMillis();
+                        responseObserver.onNext(executeWriteQuery(shardNum, txID, writeQueryPlan));
+                        logger.info("DS{} SimpleWrite {} Execution Time: {}", dataStore.dsID, txID, System.currentTimeMillis() - tStart);
+                    } else {
+                        responseObserver.onNext(WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
+                    }
+                }
+                lastState = writeState;
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.warn("DS{} Primary SimpleWrite RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                // TODO: Implement.
+            }
+
+            @Override
+            public void onCompleted() {
+                responseObserver.onCompleted();
+            }
+
+            private WriteQueryResponse executeWriteQuery(int shardNum, long txID, SimpleWriteQueryPlan<R, S> writeQueryPlan) {
+                if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
+                    dataStore.shardLockMap.get(shardNum).writerLockLock();
+                    dataStore.ensureShardCached(shardNum);
+                    S shard = dataStore.shardMap.get(shardNum);
+                    assert(shard != null);
+                    List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
+                            dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
+                    int numReplicas = replicaStubs.size();
+                    R[] rowArray;
+                    rowArray = (R[]) rows.toArray(new Row[0]);
+                    AtomicBoolean success = new AtomicBoolean(true);
+
+                    boolean primaryWriteSuccess = writeQueryPlan.write(shard, rows);
+
+                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+
+                    // TODO: Replication
+
+                    int returnCode;
+                    if (primaryWriteSuccess) {
+                        returnCode = Broker.QUERY_SUCCESS;
+                    } else {
+                        returnCode = Broker.QUERY_FAILURE;
+                    }
+
+                    return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
+                } else {
+                    logger.warn("DS{} Primary got write request for unassigned shard {}", dataStore.dsID, shardNum);
+                    return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
+                }
+            }
+
+        };
+    }
     
     @Override
     public void anchoredReadQuery(AnchoredReadQueryMessage request,  StreamObserver<AnchoredReadQueryResponse> responseObserver) {

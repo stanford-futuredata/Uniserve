@@ -8,6 +8,8 @@ package brokerdatastore;
 
 // Communication from brokers to datastores.
 service BrokerDataStore {
+    // Execute a simple (eventually consistent) write query.
+    rpc SimpleWriteQuery (stream WriteQueryMessage) returns (WriteQueryResponse) {}
     // Execute (2PC-style) a write query.
     rpc WriteQuery (stream WriteQueryMessage) returns (WriteQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.

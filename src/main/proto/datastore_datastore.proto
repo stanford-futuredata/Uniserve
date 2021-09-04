@@ -10,6 +10,8 @@ package datastoredatastore;
 service DataStoreDataStore {
     // Notify the primary a replica must be updated to the latest version.
     rpc BootstrapReplica (BootstrapReplicaMessage) returns (BootstrapReplicaResponse) {}
+    // Simply (eventually consistent) write to a replica.
+    rpc SimpleReplicaWrite (stream ReplicaWriteMessage) returns (stream ReplicaWriteResponse) {}
     // Write to a replica.
     rpc ReplicaWrite (stream ReplicaWriteMessage) returns (stream ReplicaWriteResponse) {}
     // DataStorePing a datastore to see if it's alive.
