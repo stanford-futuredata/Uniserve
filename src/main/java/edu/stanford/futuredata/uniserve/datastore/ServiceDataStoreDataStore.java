@@ -189,6 +189,66 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
 
     @Override
+    public StreamObserver<ReplicaWriteMessage> simpleReplicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
+        return new StreamObserver<>() {
+            int shardNum;
+            int versionNumber;
+            long txID;
+            SimpleWriteQueryPlan<R, S> writeQueryPlan;
+            final List<R[]> rowArrayList = new ArrayList<>();
+            List<R> rowList;
+            int lastState = DataStore.COLLECT;
+
+            @Override
+            public void onNext(ReplicaWriteMessage replicaWriteMessage) {
+                int writeState = replicaWriteMessage.getWriteState();
+                if (writeState == DataStore.COLLECT) {
+                    assert(lastState == DataStore.COLLECT);
+                    versionNumber = replicaWriteMessage.getVersionNumber();
+                    shardNum = replicaWriteMessage.getShard();
+                    txID = replicaWriteMessage.getTxID();
+                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
+                    rowArrayList.add(rowChunk);
+                } else if (writeState == DataStore.PREPARE) {
+                    assert(lastState == DataStore.COLLECT);
+                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    dataStore.shardLockMap.get(shardNum).writerLockLock();
+                    responseObserver.onNext(executeReplicaWrite(shardNum, writeQueryPlan, rowList));
+                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+                }
+                lastState = writeState;
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.warn("DS{} SimpleReplica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                // TODO:  Implement.
+            }
+
+            @Override
+            public void onCompleted() {
+                responseObserver.onCompleted();
+            }
+
+            private ReplicaWriteResponse executeReplicaWrite(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+                if (dataStore.shardMap.containsKey(shardNum)) {
+                    S shard = dataStore.shardMap.get(shardNum);
+                    boolean success =  writeQueryPlan.write(shard, rows);
+                    if (success) {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
+                    } else {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                    }
+                } else {
+                    logger.warn("DS{} SimpleReplica got write request for absent shard {}", dataStore.dsID, shardNum);
+                    return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                }
+            }
+        };
+    }
+
+    @Override
     public void dataStorePing(DataStorePingMessage request, StreamObserver<DataStorePingResponse> responseObserver) {
         responseObserver.onNext(DataStorePingResponse.newBuilder().build());
         responseObserver.onCompleted();

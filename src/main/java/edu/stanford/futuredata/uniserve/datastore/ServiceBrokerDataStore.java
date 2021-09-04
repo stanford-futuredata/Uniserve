@@ -281,6 +281,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
                         long tStart = System.currentTimeMillis();
+                        dataStore.shardLockMap.get(shardNum).writerLockLock();
                         responseObserver.onNext(executeWriteQuery(shardNum, txID, writeQueryPlan));
                         logger.info("DS{} SimpleWrite {} Execution Time: {}", dataStore.dsID, txID, System.currentTimeMillis() - tStart);
                     } else {
@@ -303,7 +304,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private WriteQueryResponse executeWriteQuery(int shardNum, long txID, SimpleWriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-                    dataStore.shardLockMap.get(shardNum).writerLockLock();
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
@@ -316,9 +316,68 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
                     boolean primaryWriteSuccess = writeQueryPlan.write(shard, rows);
 
+                    int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
+                    if (rows.size() < 10000) {
+                        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+                        shardWriteLog.put(newVersionNumber, new Pair<>(null, rows)); // TODO: Fix
+                    }
+                    dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
+                    // Upload the updated shard.
+                    if (dataStore.dsCloud != null) {
+                        dataStore.uploadShardToCloud(shardNum);
+                    }
+
                     dataStore.shardLockMap.get(shardNum).writerLockUnlock();
 
-                    // TODO: Replication
+                    CountDownLatch replicaLatch = new CountDownLatch(replicaStubs.size());
+                    for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub : replicaStubs) {
+                        StreamObserver<ReplicaWriteMessage> observer = stub.simpleReplicaWrite(new StreamObserver<>() {
+                            @Override
+                            public void onNext(ReplicaWriteResponse replicaResponse) {
+                                if (replicaResponse.getReturnCode() != 0) {
+                                    logger.warn("DS{} SimpleReplica Prepare Failed Shard {}", dataStore.dsID, shardNum);
+                                    success.set(false);
+                                }
+                                replicaLatch.countDown();
+                            }
+
+                            @Override
+                            public void onError(Throwable throwable) {
+                                logger.warn("DS{} SimpleReplica Prepare RPC Failed Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                                success.set(false);
+                                replicaLatch.countDown();
+                            }
+
+                            @Override
+                            public void onCompleted() {}
+                        });
+                        final int stepSize = 10000;
+                        for (int i = 0; i < rowArray.length; i += stepSize) {
+                            ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
+                            R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + stepSize));
+                            ByteString rowData = Utilities.objectToByteString(rowSlice);
+                            ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                                    .setShard(shardNum)
+                                    .setSerializedQuery(serializedQuery)
+                                    .setRowData(rowData)
+                                    .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
+                                    .setWriteState(DataStore.COLLECT)
+                                    .setTxID(txID)
+                                    .build();
+                            observer.onNext(rm);
+                        }
+                        ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
+                                .setWriteState(DataStore.PREPARE)
+                                .build();
+                        observer.onNext(rm);
+                        replicaObservers.add(observer);
+                    }
+                    try {
+                        replicaLatch.await();
+                    } catch (InterruptedException e) {
+                        logger.error("Write SimpleReplication Interrupted: {}", e.getMessage());
+                        assert (false);
+                    }
 
                     int returnCode;
                     if (primaryWriteSuccess) {
@@ -329,7 +388,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
                     return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
                 } else {
-                    logger.warn("DS{} Primary got write request for unassigned shard {}", dataStore.dsID, shardNum);
+                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+                    logger.warn("DS{} Primary got SimpleWrite request for unassigned shard {}", dataStore.dsID, shardNum);
                     return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
                 }
             }

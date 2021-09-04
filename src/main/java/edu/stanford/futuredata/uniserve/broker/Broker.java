@@ -189,12 +189,12 @@ public class Broker {
             try {
                 t.join();
             } catch (InterruptedException e) {
-                logger.error("Write query interrupted: {}", e.getMessage());
+                logger.error("SimpleWrite query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
         lastCommittedVersion = txID;
-        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
+        logger.info("SimpleWrite completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         return queryStatus.get() == QUERY_SUCCESS;
@@ -625,7 +625,7 @@ public class Broker {
 
                             @Override
                             public void onError(Throwable th) {
-                                logger.warn("Write query RPC failed for shard {}", shardNum);
+                                logger.warn("SimpleWrite query RPC failed for shard {}", shardNum);
                                 subQueryStatus.set(QUERY_FAILURE);
                                 prepareLatch.countDown();
                                 finishLatch.countDown();
@@ -657,7 +657,7 @@ public class Broker {
                 try {
                     prepareLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write Interrupted: {}", e.getMessage());
+                    logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                     assert (false);
                 }
                 if (subQueryStatus.get() == QUERY_RETRY) {
@@ -666,7 +666,7 @@ public class Broker {
                         Thread.sleep(shardMapDaemonSleepDurationMillis);
                         continue;
                     } catch (InterruptedException e) {
-                        logger.error("Write Interrupted: {}", e.getMessage());
+                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                         assert (false);
                     }
                 }
@@ -679,7 +679,7 @@ public class Broker {
                 try {
                     finishLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write Interrupted: {}", e.getMessage());
+                    logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                     assert (false);
                 }
             }

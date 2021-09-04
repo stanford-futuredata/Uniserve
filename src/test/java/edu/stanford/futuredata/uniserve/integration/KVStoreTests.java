@@ -426,6 +426,61 @@ public class KVStoreTests {
         broker.shutdown();
     }
 
+    @Test
+    public void testSimpleReplication() {
+        logger.info("testSimpleReplication");
+        int numShards = 5;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
+        int numDatastores = 4;
+        for (int i = 0; i < numDatastores; i++) {
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+        for (int i = 1; i < 6; i++) {
+            SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert();
+            boolean writeSuccess = broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            assertTrue(writeSuccess);
+            AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(i), queryResponse);
+        }
+
+        coordinator.addReplica(0, 1);
+        coordinator.addReplica(1, 2);
+        coordinator.addReplica(2, 3);
+        coordinator.addReplica(3, 2);
+        coordinator.addReplica(3, 0);
+        coordinator.addReplica(3, 1);
+        for (int i = 1; i < 6; i++) {
+            SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert();
+            boolean writeSuccess = broker.simpleWriteQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
+                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
+            assertTrue(writeSuccess);
+            AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
+            Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(2 * i), queryResponse);
+            readQueryPlan = new KVReadQueryPlanGet(2 * i);
+            queryResponse = broker.anchoredReadQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(4 * i), queryResponse);
+            readQueryPlan = new KVReadQueryPlanGet(4 *  i);
+            queryResponse = broker.anchoredReadQuery(readQueryPlan);
+            assertEquals(Integer.valueOf(8 * i), queryResponse);
+        }
+
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
      @Test
     public void testAddRemoveReplicas() throws InterruptedException {
         logger.info("testAddRemoveReplicas");
