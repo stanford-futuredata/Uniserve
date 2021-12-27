@@ -12,7 +12,6 @@ public class ParallelismLoadBalancer {
 
     private static final Logger logger = LoggerFactory.getLogger(ParallelismLoadBalancer.class);
     public static boolean verbose = true;
-    public static int minReplicationFactor = 1;
 
     List<double[]> lastR;
     List<double[]> lastX;
@@ -20,7 +19,7 @@ public class ParallelismLoadBalancer {
     int lastNumServers = 0;
     int lastNumShards = 0;
 
-    final static double mipGap = 0.1;
+    final static double mipGap = 0.05;
 
     /**
      * Generate an assignment of shards to servers.
@@ -102,7 +101,7 @@ public class ParallelismLoadBalancer {
 
         // Begin transfer objective.
         cplex = new IloCplex();
-        cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, 0.05);
+        cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, mipGap);
         if (!verbose) {
             cplex.setOut(null);
         }
@@ -154,7 +153,6 @@ public class ParallelismLoadBalancer {
     private static void setCoreConstraints(IloCplex cplex, List<IloNumVar[]> r, List<IloNumVar[]> x, Integer numShards, Integer numServers,
                                            int[] shardLoads, int[] shardMemoryUsages,
                                            Integer maxMemory) throws IloException {
-        int actualReplicationFactor = minReplicationFactor < numServers ? minReplicationFactor : numServers;
         double averageLoad = (double) Arrays.stream(shardLoads).sum() / numServers;
         double epsilon = averageLoad / 20;
 
@@ -169,9 +167,6 @@ public class ParallelismLoadBalancer {
         for (int i = 0; i < numServers; i++) {
             for (int j = 0; j < numShards; j++) {
                 cplex.addLe(r.get(i)[j], x.get(i)[j]); // Ensure x_ij is 1 if r_ij is positive.
-                if (actualReplicationFactor > 1) {
-                    cplex.addLe(x.get(i)[j], cplex.sum(r.get(i)[j], 0.9999));
-                }
             }
         }
 
@@ -188,7 +183,7 @@ public class ParallelismLoadBalancer {
             for (int i = 0; i < numServers; i++) {
                 xShardServers[i] = x.get(i)[j];
             }
-            cplex.addGe(cplex.sum(xShardServers), actualReplicationFactor); // Require each shard to be replicated N times.
+            cplex.addGe(cplex.sum(xShardServers), 1); // Require each shard to appear on at least one server.
         }
     }
 }
