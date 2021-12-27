@@ -13,12 +13,6 @@ public class ParallelismLoadBalancer {
     private static final Logger logger = LoggerFactory.getLogger(ParallelismLoadBalancer.class);
     public static boolean verbose = true;
 
-    List<double[]> lastR;
-    List<double[]> lastX;
-    double[] lastM;
-    int lastNumServers = 0;
-    int lastNumShards = 0;
-
     final static double mipGap = 0.05;
 
     /**
@@ -91,12 +85,13 @@ public class ParallelismLoadBalancer {
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
 
         // Solve parallel objective.
+        double[] optimalM;
         if (numSampleQueries > 0) {
             cplex.solve();
-            lastM = cplex.getValues(m);
+            optimalM = cplex.getValues(m);
         } else {
-            lastM = new double[m.length];
-            Arrays.fill(lastM, 20.0);
+            optimalM = new double[m.length];
+            Arrays.fill(optimalM, 20.0);
         }
 
         // Begin transfer objective.
@@ -127,7 +122,7 @@ public class ParallelismLoadBalancer {
                 for (Integer shardNum : shards) {
                     e = cplex.sum(e, x.get(serverNum)[shardNum]);
                 }
-                cplex.addLe(e, lastM[q]);
+                cplex.addLe(e, optimalM[q]);
                 q++;
             }
         }
@@ -137,15 +132,11 @@ public class ParallelismLoadBalancer {
         // Solve transfer objective.
         cplex.solve();
 
-        lastNumShards = numShards;
-        lastNumServers = numServers;
-        lastR = new ArrayList<>();
-        lastX = new ArrayList<>();
+        List<double[]> optimalR = new ArrayList<>();
         for (int i = 0; i < numServers; i++) {
-            lastR.add(cplex.getValues(r.get(i)));
-            lastX.add(cplex.getValues(x.get(i)));
+            optimalR.add(cplex.getValues(r.get(i)));
         }
-        return lastR;
+        return optimalR;
     }
 
 
