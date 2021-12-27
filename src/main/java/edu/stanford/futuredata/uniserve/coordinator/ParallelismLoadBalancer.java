@@ -14,6 +14,7 @@ public class ParallelismLoadBalancer {
     public static boolean verbose = true;
 
     final static double mipGap = 0.05;
+    final int maxQuerySamples = 500;
 
     /**
      * Generate an assignment of shards to servers.
@@ -57,7 +58,6 @@ public class ParallelismLoadBalancer {
             x.add(cplex.intVarArray(numShards, 0, 1));
         }
 
-        final int maxQuerySamples = 500;
         List<Set<Integer>> sampleQueryKeys = new ArrayList<>(sampleQueries.keySet());
         sampleQueryKeys = sampleQueryKeys.stream().filter(k -> k.size() > 1).collect(Collectors.toList());
         sampleQueryKeys = sampleQueryKeys.stream().sorted(Comparator.comparing(sampleQueries::get).reversed()).limit(maxQuerySamples).collect(Collectors.toList());
@@ -78,20 +78,17 @@ public class ParallelismLoadBalancer {
             }
         }
 
-        int[] queryWeights = sampleQueryKeys.stream().map(sampleQueries::get).mapToInt(i ->i).toArray();
+        int[] queryWeights = sampleQueryKeys.stream().map(sampleQueries::get).mapToInt(i -> i).toArray();
         IloObjective parallelObjective = cplex.minimize(cplex.scalProd(m, queryWeights));
         cplex.add(parallelObjective);
 
         setCoreConstraints(cplex, r, x, numShards, numServers, shardLoads, shardMemoryUsages, maxMemory);
 
         // Solve parallel objective.
-        double[] optimalM;
+        double[] optimalM = null;
         if (numSampleQueries > 0) {
             cplex.solve();
             optimalM = cplex.getValues(m);
-        } else {
-            optimalM = new double[m.length];
-            Arrays.fill(optimalM, 20.0);
         }
 
         // Begin transfer objective.
@@ -115,7 +112,7 @@ public class ParallelismLoadBalancer {
         IloObjective transferObjective = cplex.minimize(cplex.sum(transferCostList));
         cplex.add(transferObjective);
 
-        for(int serverNum = 0; serverNum < numServers; serverNum++) {
+        for(int serverNum = 0; serverNum < numServers; serverNum++) { // Ensure transfer solution conforms to parallelism solution.
             int q = 0;
             for (Set<Integer> shards : sampleQueryKeys) {
                 IloNumExpr e = cplex.constant(0);

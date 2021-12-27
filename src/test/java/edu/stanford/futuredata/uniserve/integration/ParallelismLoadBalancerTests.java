@@ -8,11 +8,11 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.stream.IntStream;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ParallelismLoadBalancerTests {
@@ -51,6 +51,35 @@ public class ParallelismLoadBalancerTests {
                 serverLoad += Rs[i] * shardLoads[i];
             }
             assertTrue(serverLoad <= averageLoad * 1.05);
+        }
+    }
+
+    @Test
+    public void testBalanceWithParallelism() throws IloException {
+        logger.info("testBalanceWithParallelism");
+
+        int numShards = 4;
+        int numServers = 2;
+        int[] shardLoads = new int[]{1, 2, 3, 20};
+        int[] memoryUsages = new int[]{8, 1, 1, 1};
+        int[][] currentLocations = new int[][]{new int[]{0, 1, 1, 1}, new int[]{1, 0, 0, 1}};
+        int maxMemory = 10;
+
+        Map<Set<Integer>, Integer> sampleQueries = new HashMap<>();
+        sampleQueries.put(Set.of(1, 2), 100);
+        List<double[]> returnR = new ParallelismLoadBalancer().balanceLoad(numShards, numServers, shardLoads,
+                        memoryUsages, currentLocations, sampleQueries, maxMemory);
+        logger.info("{} {}", returnR.get(0), returnR.get(1));
+        double averageLoad = IntStream.of(shardLoads).sum() / (double) numServers;
+        for(double[] Rs: returnR) {
+            double serverLoad = 0;
+            if (Rs[1] > 0) {
+                assertEquals(Rs[2], 0);
+            }
+            for(int i = 0; i < numShards; i++) {
+                serverLoad += Rs[i] * shardLoads[i];
+            }
+            assertTrue(serverLoad <= averageLoad * 1.06);
         }
     }
 }
