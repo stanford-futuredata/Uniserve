@@ -121,7 +121,7 @@ public class ParallelismLoadBalancerTests {
             int sum = 0;
             for (int j = 0; j < numShards; j++) {
                 double num = returnR.get(i)[j];
-                if (num > 0.0001) {
+                if (num > 0) {
                     // logger.info("Server: {} Shard: {} R: {}", i, j, num);
                     sum += 1;
                 }

@@ -133,6 +133,14 @@ public class ParallelismLoadBalancer {
         for (int i = 0; i < numServers; i++) {
             optimalR.add(cplex.getValues(r.get(i)));
         }
+
+        for (double[] rs: optimalR) { //  Blank out infinitesimals. TODO:  Why do they appear?
+            for (int i = 0; i < rs.length; i++) {
+                if (rs[i] < 0.000000001) {
+                    rs[i] = 0;
+                }
+            }
+        }
         return optimalR;
     }
 
