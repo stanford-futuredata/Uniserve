@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.IntStream;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
@@ -80,6 +81,52 @@ public class ParallelismLoadBalancerTests {
                 serverLoad += Rs[i] * shardLoads[i];
             }
             assertTrue(serverLoad <= averageLoad * 1.06);
+        }
+    }
+
+    @Test
+    public void testBigBalance() throws IloException {
+        logger.info("testBigBalance");
+
+        int numShards = 100;
+        int numServers = 10;
+        int maxMemory = 10;
+        int queryLength = 10;
+
+        int[] shardLoads = new int[numShards];
+        for (int i = 0; i < numShards; i++) {
+            shardLoads[i] = 11;
+        }
+        int [] memoryUsages = new int[numShards];
+        for (int i = 0; i < numShards; i++) {
+            memoryUsages[i] = 1;
+        }
+        int[][] currentLocations = new int[numServers][numShards];
+        for (int shardNum = 0; shardNum < numShards; shardNum++) {
+            int serverNum = ThreadLocalRandom.current().nextInt(numServers);
+            currentLocations[serverNum][shardNum] = 1;
+        }
+        Map<Set<Integer>, Integer> sampleQueries = new HashMap<>();
+        for (int shardNum = 0; shardNum < numShards; shardNum++) {
+            Set<Integer> set = new HashSet<>();
+            for (int i = 0; i < queryLength; i++) {
+                set.add((shardNum + i) % numShards);
+            }
+            sampleQueries.put(set, 1);
+        }
+
+        List<double[]> returnR = new ParallelismLoadBalancer().balanceLoad(numShards, numServers, shardLoads,
+                memoryUsages, currentLocations, sampleQueries, maxMemory);
+        for (int i = 0; i < numServers; i++) {
+            int sum = 0;
+            for (int j = 0; j < numShards; j++) {
+                double num = returnR.get(i)[j];
+                if (num > 0.0001) {
+                    // logger.info("Server: {} Shard: {} R: {}", i, j, num);
+                    sum += 1;
+                }
+            }
+            assert(sum <= maxMemory);
         }
     }
 }
