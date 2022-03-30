@@ -276,9 +276,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             return;
         }
 
-        txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getReducerShardNum(), m.getPartitionKeysList());
+        txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getRepartitionShardNum(), m.getPartitionKeysList());
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
-        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumReducers()) {
+        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumRepartitions()) {
             dataStore.ensureShardCached(shardNum);
             S shard;
             if (dataStore.readWriteAtomicity) {
@@ -295,19 +295,19 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 shard = dataStore.shardMap.get(shardNum);
             }
             assert (shard != null);
-            Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, txPartitionKeys.get(mapID));
-            txShuffledData.put(mapID, mapperResult);
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, txPartitionKeys.get(mapID));
+            txShuffledData.put(mapID, scatterResult);
             // long unixTime = Instant.now().getEpochSecond();
             // dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
-            s.release(m.getNumReducers() - 1);
+            s.release(m.getNumRepartitions() - 1);
         } else {
             s.acquireUninterruptibly();
         }
-        Map<Integer, List<ByteString>> mapperResult = txShuffledData.get(mapID);
-        assert(mapperResult.containsKey(m.getReducerShardNum()));
-        List<ByteString> ephemeralData = mapperResult.get(m.getReducerShardNum());
-        mapperResult.remove(m.getReducerShardNum());  // TODO: Make reliable--what if map immutable?.
-        if (mapperResult.isEmpty()) {
+        Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
+        assert(scatterResult.containsKey(m.getRepartitionShardNum()));
+        List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionShardNum());
+        scatterResult.remove(m.getRepartitionShardNum());  // TODO: Make reliable--what if map immutable?.
+        if (scatterResult.isEmpty()) {
             txShuffledData.remove(mapID);
         }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();
@@ -337,19 +337,19 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
-            Map<Integer, List<ByteString>> mapperResult = plan.mapper(shard, m.getNumReducers());
-            txShuffledData.put(mapID, mapperResult);
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getRepartitionNum());
+            txShuffledData.put(mapID, scatterResult);
             long unixTime = Instant.now().getEpochSecond();
             dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
-            s.release(m.getNumReducers() - 1);
+            s.release(m.getNumRepartition() - 1);
         } else {
             s.acquireUninterruptibly();
         }
-        Map<Integer, List<ByteString>> mapperResult = txShuffledData.get(mapID);
-        assert(mapperResult.containsKey(m.getReducerNum()));
-        List<ByteString> ephemeralData = mapperResult.get(m.getReducerNum());
-        mapperResult.remove(m.getReducerNum());  // TODO: Make reliable--what if map immutable?.
-        if (mapperResult.isEmpty()) {
+        Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
+        assert(scatterResult.containsKey(m.getRepartitionNum()));
+        List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionNum());
+        scatterResult.remove(m.getRepartitionNum());  // TODO: Make reliable--what if map immutable?.
+        if (scatterResult.isEmpty()) {
             txShuffledData.remove(mapID);
         }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();

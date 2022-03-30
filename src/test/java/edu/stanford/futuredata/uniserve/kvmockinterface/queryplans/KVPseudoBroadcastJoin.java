@@ -43,7 +43,7 @@ public class KVPseudoBroadcastJoin implements AnchoredReadQueryPlan<KVShard, Int
     }
 
     @Override
-    public Map<Integer, List<ByteString>> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
+    public Map<Integer, List<ByteString>> scatter(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         ByteString b = Utilities.objectToByteString((ConcurrentHashMap<Integer, Integer>) shard.KVMap);
         HashMap<Integer, List<ByteString>> ret = new HashMap<>();
         for (int i: partitionKeys.keySet()) {
@@ -53,7 +53,7 @@ public class KVPseudoBroadcastJoin implements AnchoredReadQueryPlan<KVShard, Int
     }
 
     @Override
-    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
+    public ByteString gather(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
         Map<Integer, Integer> KVMapTwo = (Map<Integer, Integer>) Utilities.byteStringToObject(ephemeralData.get(tableTwo).get(0));
         int sum = 0;
         for (int k : localShard.KVMap.keySet()) {

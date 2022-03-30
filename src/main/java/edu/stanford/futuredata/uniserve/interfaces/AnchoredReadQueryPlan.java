@@ -20,12 +20,12 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     default List<AnchoredReadQueryPlan<S, Map<String, Map<Integer, Integer>>>> getSubQueries() {return List.of();}
     // Get partition keys.
     List<Integer> getPartitionKeys(S s);
-    // Mapper.
-    Map<Integer, List<ByteString>> mapper(S shard, Map<Integer, List<Integer>> partitionKeys);
-    // Reducer.
-    ByteString reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
-    // Reducer.
-    default void reducer(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, S returnShard) { }
+    // Scatter.
+    Map<Integer, List<ByteString>> scatter(S shard, Map<Integer, List<Integer>> partitionKeys);
+    // Gather.
+    ByteString gather(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
+    // Gather.
+    default void gather(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, S returnShard) { }
     // Return an aggregate or shard?  (Default aggregate)
     default Optional<String> returnTableName() {return Optional.empty();}
     // The query will return the result of this function executed on all results from queryShard.

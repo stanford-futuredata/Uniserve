@@ -46,13 +46,13 @@ public class KVReadQueryPlanGet implements AnchoredReadQueryPlan<KVShard, Intege
     }
 
     @Override
-    public Map<Integer, List<ByteString>> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
+    public Map<Integer, List<ByteString>> scatter(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         assert(false);
         return null;
     }
 
     @Override
-    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
+    public ByteString gather(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
         return Utilities.objectToByteString(localShard.queryKey(key).get());
     }
 

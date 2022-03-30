@@ -33,7 +33,7 @@ message WriteQueryResponse {
 message AnchoredReadQueryMessage {
     int32 targetShard = 1;
     bytes serializedQuery = 2;
-    int32 numReducers = 3;
+    int32 numRepartitions = 3;
     int64 txID = 4;
     int64 lastCommittedVersion = 5;
     bytes targetShards = 6;
@@ -47,8 +47,8 @@ message AnchoredReadQueryResponse {
 
 message ShuffleReadQueryMessage {
     bytes serializedQuery = 1;
-    int32 reducerNum = 2;
-    int32 numReducers = 3;
+    int32 repartitionNum = 2;
+    int32 numRepartitions = 3;
     int64 txID = 4;
     bytes targetShards = 5;
 }

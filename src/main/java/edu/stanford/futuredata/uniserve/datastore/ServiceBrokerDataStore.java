@@ -451,7 +451,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
-                            .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerShardNum(localShardNum)
+                            .setShardNum(targetShard).setNumRepartitions(m.getNumRepartitions()).setRepartitionShardNum(localShardNum)
                             .setSerializedQuery(m.getSerializedQuery()).setLastCommittedVersion(lastCommittedVersion)
                             .setTxID(m.getTxID()).addAllPartitionKeys(partitionKeys)
                             .setTargetShardIntermediate(intermediateShards.containsKey(tableName)).build();
@@ -492,13 +492,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         AnchoredReadQueryResponse r;
         try {
             if (plan.returnTableName().isEmpty()) {
-                ByteString b = plan.reducer(localShard, ephemeralData, ephemeralShards);
+                ByteString b = plan.gather(localShard, ephemeralData, ephemeralShards);
                 r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
             } else {
                 int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
                 dataStore.createShardMetadata(intermediateShardNum);
                 S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
-                plan.reducer(localShard, ephemeralData, ephemeralShards, intermediateShard);
+                plan.gather(localShard, ephemeralData, ephemeralShards, intermediateShard);
                 HashMap<Integer, Integer> intermediateShardLocation =
                         new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
                 ByteString b = Utilities.objectToByteString(intermediateShardLocation);
@@ -539,7 +539,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                 DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                 ShuffleMessage g = ShuffleMessage.newBuilder()
-                        .setShardNum(targetShard).setNumReducers(m.getNumReducers()).setReducerNum(m.getReducerNum())
+                        .setShardNum(targetShard).setNumRepartition(m.getNumRepartitions()).setRepartitionNum(m.getRepartitionNum())
                         .setSerializedQuery(m.getSerializedQuery())
                         .setTxID(m.getTxID()).build();
                 StreamObserver<ShuffleResponse> responseObserver = new StreamObserver<>() {
@@ -576,7 +576,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             ephemeralData.put(tableName, tableEphemeralData);
 
         }
-        ByteString b = plan.reducer(ephemeralData, ephemeralShards);
+        ByteString b = plan.gather(ephemeralData, ephemeralShards);
         ephemeralShards.values().forEach(S::destroy);
         return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
     }
