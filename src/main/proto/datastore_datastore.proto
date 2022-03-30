@@ -66,8 +66,8 @@ message AnchoredShuffleMessage {
     int32 shardNum = 1;
     int64 txID = 2;
     repeated int32 partitionKeys = 3;
-    int32 reducerShardNum = 4;
-    int32 numReducers = 5;
+    int32 repartitionShardNum = 4;
+    int32 numRepartitions = 5;
     bytes serializedQuery = 6;
     int64 lastCommittedVersion = 7;
     bool targetShardIntermediate = 8;
@@ -81,8 +81,8 @@ message AnchoredShuffleResponse {
 message ShuffleMessage {
     int32 shardNum = 1;
     int64 txID = 2;
-    int32 reducerNum = 3;
-    int32 numReducers = 4;
+    int32 repartitionNum = 3;
+    int32 numRepartition = 4;
     bytes serializedQuery = 5;
 }
 

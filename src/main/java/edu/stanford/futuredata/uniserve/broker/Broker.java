@@ -232,16 +232,16 @@ public class Broker {
         ByteString serializedQuery = Utilities.objectToByteString(plan);
         String anchorTable = plan.getAnchorTable();
         List<Integer> anchorTableShards = targetShards.get(anchorTable);
-        int numReducers = anchorTableShards.size();
+        int numRepartitions = anchorTableShards.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(numReducers);
+        CountDownLatch latch = new CountDownLatch(numRepartitions);
         long lcv = lastCommittedVersion;
         for (int anchorShardNum: anchorTableShards) {
             int dsID = consistentHash.getRandomBucket(anchorShardNum);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
-                    setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
+                    setTargetShard(anchorShardNum).setSerializedQuery(serializedQuery).setNumRepartitions(numRepartitions)
                     .setTxID(txID).setLastCommittedVersion(lcv).setTargetShards(serializedTargetShards)
                     .setIntermediateShards(serializedIntermediateShards).build();
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {
@@ -332,7 +332,7 @@ public class Broker {
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ShuffleReadQueryMessage m = ShuffleReadQueryMessage.newBuilder().
-                    setReducerNum(reducerNum).setSerializedQuery(serializedQuery).setNumReducers(numReducers)
+                    setRepartitionNum(reducerNum).setSerializedQuery(serializedQuery).setNumRepartitions(numReducers)
                     .setTxID(txID).setTargetShards(serializedTargetShards).build();
             reducerNum++;
             StreamObserver<ShuffleReadQueryResponse> responseObserver = new StreamObserver<>() {

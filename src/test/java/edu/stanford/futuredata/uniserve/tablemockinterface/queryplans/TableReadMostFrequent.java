@@ -29,15 +29,15 @@ public class TableReadMostFrequent implements ShuffleReadQueryPlan<TableShard, I
     }
 
     @Override
-    public Map<Integer, List<ByteString>> mapper(TableShard shard, int numReducers) {
+    public Map<Integer, List<ByteString>> scatter(TableShard shard, int numRepartitions) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         for (Map<String, Integer> row: shard.table) {
-            int partitionKey = ConsistentHash.hashFunction(row.get("v")) % numReducers;
+            int partitionKey = ConsistentHash.hashFunction(row.get("v")) % numRepartitions;
             partitionedTables.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);
         }
         HashMap<Integer, List<ByteString>> serializedTables = new HashMap<>();
         partitionedTables.forEach((k, v) -> serializedTables.put(k, List.of(Utilities.objectToByteString(v))));
-        for (int i = 0; i < numReducers; i++) {
+        for (int i = 0; i < numRepartitions; i++) {
             if(!serializedTables.containsKey(i)) {
                 serializedTables.put(i, List.of(ByteString.EMPTY));
             }
@@ -46,7 +46,7 @@ public class TableReadMostFrequent implements ShuffleReadQueryPlan<TableShard, I
     }
 
     @Override
-    public ByteString reducer(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
+    public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
         Map<Integer, Integer> frequencies = new HashMap<>();
         for (ByteString b: ephemeralData.get(tables.get(0))) {
             if (!b.isEmpty()) {

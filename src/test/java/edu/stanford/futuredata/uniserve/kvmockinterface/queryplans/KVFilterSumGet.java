@@ -41,7 +41,7 @@ public class KVFilterSumGet implements AnchoredReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Map<Integer, List<ByteString>> mapper(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
+    public Map<Integer, List<ByteString>> scatter(KVShard shard, Map<Integer, List<Integer>> partitionKeys) {
         int sum = shard.KVMap.getOrDefault(0, 0);
         ByteString b = Utilities.objectToByteString(sum);
         Map<Integer, List<ByteString>> ret = new HashMap<>();
@@ -50,7 +50,7 @@ public class KVFilterSumGet implements AnchoredReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public ByteString reducer(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
+    public ByteString gather(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards) {
         int oldSum = ephemeralData.get("intermediate1").stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
         int average = oldSum / keys.size();
         int sum = 0;
