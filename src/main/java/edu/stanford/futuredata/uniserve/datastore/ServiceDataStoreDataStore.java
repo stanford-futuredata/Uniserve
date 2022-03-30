@@ -337,7 +337,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
-            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getRepartitionNum());
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition());
             txShuffledData.put(mapID, scatterResult);
             long unixTime = Instant.now().getEpochSecond();
             dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
