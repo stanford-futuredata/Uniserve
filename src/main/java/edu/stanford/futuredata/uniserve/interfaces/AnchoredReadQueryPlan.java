@@ -28,6 +28,6 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
     default void gather(S localShard, Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards, S returnShard) { }
     // Return an aggregate or shard?  (Default aggregate)
     default Optional<String> returnTableName() {return Optional.empty();}
-    // The query will return the result of this function executed on all results from queryShard.
-    T aggregateShardQueries(List<ByteString> shardQueryResults);
+    // The query will return the result of this function executed on all results from gather.
+    T combine(List<ByteString> shardQueryResults);
 }

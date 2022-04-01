@@ -16,6 +16,6 @@ public interface ShuffleReadQueryPlan<S extends Shard, T> extends Serializable {
     Map<Integer, List<ByteString>> scatter(S shard, int numRepartitions);
     // Gather.
     ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
-    // The query will return the result of this function executed on all results from queryShard.
-    T aggregateShardQueries(List<ByteString> shardQueryResults);
+    // The query will return the result of this function executed on all results from gather.
+    T combine(List<ByteString> shardQueryResults);
 }

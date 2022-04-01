@@ -67,7 +67,7 @@ public class KVIntermediateSumGet implements AnchoredReadQueryPlan<KVShard, Map<
     }
 
     @Override
-    public Map<String, Map<Integer, Integer>> aggregateShardQueries(List<ByteString> shardQueryResults) {
+    public Map<String, Map<Integer, Integer>> combine(List<ByteString> shardQueryResults) {
         return null;
     }
 

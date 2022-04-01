@@ -68,7 +68,7 @@ public class TableReadMostFrequent implements ShuffleReadQueryPlan<TableShard, I
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+    public Integer combine(List<ByteString> shardQueryResults) {
         Integer maxKey = null;
         int maxFrequency = Integer.MIN_VALUE;
         for (ByteString b: shardQueryResults) {
