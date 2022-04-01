@@ -79,7 +79,7 @@ public class TableReadPopularState implements ShuffleReadQueryPlan<TableShard, I
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+    public Integer combine(List<ByteString> shardQueryResults) {
         Map<Integer, Integer> stateFrequency = new HashMap<>();
         for (ByteString b: shardQueryResults) {
             Map<Integer, Integer> shardStateFrequency = (HashMap<Integer, Integer>) Utilities.byteStringToObject(b);

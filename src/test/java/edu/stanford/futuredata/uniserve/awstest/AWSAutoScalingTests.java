@@ -54,7 +54,7 @@ public class AWSAutoScalingTests {
         Coordinator coordinator = new Coordinator(cCloud, new DefaultLoadBalancer(), autoScaler, zkHost, zkPort, serverHost, 7777);
         coordinator.runLoadBalancerDaemon = false;
         assertTrue(coordinator.startServing());
-        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve","shard"), zkHost, zkPort, "127.0.0.1", 8300, -1, false
+        DataStore<KVRow, KVShard> dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"), new KVShardFactory(), Path.of("/var/tmp/KVUniserve","shard"), zkHost, zkPort, "127.0.0.1", 8300, -1, false
         );
         assertTrue(dataStore.startServing());
 

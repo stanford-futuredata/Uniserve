@@ -57,7 +57,7 @@ public class KVReadQueryPlanGet implements AnchoredReadQueryPlan<KVShard, Intege
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+    public Integer combine(List<ByteString> shardQueryResults) {
         return (Integer) Utilities.byteStringToObject(shardQueryResults.get(0));
     }
 

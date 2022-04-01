@@ -284,7 +284,7 @@ public class Broker {
         long aggStart = System.nanoTime();
         V ret;
         if (plan.returnTableName().isEmpty()) {
-            ret = plan.aggregateShardQueries(intermediates);
+            ret = plan.combine(intermediates);
         } else {
             List<Map<Integer, Integer>> shardLocations = intermediates.stream()
                     .map(i -> (Map<Integer, Integer>) Utilities.byteStringToObject(i))
@@ -364,7 +364,7 @@ public class Broker {
         } catch (InterruptedException ignored) {
         }
         long aggStart = System.nanoTime();
-        V ret = plan.aggregateShardQueries(intermediates);
+        V ret = plan.combine(intermediates);
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;

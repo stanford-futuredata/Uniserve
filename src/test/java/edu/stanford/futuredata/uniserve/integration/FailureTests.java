@@ -55,7 +55,7 @@ public class FailureTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
             );
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -97,7 +97,7 @@ public class FailureTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 4;
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.runPingDaemon = false;
@@ -144,7 +144,7 @@ public class FailureTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 2 * numShards;
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8800 + i, -1, false
             );
             dataStore.startServing();
@@ -202,7 +202,7 @@ public class FailureTests {
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDatastores = 4;
         for (int i = 0; i < numDatastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("kraftp-uniserve"),
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.startServing();

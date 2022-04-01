@@ -65,7 +65,7 @@ public class KVFilterSumGet implements AnchoredReadQueryPlan<KVShard, Integer> {
     }
 
     @Override
-    public Integer aggregateShardQueries(List<ByteString> shardQueryResults) {
+    public Integer combine(List<ByteString> shardQueryResults) {
         return shardQueryResults.stream().map(i -> (Integer) Utilities.byteStringToObject(i)).mapToInt(i -> i).sum();
     }
 }
